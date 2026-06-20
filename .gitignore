@@ -13,3 +13,9 @@ graveyard/
 
 streamlit app/
 
+data/*
+
+!data/materialized/
+
+!data/materialized/**
+
