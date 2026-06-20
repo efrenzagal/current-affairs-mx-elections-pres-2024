@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mexico Federal Election Types — 2024 Reference</title>
+  <style>
+    body {
+      font-family: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+      max-width: 860px;
+      margin: 48px auto;
+      padding: 0 24px;
+      color: #1a1a1a;
+      line-height: 1.65;
+      background: #ffffff;
+    }
+    h1 {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 1.6rem;
+      border-bottom: 3px solid #C84B31;
+      padding-bottom: 0.4rem;
+      margin-bottom: 0.2rem;
+    }
+    .subtitle {
+      color: #888;
+      font-size: 0.85rem;
+      margin-bottom: 2.5rem;
+      font-family: "IBM Plex Mono", monospace;
+    }
+    .election {
+      margin-bottom: 2.5rem;
+      border-left: 4px solid #C84B31;
+      padding-left: 1.2rem;
+    }
+    .election h2 {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 1.05rem;
+      margin: 0 0 0.2rem 0;
+      color: #1a1a1a;
+    }
+    .election .tag {
+      display: inline-block;
+      background: #f0f0f0;
+      color: #555;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 3px;
+      margin-bottom: 0.7rem;
+    }
+    .election p {
+      margin: 0.4rem 0;
+      font-size: 0.95rem;
+    }
+    .meta-table {
+      margin-top: 0.8rem;
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.88rem;
+    }
+    .meta-table td {
+      padding: 4px 12px 4px 0;
+      vertical-align: top;
+    }
+    .meta-table td:first-child {
+      font-weight: 600;
+      color: #555;
+      white-space: nowrap;
+      width: 160px;
+    }
+    .schema-box {
+      background: #f7f7f5;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 1.2rem 1.5rem;
+      margin: 2rem 0;
+    }
+    .schema-box h3 {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #C84B31;
+      margin: 0 0 0.8rem 0;
+    }
+    .schema-box table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.85rem;
+    }
+    .schema-box th {
+      text-align: left;
+      padding: 4px 16px 4px 0;
+      border-bottom: 1px solid #ddd;
+      color: #555;
+      font-weight: 600;
+    }
+    .schema-box td {
+      padding: 5px 16px 5px 0;
+      border-bottom: 1px solid #f0f0f0;
+      vertical-align: top;
+    }
+    .schema-box tr:last-child td {
+      border-bottom: none;
+    }
+    .sources {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e0e0e0;
+      font-size: 0.82rem;
+      color: #888;
+    }
+    .sources a {
+      color: #C84B31;
+      text-decoration: none;
+    }
+    .sources a:hover {
+      text-decoration: underline;
+    }
+    .sources ul {
+      padding-left: 1.2rem;
+      margin: 0.4rem 0;
+    }
+    .sources li {
+      margin-bottom: 0.3rem;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Mexico Federal Election Types</h1>
+  <div class="subtitle">2024 General Election · INE PREP Data Reference</div>
+
+  <!-- PRE -->
+  <div class="election">
+    <h2>PRE — Presidencia de la República</h2>
+    <span class="tag">1 race · nationwide · 6-year term</span>
+    <p>
+      The presidential election. Voters choose one candidate by direct popular vote nationwide;
+      whoever gets the most votes wins outright — there is no runoff. No incumbent can run again
+      (absolute no-reelection rule). In 2024, Claudia Sheinbaum (Morena coalition) won with ~60%
+      of the vote, becoming the first woman elected president of Mexico.
+    </p>
+    <table class="meta-table">
+      <tr><td>Voting method</td><td>Plurality (first past the post)</td></tr>
+      <tr><td>Seats</td><td>1</td></tr>
+      <tr><td>Independents allowed</td><td>Yes</td></tr>
+      <tr><td>INE file suffix</td><td>PRE_NAL_CAS</td></tr>
+      <tr><td>Notable columns</td><td>Standard party/coalition columns; no CAND_IND</td></tr>
+    </table>
+  </div>
+
+  <!-- DIP_MR -->
+  <div class="election">
+    <h2>DIP_MR — Diputaciones Federales · Mayoría Relativa</h2>
+    <span class="tag">300 races · one per federal district · 3-year term</span>
+    <p>
+      Single-member district races for the Chamber of Deputies (Cámara de Diputados).
+      Mexico is divided into 300 federal districts, each electing one deputy by simple plurality
+      — whoever gets the most votes in the district wins. Equivalent to a US House district race.
+      Because voters choose a specific candidate (not just a party list), independent candidates
+      are allowed here, which is why the data file has <code>CAND_IND1</code> and <code>CAND_IND2</code> columns.
+    </p>
+    <table class="meta-table">
+      <tr><td>Voting method</td><td>Plurality per district (FPTP)</td></tr>
+      <tr><td>Seats</td><td>300 (one per district)</td></tr>
+      <tr><td>Independents allowed</td><td>Yes — appears as CAND_IND1, CAND_IND2</td></tr>
+      <tr><td>INE file suffix</td><td>DIP_FED_MR_NAL_CAS</td></tr>
+      <tr><td>Notable columns</td><td>Has CAND_IND1, CAND_IND2 (all-NA in most districts)</td></tr>
+    </table>
+  </div>
+
+  <!-- DIP_RP -->
+  <div class="election">
+    <h2>DIP_RP — Diputaciones Federales · Representación Proporcional</h2>
+    <span class="tag">200 seats total · 5 regions (circunscripciones) · 3-year term</span>
+    <p>
+      Proportional representation seats for the Chamber of Deputies. Mexico is split into
+      5 multi-member regions called <em>circunscripciones</em> (numbered 1–5), each awarding
+      40 seats. Voters vote for a party list, not a person; seats are distributed proportionally
+      by party vote share within each region. No independent candidates — you must be on a
+      party list. This is why <code>CIRCUNSCRIPCION</code> is especially meaningful in this file.
+      No party may hold more than 300 of the 500 total Chamber seats regardless of vote share.
+    </p>
+    <table class="meta-table">
+      <tr><td>Voting method</td><td>Party-list proportional representation</td></tr>
+      <tr><td>Seats</td><td>200 (40 per circunscripción)</td></tr>
+      <tr><td>Independents allowed</td><td>No</td></tr>
+      <tr><td>INE file suffix</td><td>DIP_FED_RP_NAL_CAS</td></tr>
+      <tr><td>Notable columns</td><td>CIRCUNSCRIPCION (1–5) is the key grouping</td></tr>
+    </table>
+  </div>
+
+  <!-- SEN_MR -->
+  <div class="election">
+    <h2>SEN_MR — Senadurias · Mayoría Relativa</h2>
+    <span class="tag">96 seats · 3 per state · 6-year term</span>
+    <p>
+      Each of Mexico's 32 states elects 3 senators by majority relative: 2 seats go to the
+      winning party/coalition and 1 seat goes to the runner-up party/coalition (called
+      <em>primera minoría</em>). This built-in minority representation distinguishes it from
+      a pure winner-takes-all system. Senators serve 6-year terms.
+    </p>
+    <table class="meta-table">
+      <tr><td>Voting method</td><td>Plurality per state; 2 to winner, 1 to runner-up</td></tr>
+      <tr><td>Seats</td><td>96 (3 per state × 32 states)</td></tr>
+      <tr><td>Independents allowed</td><td>Yes</td></tr>
+      <tr><td>INE file suffix</td><td>SEN_FED_MR_NAL_CAS</td></tr>
+      <tr><td>Notable columns</td><td>Standard; state-level aggregation is the key lens</td></tr>
+    </table>
+  </div>
+
+  <!-- SEN_RP -->
+  <div class="election">
+    <h2>SEN_RP — Senadurias · Representación Proporcional</h2>
+    <span class="tag">32 seats · single national list · 6-year term</span>
+    <p>
+      Proportional representation seats for the Senate, allocated from a single national party
+      list. Voters vote for a party; 32 seats are distributed nationally by vote share.
+      Parties need at least 3% of the national vote to qualify. No independent candidates.
+    </p>
+    <table class="meta-table">
+      <tr><td>Voting method</td><td>Party-list proportional representation (national)</td></tr>
+      <tr><td>Seats</td><td>32</td></tr>
+      <tr><td>Independents allowed</td><td>No</td></tr>
+      <tr><td>INE file suffix</td><td>SEN_FED_RP_NAL_CAS</td></tr>
+      <tr><td>Notable columns</td><td>MEC casilla type prominent (overseas/electronic votes)</td></tr>
+    </table>
+  </div>
+
+  <!-- Schema box -->
+  <div class="schema-box">
+    <h3>dim_election — Suggested rows for 2024</h3>
+    <table>
+      <tr>
+        <th>election_id</th>
+        <th>election_type</th>
+        <th>chamber</th>
+        <th>seat_method</th>
+        <th>total_seats</th>
+        <th>term_years</th>
+      </tr>
+      <tr>
+        <td>PRE_2024</td>
+        <td>PRE</td>
+        <td>—</td>
+        <td>direct</td>
+        <td>1</td>
+        <td>6</td>
+      </tr>
+      <tr>
+        <td>DIP_MR_2024</td>
+        <td>DIP</td>
+        <td>deputies</td>
+        <td>fptp</td>
+        <td>300</td>
+        <td>3</td>
+      </tr>
+      <tr>
+        <td>DIP_RP_2024</td>
+        <td>DIP</td>
+        <td>deputies</td>
+        <td>pr</td>
+        <td>200</td>
+        <td>3</td>
+      </tr>
+      <tr>
+        <td>SEN_MR_2024</td>
+        <td>SEN</td>
+        <td>senate</td>
+        <td>fptp</td>
+        <td>96</td>
+        <td>6</td>
+      </tr>
+      <tr>
+        <td>SEN_RP_2024</td>
+        <td>SEN</td>
+        <td>senate</td>
+        <td>pr</td>
+        <td>32</td>
+        <td>6</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="sources">
+    <strong>Sources</strong>
+    <ul>
+      <li><a href="https://en.wikipedia.org/wiki/2024_Mexican_general_election">Wikipedia — 2024 Mexican general election</a></li>
+      <li><a href="https://en.wikipedia.org/wiki/Elections_in_Mexico">Wikipedia — Elections in Mexico (system overview)</a></li>
+      <li><a href="https://www.electionguide.org/elections/id/4311/">IFES Election Guide — Mexican Presidency 2024</a></li>
+      <li><a href="https://www.electionguide.org/elections/id/4312/">IFES Election Guide — Mexican Senate 2024</a></li>
+      <li><a href="https://data.ipu.org/parliament/MX/MX-LC01/election/MX-LC01-E20240602/">IPU Parline — Mexico Chamber of Deputies 2024</a></li>
+      <li><a href="https://www.congress.gov/crs-product/IN12356">Congressional Research Service — Mexico's 2024 Elections</a></li>
+      <li><a href="https://www.ine.mx/wp-content/uploads/2023/10/Mexican_Electoral_Regime_2024-1.pdf">INE — Mexican Electoral Regime 2024 (official)</a></li>
+    </ul>
+  </div>
+
+</body>
+</html>
