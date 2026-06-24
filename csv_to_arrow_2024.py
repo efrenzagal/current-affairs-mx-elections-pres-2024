@@ -50,7 +50,7 @@ CANDIDATES_CSV = {
     "DATA/SENADURIAS_RP_2024":       "data/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
 }
 
-OUT = Path("data/clean")
+OUT = Path("data/clean_2024")
 OUT.mkdir(parents=True, exist_ok=True)
 ## Helper functions
 def find_cas_csv(folder: str) -> Path:
@@ -72,7 +72,7 @@ def load_raw(path: Path) -> tuple[pd.DataFrame, list[str]]:
       .str.replace("ï»¿", "", regex=False)
       .str.strip()
     )
-    
+
     INT_COLS = [
         "ID_ESTADO", "ID_DISTRITO_FEDERAL", "ID_MUNICIPIO",
         "SECCION", "ID_CASILLA", "EXT_CONTIGUA",

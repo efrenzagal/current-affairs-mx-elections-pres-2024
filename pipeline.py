@@ -115,6 +115,36 @@ ELECTION_META = {
         "term_years":    6,
         "clean_dir":     Path("data/clean_2018"),
     },
+    "PRESIDENCIA_2012": {
+        "election_id":   "PRE_2012",
+        "year":          2012,
+        "election_type": "PRE",
+        "chamber":       None,
+        "seat_method":   "direct",
+        "total_seats":   1,
+        "term_years":    6,
+        "clean_dir":     Path("data/clean_2012"),
+    },
+    "DIPUTACIONES_2012": {
+        "election_id":   "DIP_MR_2012",
+        "year":          2012,
+        "election_type": "DIP",
+        "chamber":       "deputies",
+        "seat_method":   "fptp",
+        "total_seats":   300,
+        "term_years":    3,
+        "clean_dir":     Path("data/clean_2012"),
+    },
+    "SENADURIAS_2012": {
+        "election_id":   "SEN_MR_2012",
+        "year":          2012,
+        "election_type": "SEN",
+        "chamber":       "senate",
+        "seat_method":   "fptp",
+        "total_seats":   96,
+        "term_years":    6,
+        "clean_dir":     Path("data/clean_2012"),
+    }
 }
 
 # Per-cycle column mapping: canonical SQLite column -> source parquet column
@@ -166,6 +196,27 @@ SCHEMA_MAP = {
             "total_votos":        "TOTAL_VOTOS_CALCULADOS",
         },
     },
+    2012: {
+        "geography": {
+            "id_municipio":               None,  # not in 2012 raw files
+            "municipio":                  None,
+            "id_distrito_federal":        "ID_DISTRITO",
+            "cabecera_distrital_federal": None,  # no NOMBRE_DISTRITO in 2012
+            "circunscripcion":            None,
+        },
+        "casilla": {
+            # casilla_id is the synthesised key; used directly as acta identifier
+            "acta_casilla_mec": "casilla_id",
+            "urna_electronica": None,            # not present in 2012
+            "lista_nominal":    "LISTA_NOMINAL_CASILLA",
+        },
+        "fact": {
+            "num_votos_validos":  None,          # not present in 2012
+            "num_votos_nulos":    "VN",          # renamed from NULOS in build_fact()
+            "num_votos_can_nreg": "CNR",         # renamed from NO_REGISTRADOS in build_fact()
+            "total_votos":        "TOTAL_VOTOS", # same column name as 2024
+        },
+    }
 }
 
 

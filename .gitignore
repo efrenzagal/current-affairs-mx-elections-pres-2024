@@ -19,3 +19,5 @@ data/*
 
 !data/materialized/**
 
+.RData
+.Rhistory
