@@ -35,9 +35,9 @@ ELECTION_META_2012 = {
 }
 
 RAW_CSV_PATHS = {
-    "PRESIDENCIA_2012":  "data/20120702_2000-listaActas/presidente.txt",
-    "DIPUTACIONES_2012": "data/20120702_2000-listaActas/diputados.txt",
-    "SENADURIAS_2012":   "data/20120702_2000-listaActas/senadores.txt",
+    "PRESIDENCIA_2012":  "data/raw_2012/presidente.txt",
+    "DIPUTACIONES_2012": "data/raw_2012/diputados.txt",
+    "SENADURIAS_2012":   "data/raw_2012/senadores.txt",
 }
 
 CANDIDATES_CSV_2012 = {
@@ -155,12 +155,32 @@ def load_raw(path: str) -> tuple[pd.DataFrame, list[str]]:
     # SECCION=0 (voto en el extranjero) are kept — they are real actas with vote data
     df = df[df["CONTABILIZADA"] == 1.0].copy()
 
-    # Dedup on casilla key, latest HORA_REGISTRO wins
-    # Handles the edge case of duplicate CONTABILIZADA=1 rows (e.g. SECCION=0 corrections)
     KEY_COLS = ["ID_ESTADO", "SECCION", "TIPO_CASILLA", "ID_CASILLA", "EXT_CONTIGUA"]
+
+    # Step 1 — dedup *corrections*: per LEEME.txt, TIPO_ACTA distinguishes real
+    # ballot types (e.g. 7="acta especial MR", 8="acta especial RP" for
+    # diputados) that legitimately coexist for the same physical casilla
+    # especial. The original single-pass dedup on KEY_COLS alone (without
+    # TIPO_ACTA) silently dropped one of every such MR/RP pair as if it were a
+    # duplicate correction — confirmed ~748 special diputado casillas and ~742
+    # special senate casillas lost real votes this way. Scoping the
+    # latest-HORA_REGISTRO-wins dedup to KEY_COLS+TIPO_ACTA fixes that while
+    # still collapsing genuine same-acta-type corrections correctly.
     df = (
         df.sort_values("HORA_REGISTRO", ascending=False, na_position="last")
-          .drop_duplicates(subset=KEY_COLS, keep="first")
+          .drop_duplicates(subset=KEY_COLS + ["TIPO_ACTA"], keep="first")
+    )
+
+    # Step 2 — combine special MR + special RP acta pairs for the same casilla
+    # into one record (Mexico uses a single ballot; the RP-only acta exists
+    # only for casillas especiales serving transit voters — same real-world
+    # case handled for the 2000 cycle in dat_to_arrow_2000.py).
+    sum_cols   = party_keys + ["NO_REGISTRADOS", "NULOS", "TOTAL_VOTOS"]
+    first_cols = [c for c in df.columns if c not in KEY_COLS and c not in sum_cols]
+    agg = {c: "sum" for c in sum_cols}
+    agg.update({c: "first" for c in first_cols})
+    df = (
+        df.groupby(KEY_COLS, as_index=False).agg(agg)
           .sort_values(KEY_COLS)
           .reset_index(drop=True)
     )
@@ -261,7 +281,7 @@ def build_dim_candidatos(election_type: str) -> pd.DataFrame:
 
 def build_fact(df: pd.DataFrame, party_keys: list, election_id: str) -> pd.DataFrame:
     """
-    Vote metadata mapping (2012 → canonical names for pipeline.py SCHEMA_MAP):
+    Vote metadata mapping (2012 → canonical names for ingestion/pipeline.py SCHEMA_MAP):
       NO_REGISTRADOS → CNR        (NUM_VOTOS_CAN_NREG in 2024, CNR in 2018)
       NULOS          → VN         (NUM_VOTOS_NULOS in 2024, VN in 2018)
       TOTAL_VOTOS    → TOTAL_VOTOS (same as 2024; TOTAL_VOTOS_CALCULADOS in 2018)

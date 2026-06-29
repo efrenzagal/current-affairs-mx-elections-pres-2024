@@ -142,7 +142,6 @@ PARTY_COLORS: dict[str, str] = {
 }
 
 ELECTION_TYPE_LABELS = {"PRE": "Presidencia", "DIP": "Diputaciones", "SEN": "Senadurias"}
-YEARS = [2012, 2018, 2024]
 CHART_HEIGHT = 340   # px — tall enough to read lines, short enough to scan facets
 
 
@@ -160,7 +159,10 @@ def state_color(j: int) -> str:
 # ── Data loading ───────────────────────────────────────────────────────────────
 
 @st.cache_data(show_spinner="Cargando datos...")
-def load_data() -> pd.DataFrame:
+def load_data(_mtime: float) -> pd.DataFrame:
+    # _mtime forces st.cache_data to invalidate whenever the underlying
+    # parquet is regenerated (e.g. by build_timeseries.py), even though the
+    # function body itself didn't change between app reruns.
     if not DATA_PATH.exists():
         return pd.DataFrame()
     df = pd.read_parquet(DATA_PATH)
@@ -220,7 +222,7 @@ def agg_for_plot(df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
 
 # ── Shared Plotly layout ───────────────────────────────────────────────────────
 
-def base_layout(title: str, y_label: str, height: int = CHART_HEIGHT) -> dict:
+def base_layout(title: str, y_label: str, years: list, height: int = CHART_HEIGHT) -> dict:
     return dict(
         template=PLOTLY_TPL,
         title=dict(
@@ -233,8 +235,8 @@ def base_layout(title: str, y_label: str, height: int = CHART_HEIGHT) -> dict:
         height=height,
         font=dict(family="IBM Plex Sans", color=TEXT_COLOR),
         xaxis=dict(
-            tickvals=YEARS,
-            ticktext=[str(y) for y in YEARS],
+            tickvals=years,
+            ticktext=[str(y) for y in years],
             tickfont=dict(family="IBM Plex Mono", size=12, color=TEXT_COLOR),
             showgrid=False,
             zeroline=False,
@@ -301,10 +303,17 @@ def filter_bar_common(df: pd.DataFrame, n_cols: int = 6):
 
     y_col   = ("pct_split"   if split else "pct_raw")   if use_pct else ("votes_split" if split else "votes_raw")
     y_label = "% de votos" if use_pct else "Votos"
-    y_fmt   = ".1f" if use_pct else ":,.0f"   # 42.3  vs  3,456,789
+    y_fmt   = ":.1f" if use_pct else ":,.0f"   # 42.3  vs  3,456,789
 
     with cols[5]:
         show_area = st.checkbox("Área bajo curva", value=False)
+
+    if use_pct:
+        st.caption(
+            "% = votos del partido / **total de votos emitidos** en ese estado "
+            "(incluye nulos, no registrados y partidos no seleccionados) — "
+            "los partidos que muestres no van a sumar 100% salvo que selecciones todos."
+        )
 
     return et, et_label, split, use_pct, y_col, y_label, y_fmt, show_area
 
@@ -316,6 +325,15 @@ def filter_bar_common(df: pd.DataFrame, n_cols: int = 6):
 def render_por_estado(df: pd.DataFrame):
     et, et_label, split, use_pct, y_col, y_label, y_fmt, show_area = filter_bar_common(df)
 
+    # dropna first: synthetic MORENA/2012 zero-rows have party_label=None, and
+    # if those happened to be last in df, a plain dict(zip(...)) would let
+    # that None silently clobber the real label for the same party_key.
+    label_of = (
+        df.dropna(subset=["party_label"])
+        .drop_duplicates("party_key")
+        .set_index("party_key")["party_label"]
+        .to_dict()
+    )
     coalition_keys = set(df.loc[df["is_coalition"] == True, "party_key"].unique())
     all_parties    = sorted(df["party_key"].unique())
     direct_parties = [p for p in all_parties if p not in coalition_keys]
@@ -325,12 +343,18 @@ def render_por_estado(df: pd.DataFrame):
     r2 = st.columns([2, 2])
     with r2[0]:
         states = sorted(df["nombre_estado"].unique())
-        default_states = [s for s in ["Ciudad De Mexico", "Jalisco", "Nuevo Leon"] if s in states]
+        default_states = [s for s in ["Ciudad De México", "Jalisco", "Nuevo León"] if s in states]
         selected_states = st.multiselect("Estado(s)", states, default=default_states or states[:1])
     with r2[1]:
-        parties_to_show = st.multiselect("Partidos a mostrar", selectable, default=default_p)
+        parties_to_show = st.multiselect(
+            "Partidos a mostrar", selectable, default=default_p,
+            format_func=lambda p: label_of.get(p, p),
+        )
         if not split:
-            extra = st.multiselect("Coaliciones", [p for p in all_parties if p in coalition_keys], default=[])
+            extra = st.multiselect(
+                "Coaliciones", [p for p in all_parties if p in coalition_keys], default=[],
+                format_func=lambda p: label_of.get(p, p),
+            )
             parties_to_show = parties_to_show + extra
 
     st.markdown("---")
@@ -370,15 +394,16 @@ def render_por_estado(df: pd.DataFrame):
         for party, grp in df_estado.groupby("party_key"):
             grp   = grp.sort_values("year")
             color = party_color(party)
+            label = label_of.get(party, party)
             fig.add_trace(go.Scatter(
                 x=grp["year"], y=grp[y_col],
-                mode="lines+markers", name=party,
+                mode="lines+markers", name=label,
                 line=dict(color=color, width=2.5),
                 marker=dict(color=color, size=8),
                 fill="tozeroy" if show_area else "none",
-                hovertemplate=f"<b>{party}</b>: %{{y{y_fmt}}}<extra></extra>",
+                hovertemplate=f"<b>{label}</b>: %{{y{y_fmt}}}<extra></extra>",
             ))
-        fig.update_layout(**base_layout(estado, y_label))
+        fig.update_layout(**base_layout(estado, y_label, sorted(df_estado["year"].unique())))
         st.plotly_chart(fig, use_container_width=True)
 
 
@@ -389,6 +414,15 @@ def render_por_estado(df: pd.DataFrame):
 def render_por_partido(df: pd.DataFrame):
     et, et_label, split, use_pct, y_col, y_label, y_fmt, show_area = filter_bar_common(df)
 
+    # dropna first: synthetic MORENA/2012 zero-rows have party_label=None, and
+    # if those happened to be last in df, a plain dict(zip(...)) would let
+    # that None silently clobber the real label for the same party_key.
+    label_of = (
+        df.dropna(subset=["party_label"])
+        .drop_duplicates("party_key")
+        .set_index("party_key")["party_label"]
+        .to_dict()
+    )
     coalition_keys = set(df.loc[df["is_coalition"] == True, "party_key"].unique())
     all_parties    = sorted(df["party_key"].unique())
     direct_parties = [p for p in all_parties if p not in coalition_keys]
@@ -397,9 +431,15 @@ def render_por_partido(df: pd.DataFrame):
 
     r2 = st.columns([2, 2, 1])
     with r2[0]:
-        selected_parties = st.multiselect("Partido(s)", selectable, default=default_p)
+        selected_parties = st.multiselect(
+            "Partido(s)", selectable, default=default_p,
+            format_func=lambda p: label_of.get(p, p),
+        )
         if not split:
-            extra = st.multiselect("Coaliciones", [p for p in all_parties if p in coalition_keys], default=[])
+            extra = st.multiselect(
+                "Coaliciones", [p for p in all_parties if p in coalition_keys], default=[],
+                format_func=lambda p: label_of.get(p, p),
+            )
             selected_parties = selected_parties + extra
     with r2[1]:
         states = sorted(df["nombre_estado"].unique())
@@ -458,7 +498,7 @@ def render_por_partido(df: pd.DataFrame):
                 fill="tozeroy" if show_area else "none",
                 hovertemplate=f"<b>{estado}</b>: %{{y{y_fmt}}}<extra></extra>",
             ))
-        fig.update_layout(**base_layout(party, y_label))
+        fig.update_layout(**base_layout(label_of.get(party, party), y_label, sorted(df_party["year"].unique())))
         st.plotly_chart(fig, use_container_width=True)
 
     # Summary table
@@ -473,7 +513,8 @@ def render_por_partido(df: pd.DataFrame):
         .reset_index()
     )
     pivot.columns = [str(c) for c in pivot.columns]
-    year_cols = [str(y) for y in YEARS if str(y) in pivot.columns]
+    data_years = sorted(df_agg["year"].unique())
+    year_cols = [str(y) for y in data_years if str(y) in pivot.columns]
 
     if len(year_cols) >= 2:
         first, last = year_cols[0], year_cols[-1]
@@ -489,6 +530,7 @@ def render_por_partido(df: pd.DataFrame):
             lambda x: f"{x:.1f}" if pd.notna(x) else "—"
         )
 
+    pivot["party_key"] = pivot["party_key"].map(lambda p: label_of.get(p, p))
     pivot = pivot.rename(columns={"party_key": "Partido", "nombre_estado": "Estado"})
     st.dataframe(pivot, use_container_width=True, hide_index=True)
 
@@ -496,7 +538,7 @@ def render_por_partido(df: pd.DataFrame):
 # ── App shell ──────────────────────────────────────────────────────────────────
 
 def main():
-    df = load_data()
+    df = load_data(DATA_PATH.stat().st_mtime if DATA_PATH.exists() else 0.0)
 
     if df.empty:
         st.error(

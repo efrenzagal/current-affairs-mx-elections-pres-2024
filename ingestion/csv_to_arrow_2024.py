@@ -31,23 +31,35 @@ PARTY_META = {
 }
 
 # Maps folder name → election metadata
+# NOTE: there is no separate "RP election" — Mexico uses a single ballot for
+# diputados/senadores; the same vote counts toward both the local MR seat and
+# the party's national PR tally (confirmed: DIPUTACIONES_FED_RP_2024's CAS file
+# is the *same* casilla-level votes as DIPUTACIONES_FED_MR_2024's, row-for-row
+# identical, plus one extra block of TIPO_CASILLA=='SRP' rows — the transit-voter
+# ballots cast at casillas especiales by people away from their home district,
+# who can't vote for a specific MR candidate but still get a party-list vote).
+# Modeling DIP_RP_2024/SEN_RP_2024 as separate elections double-counted ~170K
+# casillas of real votes. Only the extra SRP rows get folded into MR below.
 ELECTION_META = {
-    "DATA/PRESIDENCIA_2024":         {"election_id": "PRE_2024",     "year": 2024, "election_type": "PRE", "chamber": None,       "seat_method": "direct", "total_seats": 1,   "term_years": 6},
-    "DATA/DIPUTACIONES_FED_MR_2024": {"election_id": "DIP_MR_2024",  "year": 2024, "election_type": "DIP", "chamber": "deputies", "seat_method": "fptp",   "total_seats": 300, "term_years": 3},
-    "DATA/DIPUTACIONES_FED_RP_2024": {"election_id": "DIP_RP_2024",  "year": 2024, "election_type": "DIP", "chamber": "deputies", "seat_method": "pr",     "total_seats": 200, "term_years": 3},
-    "DATA/SENADURIAS_MR_2024":       {"election_id": "SEN_MR_2024",  "year": 2024, "election_type": "SEN", "chamber": "senate",   "seat_method": "fptp",   "total_seats": 96,  "term_years": 6},
-    "DATA/SENADURIAS_RP_2024":       {"election_id": "SEN_RP_2024",  "year": 2024, "election_type": "SEN", "chamber": "senate",   "seat_method": "pr",     "total_seats": 32,  "term_years": 6},
+    "data/raw_2024/PRESIDENCIA_2024":         {"election_id": "PRE_2024",     "year": 2024, "election_type": "PRE", "chamber": None,       "seat_method": "direct", "total_seats": 1,   "term_years": 6},
+    "data/raw_2024/DIPUTACIONES_FED_MR_2024": {"election_id": "DIP_MR_2024",  "year": 2024, "election_type": "DIP", "chamber": "deputies", "seat_method": "fptp",   "total_seats": 300, "term_years": 3},
+    "data/raw_2024/SENADURIAS_MR_2024":       {"election_id": "SEN_MR_2024",  "year": 2024, "election_type": "SEN", "chamber": "senate",   "seat_method": "fptp",   "total_seats": 96,  "term_years": 6},
+}
+
+# MR folder → sibling RP folder, used only to pull the extra SRP-only
+# (transit-voter) rows that don't already exist in the MR file.
+RP_SUPPLEMENT_FOLDER = {
+    "data/raw_2024/DIPUTACIONES_FED_MR_2024": "data/raw_2024/DIPUTACIONES_FED_RP_2024",
+    "data/raw_2024/SENADURIAS_MR_2024":       "data/raw_2024/SENADURIAS_RP_2024",
 }
 
 # Folder name → INTEGRACION CSV path
 # Same physical file is referenced for every election folder — read once per
 # folder for loop symmetry, drop_duplicates() at concat time collapses the repeats.
 CANDIDATES_CSV = {
-    "DATA/PRESIDENCIA_2024":         "data/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
-    "DATA/DIPUTACIONES_FED_MR_2024": "data/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
-    "DATA/DIPUTACIONES_FED_RP_2024": "data/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
-    "DATA/SENADURIAS_MR_2024":       "data/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
-    "DATA/SENADURIAS_RP_2024":       "data/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
+    "data/raw_2024/PRESIDENCIA_2024":         "data/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
+    "data/raw_2024/DIPUTACIONES_FED_MR_2024": "data/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
+    "data/raw_2024/SENADURIAS_MR_2024":       "data/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
 }
 
 OUT = Path("data/clean_2024")
@@ -89,6 +101,31 @@ def load_raw(path: Path) -> tuple[pd.DataFrame, list[str]]:
         and pd.api.types.is_numeric_dtype(df[c])
     ]
     return df, party_keys
+
+
+def load_rp_supplement(folder: str, party_keys: list) -> pd.DataFrame:
+    """
+    Pull only the extra TIPO_CASILLA=='SRP' rows from this MR folder's sibling
+    RP file — the transit-voter-only ballots that don't exist in the MR file.
+    Everything else in the RP file is a row-for-row duplicate of MR and is
+    discarded. Independent-candidate columns (CAND_IND1/2) don't exist in the
+    RP file (independents can't appear on a PR-only ballot), so they're added
+    back as 0 to align with the MR schema.
+    """
+    rp_folder = RP_SUPPLEMENT_FOLDER.get(folder)
+    if rp_folder is None:
+        return pd.DataFrame()
+
+    rp_csv = find_cas_csv(rp_folder)
+    df_rp, _ = load_raw(rp_csv)
+    srp_rows = df_rp[df_rp["TIPO_CASILLA"] == "SRP"].copy()
+    if srp_rows.empty:
+        return srp_rows
+
+    for col in party_keys:
+        if col not in srp_rows.columns:
+            srp_rows[col] = 0
+    return srp_rows
 
 
 def make_geo_id(df):
@@ -267,6 +304,11 @@ for folder, meta in ELECTION_META.items():
     print(f"  Found: {csv_path}")
 
     df_raw, party_keys = load_raw(csv_path)
+
+    rp_extra = load_rp_supplement(folder, party_keys)
+    if not rp_extra.empty:
+        print(f"  + {len(rp_extra)} transit-voter SRP rows merged in from sibling RP file")
+        df_raw = pd.concat([df_raw, rp_extra], ignore_index=True)
 
     dim_election   = build_dim_election(meta)
     dim_geography  = build_dim_geography(df_raw)

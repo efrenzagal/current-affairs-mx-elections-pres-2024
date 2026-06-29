@@ -8,9 +8,9 @@ the cycle's own notebook (e.g. notebook_2024.py), which writes to data/clean/.
 This pipeline only reads from data/clean/*.parquet and SQLite from here on.
 
 Usage:
-    python pipeline.py ingest        # clean parquets → SQLite
-    python pipeline.py materialize   # SQLite → materialized view parquets
-    python pipeline.py all           # both in sequence
+    python ingestion/pipeline.py ingest        # clean parquets → SQLite
+    python ingestion/pipeline.py materialize   # SQLite → materialized view parquets
+    python ingestion/pipeline.py all           # both in sequence
 """
 
 import argparse
@@ -32,6 +32,16 @@ MATERIALIZED  = Path("data/materialized") # output: Streamlit reads these
 # layouts differ across cycles -- see SCHEMA_MAP below for how ingest_election
 # adapts to that per election_id.
 ELECTION_META = {
+    "PRESIDENCIA_1994": {
+        "election_id":   "PRE_1994",
+        "year":          1994,
+        "election_type": "PRE",
+        "chamber":       None,
+        "seat_method":   "direct",
+        "total_seats":   1,
+        "term_years":    6,
+        "clean_dir":     Path("data/clean_1994"),
+    },
     "PRESIDENCIA_2024": {
         "election_id":   "PRE_2024",
         "year":          2024,
@@ -52,16 +62,6 @@ ELECTION_META = {
         "term_years":    3,
         "clean_dir":     Path("data/clean_2024"),
     },
-    "DIPUTACIONES_FED_RP_2024": {
-        "election_id":   "DIP_RP_2024",
-        "year":          2024,
-        "election_type": "DIP",
-        "chamber":       "deputies",
-        "seat_method":   "pr",
-        "total_seats":   200,
-        "term_years":    3,
-        "clean_dir":     Path("data/clean_2024"),
-    },
     "SENADURIAS_MR_2024": {
         "election_id":   "SEN_MR_2024",
         "year":          2024,
@@ -69,16 +69,6 @@ ELECTION_META = {
         "chamber":       "senate",
         "seat_method":   "fptp",
         "total_seats":   96,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2024"),
-    },
-    "SENADURIAS_RP_2024": {
-        "election_id":   "SEN_RP_2024",
-        "year":          2024,
-        "election_type": "SEN",
-        "chamber":       "senate",
-        "seat_method":   "pr",
-        "total_seats":   32,
         "term_years":    6,
         "clean_dir":     Path("data/clean_2024"),
     },
@@ -115,6 +105,66 @@ ELECTION_META = {
         "term_years":    6,
         "clean_dir":     Path("data/clean_2018"),
     },
+    "PRESIDENCIA_2000": {
+        "election_id":   "PRE_2000",
+        "year":          2000,
+        "election_type": "PRE",
+        "chamber":       None,
+        "seat_method":   "direct",
+        "total_seats":   1,
+        "term_years":    6,
+        "clean_dir":     Path("data/clean_2000"),
+    },
+    "DIPUTACIONES_2000": {
+        "election_id":   "DIP_MR_2000",
+        "year":          2000,
+        "election_type": "DIP",
+        "chamber":       "deputies",
+        "seat_method":   "fptp",
+        "total_seats":   300,
+        "term_years":    3,
+        "clean_dir":     Path("data/clean_2000"),
+    },
+    "SENADURIAS_2000": {
+        "election_id":   "SEN_MR_2000",
+        "year":          2000,
+        "election_type": "SEN",
+        "chamber":       "senate",
+        "seat_method":   "fptp",
+        "total_seats":   96,
+        "term_years":    6,
+        "clean_dir":     Path("data/clean_2000"),
+    },
+    "PRESIDENCIA_2006": {
+        "election_id":   "PRE_2006",
+        "year":          2006,
+        "election_type": "PRE",
+        "chamber":       None,
+        "seat_method":   "direct",
+        "total_seats":   1,
+        "term_years":    6,
+        "clean_dir":     Path("data/clean_2006"),
+    },
+    "DIPUTACIONES_2006": {
+        "election_id":   "DIP_MR_2006",
+        "year":          2006,
+        "election_type": "DIP",
+        "chamber":       "deputies",
+        "seat_method":   "fptp",
+        "total_seats":   300,
+        "term_years":    3,
+        "clean_dir":     Path("data/clean_2006"),
+    },
+    "SENADURIAS_2006": {
+        "election_id":   "SEN_MR_2006",
+        "year":          2006,
+        "election_type": "SEN",
+        "chamber":       "senate",
+        "seat_method":   "fptp",
+        "total_seats":   96,
+        "term_years":    6,
+        "clean_dir":     Path("data/clean_2006"),
+    },
     "PRESIDENCIA_2012": {
         "election_id":   "PRE_2012",
         "year":          2012,
@@ -144,7 +194,28 @@ ELECTION_META = {
         "total_seats":   96,
         "term_years":    6,
         "clean_dir":     Path("data/clean_2012"),
-    }
+    },
+    # 2015 and 2021 are midterm cycles -- diputados only, no presidente/senadores.
+    "DIPUTACIONES_2015": {
+        "election_id":   "DIP_MR_2015",
+        "year":          2015,
+        "election_type": "DIP",
+        "chamber":       "deputies",
+        "seat_method":   "fptp",
+        "total_seats":   300,
+        "term_years":    3,
+        "clean_dir":     Path("data/clean_2015"),
+    },
+    "DIPUTACIONES_2021": {
+        "election_id":   "DIP_MR_2021",
+        "year":          2021,
+        "election_type": "DIP",
+        "chamber":       "deputies",
+        "seat_method":   "fptp",
+        "total_seats":   300,
+        "term_years":    3,
+        "clean_dir":     Path("data/clean_2021"),
+    },
 }
 
 # Per-cycle column mapping: canonical SQLite column -> source parquet column
@@ -152,6 +223,109 @@ ELECTION_META = {
 # source data (NULL gets inserted). Keyed by year since both election types
 # within a year share the same notebook/schema.
 SCHEMA_MAP = {
+    1994: {
+        "geography": {
+            "id_municipio":               None,
+            "municipio":                  "MUNICIPIO",
+            "id_distrito_federal":        "ID_DISTRITO",
+            "cabecera_distrital_federal": "CABECERA",
+            "circunscripcion":            None,
+        },
+        "casilla": {
+            "acta_casilla_mec": "casilla_id",
+            "urna_electronica": None,
+            "lista_nominal":    None,
+        },
+        "fact": {
+            "num_votos_validos":  None,
+            "num_votos_nulos":    "VN",
+            "num_votos_can_nreg": "CNR",
+            "total_votos":        "TOTAL",
+        },
+    },
+    2015: {
+        "geography": {
+            # No municipio/circunscripcion in the 2015 diputados file
+            "id_municipio":               None,
+            "municipio":                  None,
+            "id_distrito_federal":        "ID_DISTRITO",
+            "cabecera_distrital_federal": None,
+            "circunscripcion":            None,
+        },
+        "casilla": {
+            "acta_casilla_mec": "casilla_id",  # synthesised key (includes TIPO_ACTA), same approach as 2012
+            "urna_electronica": None,          # not present in 2015
+            "lista_nominal":    "LISTA_NOMINAL_CASILLA",
+        },
+        "fact": {
+            "num_votos_validos":  None,        # no valid/invalid split in 2015
+            "num_votos_nulos":    "VN",
+            "num_votos_can_nreg": "CNR",
+            "total_votos":        "TOTAL_VOTOS",
+        },
+    },
+    2021: {
+        "geography": {
+            "id_municipio":               None,  # not present in 2021 diputados file
+            "municipio":                  None,
+            "id_distrito_federal":        "ID_DISTRITO",
+            "cabecera_distrital_federal": "NOMBRE_DISTRITO",
+            "circunscripcion":            None,
+        },
+        "casilla": {
+            "acta_casilla_mec": "CLAVE_ACTA",  # real acta-level key from source, same approach as 2018
+            "urna_electronica": None,          # not present in 2021
+            "lista_nominal":    "LISTA_NOMINAL_CASILLA",
+        },
+        "fact": {
+            "num_votos_validos":  None,        # no valid/invalid split in 2021
+            "num_votos_nulos":    "VN",
+            "num_votos_can_nreg": "CNR",
+            "total_votos":        "TOTAL_VOTOS_CALCULADOS",
+        },
+    },
+    2000: {
+        "geography": {
+            # No municipio/circunscripcion in the 2000 .dat files (state + section
+            # + district only, same shape as 2012/2018)
+            "id_municipio":               None,
+            "municipio":                  None,
+            "id_distrito_federal":        "ID_DISTRITO",
+            "cabecera_distrital_federal": None,
+            "circunscripcion":            None,
+        },
+        "casilla": {
+            "acta_casilla_mec": "casilla_id",  # synthesised key, same approach as 2012
+            "urna_electronica": None,          # not present in 2000
+            "lista_nominal":    None,          # not present in the 2000 .dat columns
+        },
+        "fact": {
+            "num_votos_validos":  None,          # no valid/invalid split in 2000
+            "num_votos_nulos":    "NULOS",
+            "num_votos_can_nreg": "CAND_NO_REGIS",
+            "total_votos":        "TOTAL",
+        },
+    },
+    2006: {
+        "geography": {
+            "id_municipio":               None,
+            "municipio":                  "MUNICIPIO",
+            "id_distrito_federal":        "ID_DISTRITO",
+            "cabecera_distrital_federal": "NOMBRE_DISTRITO",
+            "circunscripcion":            None,
+        },
+        "casilla": {
+            "acta_casilla_mec": "casilla_id",
+            "urna_electronica": None,
+            "lista_nominal":    "LISTA_NOMINAL_CASILLA",
+        },
+        "fact": {
+            "num_votos_validos":  "VALIDOS",
+            "num_votos_nulos":    "VN",
+            "num_votos_can_nreg": "CNR",
+            "total_votos":        "TOTAL_VOTOS",
+        },
+    },
     2024: {
         "geography": {
             "id_municipio":              "ID_MUNICIPIO",
@@ -878,7 +1052,8 @@ def query_nacional(conn, election_id: str) -> pd.DataFrame:
           AND g.seccion       > 0
     """, conn)
 
-    votes["lista_nominal_part"] = int(nominal["lista_nominal_part"].iloc[0])
+    nominal_val = nominal["lista_nominal_part"].iloc[0]
+    votes["lista_nominal_part"] = int(nominal_val) if pd.notna(nominal_val) else None
     return votes
 
 

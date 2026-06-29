@@ -6,7 +6,7 @@ Online version scope: Nacional, Estado, Municipio.
 Casilla-level exploration is intentionally removed to keep deployment light.
 
 Run:
-    python pipeline.py all          # ingest + materialize first
+    python ingestion/pipeline.py all          # ingest + materialize first
     streamlit run streamlit_app.py
 
 Dependencies:
@@ -153,7 +153,7 @@ def load_municipios_geojson(geojson_path: str = None) -> dict:
         path = processed
     elif raw.exists():
         st.warning(
-            "Usando GeoJSON sin procesar. Ejecuta `python pipeline.py materialize` "
+            "Usando GeoJSON sin procesar. Ejecuta `python ingestion/pipeline.py materialize` "
             "para generar la version optimizada."
         )
         path = raw
@@ -554,7 +554,7 @@ def render_results_table(
     fires for the presidential race (single national winner, no district
     needed). Every other table falls back to showing the candidate code
     (SHH/FCM/MC) until id_estado + id_distrito_federal are threaded through
-    query_estado/query_municipio/query_seccion in pipeline.py.
+    query_estado/query_municipio/query_seccion in ingestion/pipeline.py.
     """
     grp = group_cols if isinstance(group_cols, list) else [group_cols]
     grp = [c for c in grp if c in df.columns]
@@ -826,7 +826,7 @@ def render_mexico_map(df: pd.DataFrame, map_key_suffix: str = "nacional"):
             "No se encontro el GeoJSON de municipios. Descargalo con:\n\n"
             "`curl -L -o municipios.geojson "
             "https://raw.githubusercontent.com/angelnmara/geojson/master/MunicipiosMexico.json`\n\n"
-            "Luego ejecuta `python pipeline.py materialize` para pre-procesarlo."
+            "Luego ejecuta `python ingestion/pipeline.py materialize` para pre-procesarlo."
         )
         return
 
@@ -1021,7 +1021,7 @@ elections = get_available_elections()
 if not elections:
     st.error(
         "No se encontraron archivos Parquet materializados. "
-        "Ejecuta `python pipeline.py all` primero."
+        "Ejecuta `python ingestion/pipeline.py all` primero."
     )
     st.stop()
 
@@ -1047,7 +1047,7 @@ page = st.sidebar.selectbox(
 if page == "Nacional":
     df_nac = load_view("nacional", election_sel)
     if df_nac.empty:
-        st.error("Sin datos. Ejecuta pipeline.py primero.")
+        st.error("Sin datos. Ejecuta ingestion/pipeline.py primero.")
         st.stop()
 
     meta_row  = df_nac.iloc[0]
@@ -1085,7 +1085,7 @@ if page == "Nacional":
 elif page == "Estado":
     df_est_full = load_view("estado", election_sel)
     if df_est_full.empty:
-        st.error("Sin datos. Ejecuta pipeline.py primero.")
+        st.error("Sin datos. Ejecuta ingestion/pipeline.py primero.")
         st.stop()
 
     st.sidebar.markdown("---")
@@ -1135,7 +1135,7 @@ elif page == "Estado":
 elif page == "Municipio":
     df_mun_full = load_view("municipio", election_sel)
     if df_mun_full.empty:
-        st.error("Sin datos. Ejecuta pipeline.py primero.")
+        st.error("Sin datos. Ejecuta ingestion/pipeline.py primero.")
         st.stop()
 
     st.sidebar.markdown("---")

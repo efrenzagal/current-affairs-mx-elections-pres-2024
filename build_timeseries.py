@@ -41,12 +41,101 @@ DB_PATH  = "election_data.db"
 OUT_DIR  = Path("data/materialized")
 OUT_FILE = "timeseries_estados.parquet"
 
-# Canonical party normalisation across cycles
-# (2018 used full name; we normalise to short key here)
+# Canonical party normalisation across cycles — each cycle's ingestion script
+# names the same real party differently (2018 spells out full names; 2006 used
+# its own short codes). Coalitions are NOT touched here: a coalition is a
+# genuinely distinct entity each cycle (different member combinations), so
+# only same-party single-party aliases belong in this dict.
 PARTY_ALIASES = {
     "MOVIMIENTO CIUDADANO": "MC",
-    "NUEVA ALIANZA":        "NUEVA ALIANZA",  # keep as-is; minor party
-    "ENCUENTRO SOCIAL":     "ENCUENTRO SOCIAL",
+    "NUEVA ALIANZA":        "PANAL",       # 2018 spelling -> 2012/2015's code
+    "NVA_A":                "PANAL",       # 2006 spelling -> 2012/2015's code
+    "ENCUENTRO SOCIAL":     "PES",         # 2018 spelling -> 2015/2021's code
+    "CAND_IND_01":          "CAND_IND_1",  # 2018 numbering -> 2015's convention
+    "CAND_IND_02":          "CAND_IND_2",
+    "CAND_IND1":            "CAND_IND_1",  # 2024 numbering -> 2015's convention
+    "CAND_IND2":            "CAND_IND_2",
+}
+
+# Canonical id_estado -> state name. Each cycle's source data spells/accents
+# state names differently (e.g. "MEXICO" vs "MÉXICO", "COAHUILA" vs "COAHUILA
+# DE ZARAGOZA") even though id_estado (1-32) is already consistent everywhere
+# — so override nombre_estado from id_estado rather than trust any one
+# cycle's spelling. This is the INEGI-catalog long form, matching what
+# 2018/2024's own source data already uses.
+# Full Spanish names for standalone (non-coalition) parties, keyed by the
+# post-alias canonical code. Coalitions don't need an entry here — their
+# label is built from member codes instead (see build_party_labels below).
+# Anything not listed here (e.g. UNO_PDM, whose exact historical meaning
+# isn't confidently known) just falls back to showing its raw code, which is
+# strictly safer than guessing a name that might be wrong.
+PARTY_FULL_NAMES = {
+    "PAN":      "Acción Nacional",
+    "PRI":      "Revolucionario Institucional",
+    "PRD":      "Revolución Democrática",
+    "PVEM":     "Verde Ecologista de México",
+    "PT":       "Trabajo",
+    "MC":       "Movimiento Ciudadano",
+    "MORENA":   "Movimiento Regeneración Nacional",
+    "PANAL":    "Nueva Alianza",
+    "PES":      "Encuentro Social",
+    "PH":       "Humanista",
+    "RSP":      "Redes Sociales Progresistas",
+    "FXM":      "Fuerza por México",
+    "ASDC":     "Alternativa Socialdemócrata y Campesina",
+    "PARM":     "Auténtico de la Revolución Mexicana",
+    "PFCRN":    "Frente Cardenista de Reconstrucción Nacional",
+    "PPS":      "Popular Socialista",
+    "PCD":      "Centro Democrático",
+    "DSPPN":    "Democracia Social",
+    "A. CAM.":  "Alianza por el Cambio",
+    "A. MEX.":  "Alianza por México",
+    "CI":               "Candidatura Independiente",
+    "CAND_IND_1":       "Candidatura Independiente 1",
+    "CAND_IND_2":       "Candidatura Independiente 2",
+}
+
+
+def build_party_labels(party_keys: list[str], coalitions: pd.DataFrame) -> dict[str, str]:
+    """
+    party_key -> human-readable label.
+      - Coalitions: "{code} (PARTY+PARTY+...)" built from actual members.
+      - Known standalone parties: "{code} — Full Name".
+      - Unknown codes: left as-is (no guessing).
+    """
+    members_by_coalition = (
+        coalitions.groupby("coalition_key")["member_key"]
+        .apply(lambda s: "+".join(sorted(s)))
+        .to_dict()
+    )
+    labels = {}
+    for key in party_keys:
+        if key in members_by_coalition:
+            labels[key] = f"{key} ({members_by_coalition[key]})"
+        elif key in PARTY_FULL_NAMES:
+            labels[key] = f"{key} — {PARTY_FULL_NAMES[key]}"
+        else:
+            labels[key] = key
+    return labels
+
+
+CANONICAL_ESTADO_NOMBRES = {
+     1: "AGUASCALIENTES",                  2: "BAJA CALIFORNIA",
+     3: "BAJA CALIFORNIA SUR",             4: "CAMPECHE",
+     5: "COAHUILA DE ZARAGOZA",            6: "COLIMA",
+     7: "CHIAPAS",                         8: "CHIHUAHUA",
+     9: "CIUDAD DE MÉXICO",               10: "DURANGO",
+    11: "GUANAJUATO",                     12: "GUERRERO",
+    13: "HIDALGO",                        14: "JALISCO",
+    15: "MÉXICO",                         16: "MICHOACÁN DE OCAMPO",
+    17: "MORELOS",                        18: "NAYARIT",
+    19: "NUEVO LEÓN",                     20: "OAXACA",
+    21: "PUEBLA",                         22: "QUERÉTARO",
+    23: "QUINTANA ROO",                   24: "SAN LUIS POTOSÍ",
+    25: "SINALOA",                        26: "SONORA",
+    27: "TABASCO",                        28: "TAMAULIPAS",
+    29: "TLAXCALA",                       30: "VERACRUZ DE IGNACIO DE LA LLAVE",
+    31: "YUCATÁN",                        32: "ZACATECAS",
 }
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -201,7 +290,9 @@ def build(db_path: str = DB_PATH, out_dir: Path = OUT_DIR):
     print("Loading raw votes...")
     state_raw = load_raw_votes(conn)
     state_raw["party_key"] = state_raw["party_key"].replace(PARTY_ALIASES)
-    state_raw["nombre_estado"] = state_raw["nombre_estado"].str.strip()
+    # Override with the canonical name from id_estado — don't trust any one
+    # cycle's spelling/accenting (see CANONICAL_ESTADO_NOMBRES above).
+    state_raw["nombre_estado"] = state_raw["id_estado"].map(CANONICAL_ESTADO_NOMBRES)
 
     print("Loading lista nominal...")
     lista = load_lista_nominal(conn)
@@ -243,19 +334,43 @@ def build(db_path: str = DB_PATH, out_dir: Path = OUT_DIR):
     # Identify coalition party_keys
     coalition_keys = set(coalitions["coalition_key"].unique())
 
-    # Mark each row
-    state_raw["is_coalition"] = state_raw["party_key"].isin(coalition_keys)
-
-    # Merge split votes back onto base
+    # Merge split votes back onto base — OUTER, not left: some coalition
+    # members (e.g. 2006's PRD/PT/CONVERGENCIA inside PBT) never have their
+    # own raw row at all — the source only ever recorded the coalition-level
+    # total, never an individual member tally — so a left join starting from
+    # state_raw would silently drop their split-derived share entirely.
     df = state_raw.merge(
         split,
         on=["election_id", "id_estado", "party_key"],
-        how="left",
+        how="outer",
     )
     # For coalition rows, votes_split is the dissolved total (not applicable);
     # for direct rows, votes_split = direct + attributed from coalitions
     # Coalition rows themselves get votes_split = NaN which is correct —
     # they are dissolved into members in the split view.
+
+    # Backfill identity columns for member-only rows introduced by the outer
+    # merge above (they exist in `split` but had no native state_raw row).
+    member_only = df["nombre_estado"].isna()
+    if member_only.any():
+        elec_lookup = (
+            state_raw[["election_id", "year", "election_type"]]
+            .drop_duplicates()
+            .set_index("election_id")
+        )
+        df.loc[member_only, "nombre_estado"]  = df.loc[member_only, "id_estado"].map(CANONICAL_ESTADO_NOMBRES)
+        df.loc[member_only, "year"]           = df.loc[member_only, "election_id"].map(elec_lookup["year"])
+        df.loc[member_only, "election_type"]  = df.loc[member_only, "election_id"].map(elec_lookup["election_type"])
+        df.loc[member_only, "votes_raw"]      = 0.0
+        print(f"  + {member_only.sum()} coalition-member rows added (never had a native row, only a split-derived share)")
+
+    print("Building party display labels...")
+    party_labels = build_party_labels(df["party_key"].unique().tolist(), coalitions)
+    df["party_label"] = df["party_key"].map(party_labels)
+
+    # Mark each row (covers member-only rows too — they are real standalone
+    # parties, just never recorded directly in the source for that cycle)
+    df["is_coalition"] = df["party_key"].isin(coalition_keys)
 
     # Merge lista nominal
     df = df.merge(lista, on=["election_id", "id_estado"], how="left")
