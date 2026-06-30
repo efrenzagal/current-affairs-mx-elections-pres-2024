@@ -2,12 +2,16 @@
 INE PREP 2024 - Explorador de Resultados Electorales (online version)
 Streamlit dashboard backed by materialized Parquet files.
 
-Online version scope: Nacional, Estado, Municipio.
-Casilla-level exploration is intentionally removed to keep deployment light.
+Online version scope: Estado, Municipio. The Nacional page was removed --
+rendering 2,500+ municipio polygons on a single map was too heavy for the
+hosted deployment. The Estado page now opens with a multi-year timeseries
+(by party) for the selected state, followed by the last-election results
+(map / ternary / bar charts / tables) for that same state.
 
 Run:
-    python ingestion/pipeline.py all          # ingest + materialize first
-    streamlit run streamlit_app.py
+    python ingestion/pipeline.py              # clean parquets -> SQLite
+    python ingestion/materialize.py           # SQLite -> all parquets (views + timeseries)
+    streamlit run ine_explorer_streamlit_online.py
 
 Dependencies:
     pip install streamlit pandas plotly pyarrow
@@ -28,7 +32,7 @@ st.set_page_config(
     page_title="INE PREP 2024 · Explorador",
     page_icon="🗳️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown("""
@@ -132,8 +136,8 @@ def get_available_elections() -> list[str]:
     if not MATERIALIZED_DIR.exists():
         return []
     return sorted(
-        f.stem.replace("view_nacional_", "")
-        for f in MATERIALIZED_DIR.glob("view_nacional_*.parquet")
+        f.stem.replace("view_estado_", "")
+        for f in MATERIALIZED_DIR.glob("view_estado_*.parquet")
     )
 
 @st.cache_data(show_spinner="Cargando datos...")
@@ -153,7 +157,7 @@ def load_municipios_geojson(geojson_path: str = None) -> dict:
         path = processed
     elif raw.exists():
         st.warning(
-            "Usando GeoJSON sin procesar. Ejecuta `python ingestion/pipeline.py materialize` "
+            "Usando GeoJSON sin procesar. Ejecuta `python ingestion/materialize.py views` "
             "para generar la version optimizada."
         )
         path = raw
@@ -237,6 +241,12 @@ def _norm(s: str) -> str:
 
 def fmt_pct(v): return f"{v:.1f}%"
 def fmt_num(v): return f"{int(v):,}"
+
+def safe_int(v, default: int = 0) -> int:
+    """int() that falls back to `default` instead of crashing on NaN/None --
+    older cycles (e.g. 2000) are missing lista_nominal in the source data, so
+    lista_nominal_part comes back NaN for that whole election."""
+    return default if pd.isna(v) else int(v)
 
 def metric_card(label, value):
     st.markdown(f"""<div class="metric-card">
@@ -554,7 +564,7 @@ def render_results_table(
     fires for the presidential race (single national winner, no district
     needed). Every other table falls back to showing the candidate code
     (SHH/FCM/MC) until id_estado + id_distrito_federal are threaded through
-    query_estado/query_municipio/query_seccion in ingestion/pipeline.py.
+    query_estado/query_municipio/query_seccion in ingestion/materialize.py.
     """
     grp = group_cols if isinstance(group_cols, list) else [group_cols]
     grp = [c for c in grp if c in df.columns]
@@ -814,6 +824,246 @@ _CAND_LABELS = {
 _INFO_METRICS = {k: MAP_METRICS[k] for k in ["Participación", "Votos totales", "Lista nominal"]}
 
 
+# ── Timeseries (multi-year, by party, state granularity) ───────────────────────
+# Built by ingestion/materialize.py from SQLite -- a separate, lighter parquet than
+# the per-election views above (those are single-election, casilla-level
+# aggregates; this one spans 2012/2018/2024 at state granularity only).
+
+TIMESERIES_PATH = Path("data/materialized/timeseries_estados.parquet")
+
+TS_PARTY_COLORS: dict[str, str] = {
+    "MORENA":           "#8B0000",
+    "PAN":              "#1E90FF",
+    "PRI":              "#006847",
+    "PRD":              "#FFD700",
+    "MC":               "#FF8C00",
+    "PT":               "#CC0000",
+    "PVEM":             "#4CAF50",
+    "NUEVA ALIANZA":    "#9B59B6",
+    "ENCUENTRO SOCIAL": "#E91E8C",
+    "PVEM_PT_MORENA":   "#8B0000",
+    "PT_MORENA":        "#A02020",
+    "PT_MORENA_PES":    "#A83030",
+    "PVEM_MORENA":      "#7A3030",
+    "PVEM_PT":          "#6B8C50",
+    "PT_PES":           "#B84040",
+    "MORENA_PES":       "#922020",
+    "PAN_PRI_PRD":      "#1E90FF",
+    "PAN_PRI":          "#3A80C8",
+    "PAN_PRD":          "#2878B8",
+    "PAN_PRD_MC":       "#3070B0",
+    "PAN_MC":           "#4488CC",
+    "PRI_PRD":          "#2E7A60",
+    "PRI_PVEM_NA":      "#1A6640",
+    "PRI_PVEM":         "#1E7048",
+    "PRI_NA":           "#226050",
+    "PRD_MC":           "#C89000",
+    "PVEM_NA":          "#5EA050",
+}
+
+TS_ELECTION_TYPE_LABELS = {"PRE": "Presidencia", "DIP": "Diputaciones", "SEN": "Senadurias"}
+TS_CHART_HEIGHT = 340
+
+
+def _ts_fallback_color(key: str) -> str:
+    h = hash(key) % 360
+    return f"hsl({h},55%,42%)"
+
+
+def ts_party_color(key: str) -> str:
+    return TS_PARTY_COLORS.get(key, _ts_fallback_color(key))
+
+
+@st.cache_data(show_spinner="Cargando series de tiempo...")
+def load_timeseries(_mtime: float) -> pd.DataFrame:
+    # _mtime forces st.cache_data to invalidate whenever ingestion/materialize.py
+    # regenerates the underlying parquet, even though this function body
+    # didn't change between app reruns.
+    if not TIMESERIES_PATH.exists():
+        return pd.DataFrame()
+    df = pd.read_parquet(TIMESERIES_PATH)
+    df["nombre_estado"] = df["nombre_estado"].str.strip().str.title()
+
+    # Synthetic MORENA 2012 zeros: MORENA was founded in 2014, so there are no
+    # rows for it in the 2012 cycle. Inject explicit 0s so the line starts at
+    # the origin rather than beginning abruptly at 2018.
+    pre_2012 = df[(df["election_type"] == "PRE") & (df["year"] == 2012)]
+    if not pre_2012.empty and not ((df["party_key"] == "MORENA") & (df["year"] == 2012)).any():
+        state_info = (
+            pre_2012[["nombre_estado", "id_estado", "election_type"]]
+            .drop_duplicates("nombre_estado")
+        )
+        synthetic = state_info.copy()
+        synthetic["year"]               = 2012
+        synthetic["election_id"]        = "PRE_2012"
+        synthetic["party_key"]          = "MORENA"
+        synthetic["is_coalition"]       = False
+        synthetic["votes_raw"]          = 0.0
+        synthetic["votes_split"]        = 0.0
+        synthetic["pct_raw"]            = 0.0
+        synthetic["pct_split"]          = 0.0
+        synthetic["lista_nominal"]      = None
+        synthetic["total_votos_estado"] = None
+        for col in df.columns:
+            if col not in synthetic.columns:
+                synthetic[col] = None
+        df = pd.concat([df, synthetic[df.columns]], ignore_index=True)
+
+    return df
+
+
+def ts_agg_for_plot(df: pd.DataFrame, group_cols: list[str]) -> pd.DataFrame:
+    agg = (
+        df
+        .groupby(group_cols, as_index=False)
+        .agg(
+            votes_raw=("votes_raw", "sum"),
+            votes_split=("votes_split", "sum"),
+            total_votos_estado=("total_votos_estado", "sum"),
+            lista_nominal=("lista_nominal", "sum"),
+        )
+    )
+    denom = agg["total_votos_estado"].replace(0, float("nan"))
+    agg["pct_raw"]   = agg["votes_raw"]   / denom * 100
+    agg["pct_split"] = agg["votes_split"] / denom * 100
+    return agg
+
+
+def ts_base_layout(title: str, y_label: str, years: list, height: int = TS_CHART_HEIGHT) -> dict:
+    return dict(
+        title=dict(
+            text=f"<b>{title}</b>",
+            font=dict(family="IBM Plex Mono", size=14),
+            x=0, xanchor="left",
+        ),
+        height=height,
+        font=dict(family="IBM Plex Sans"),
+        xaxis=dict(
+            tickvals=years,
+            ticktext=[str(y) for y in years],
+            tickfont=dict(family="IBM Plex Mono", size=12),
+        ),
+        yaxis=dict(
+            title=y_label,
+            tickfont=dict(family="IBM Plex Mono", size=11),
+        ),
+        legend=dict(
+            font=dict(family="IBM Plex Mono", size=10),
+            orientation="h",
+            yanchor="bottom", y=1.02,
+            xanchor="left",   x=0,
+        ),
+        hovermode="x unified",
+        margin=dict(l=55, r=20, t=70, b=40),
+    )
+
+
+def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int, estado_label: str):
+    """
+    Multi-year (2012/2018/2024) votes-by-party chart for a single state,
+    ported from timeseries_explorer_streamlit.py's "Por Estado" mode but
+    fixed to the state already chosen above -- no separate state picker
+    here, since this section lives inside the Estado page.
+
+    Matched by id_estado (1-32, consistent across every cycle's source data)
+    rather than nombre_estado -- state name spelling/accents vary enough
+    across cycles (and even within results views before canonicalization)
+    that a string match silently drops every state.
+    """
+    df_state = df_ts[df_ts["id_estado"] == id_estado_sel]
+    if df_state.empty:
+        st.info("Sin datos históricos para este estado.")
+        return
+
+    election_types = sorted(df_state["election_type"].unique())
+    et_options      = {TS_ELECTION_TYPE_LABELS.get(e, e): e for e in election_types}
+
+    cols = st.columns([1.4, 1.6, 1.6, 1])
+    with cols[0]:
+        et_keys     = list(et_options.keys())
+        pre_default = et_keys.index("Presidencia") if "Presidencia" in et_keys else 0
+        et_label    = st.selectbox("Tipo de elección", et_keys, index=pre_default, key="ts_et")
+        et          = et_options[et_label]
+    with cols[1]:
+        coalition_mode = st.radio(
+            "Votos de coalición", ["Divididos", "Como coalición"],
+            horizontal=True, key="ts_coalition",
+        )
+        split = coalition_mode == "Divididos"
+    with cols[2]:
+        metric  = st.radio("Métrica", ["% del total", "Votos abs."], index=0, horizontal=True, key="ts_metric")
+        use_pct = metric == "% del total"
+    with cols[3]:
+        show_area = st.checkbox("Área bajo curva", value=False, key="ts_area")
+
+    y_col   = ("pct_split"   if split else "pct_raw")   if use_pct else ("votes_split" if split else "votes_raw")
+    y_label = "% de votos" if use_pct else "Votos"
+    y_fmt   = ":.1f" if use_pct else ":,.0f"
+
+    label_of = (
+        df_state.dropna(subset=["party_label"])
+        .drop_duplicates("party_key")
+        .set_index("party_key")["party_label"]
+        .to_dict()
+    )
+    coalition_keys = set(df_state.loc[df_state["is_coalition"] == True, "party_key"].unique())
+    all_parties     = sorted(df_state["party_key"].unique())
+    direct_parties  = [p for p in all_parties if p not in coalition_keys]
+    selectable      = direct_parties if split else all_parties
+    default_p       = [p for p in ["MORENA", "PAN", "PRI", "MC", "PRD"] if p in selectable]
+
+    parties_to_show = st.multiselect(
+        "Partidos a mostrar", selectable, default=default_p,
+        format_func=lambda p: label_of.get(p, p), key="ts_parties",
+    )
+    if not split:
+        extra = st.multiselect(
+            "Coaliciones", [p for p in all_parties if p in coalition_keys], default=[],
+            format_func=lambda p: label_of.get(p, p), key="ts_coalitions",
+        )
+        parties_to_show = parties_to_show + extra
+
+    if use_pct:
+        st.caption(
+            "% = votos del partido / **total de votos emitidos** en el estado "
+            "(incluye nulos, no registrados y partidos no seleccionados)."
+        )
+
+    if not parties_to_show:
+        st.info("Selecciona al menos un partido.")
+        return
+
+    df_f = df_state[
+        (df_state["election_type"] == et)
+        & (df_state["party_key"].isin(parties_to_show))
+    ].copy()
+    if split:
+        df_f = df_f[df_f["is_coalition"] == False]
+    if df_f.empty:
+        st.warning("Sin datos para estos filtros.")
+        return
+
+    df_agg = ts_agg_for_plot(df_f, ["year", "election_type", "nombre_estado", "party_key"])
+
+    fig = go.Figure()
+    for party, grp in df_agg.groupby("party_key"):
+        grp   = grp.sort_values("year")
+        color = ts_party_color(party)
+        label = label_of.get(party, party)
+        fig.add_trace(go.Scatter(
+            x=grp["year"], y=grp[y_col],
+            mode="lines+markers", name=label,
+            line=dict(color=color, width=2.5),
+            marker=dict(color=color, size=8),
+            fill="tozeroy" if show_area else "none",
+            hovertemplate=f"<b>{label}</b>: %{{y{y_fmt}}}<extra></extra>",
+        ))
+    fig.update_layout(**ts_base_layout(
+        f"{estado_label} · {et_label}", y_label, sorted(df_agg["year"].unique())
+    ))
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def render_mexico_map(df: pd.DataFrame, map_key_suffix: str = "nacional"):
     """
     Lightweight online map layout: render only one map at a time.
@@ -826,7 +1076,7 @@ def render_mexico_map(df: pd.DataFrame, map_key_suffix: str = "nacional"):
             "No se encontro el GeoJSON de municipios. Descargalo con:\n\n"
             "`curl -L -o municipios.geojson "
             "https://raw.githubusercontent.com/angelnmara/geojson/master/MunicipiosMexico.json`\n\n"
-            "Luego ejecuta `python ingestion/pipeline.py materialize` para pre-procesarlo."
+            "Luego ejecuta `python ingestion/materialize.py views` para pre-procesarlo."
         )
         return
 
@@ -887,7 +1137,7 @@ def render_mexico_map(df: pd.DataFrame, map_key_suffix: str = "nacional"):
         st.caption(f"{unmatched} municipios sin geometria en el GeoJSON.")
 
 
-# ── Results tab (shared across Estado / Municipio / Nacional) ──────────────────
+# ── Results tab (shared across Estado / Municipio) ──────────────────────────────
 # Order: Map → Ternary → Bar charts → Tables
 # (Scorecard metrics are always rendered by the caller before this function)
 
@@ -897,73 +1147,7 @@ def render_results_tab(df_raw: pd.DataFrame, page_level: str, election_id: str,
     if candidates_df is None:
         candidates_df = pd.DataFrame()
 
-    if page_level == "Nacional":
-        df_estado_view    = load_view("estado",    election_id)
-        df_municipio_view = load_view("municipio", election_id)
-
-        # 1. MAP
-        st.markdown("---")
-        render_mexico_map(df_municipio_view, map_key_suffix="nacional")
-        if scorecards is not None:
-            render_scorecards(*scorecards)
-
-        # 2. TERNARY
-        st.markdown("---")
-        col_a, col_b = st.columns(2)
-
-        with col_a:
-            st.markdown('<div class="section-label">Distribucion ternaria - por Estado</div>',
-                        unsafe_allow_html=True)
-            todos_estados = sorted(df_estado_view["nombre_estado"].dropna().unique())
-            n_estados = st.slider(
-                "Estados a mostrar (por volumen de votos)",
-                min_value=2, max_value=max(len(todos_estados), 2),
-                value=min(5, len(todos_estados)),
-                key="slider_estados_ternary",
-            )
-            render_ternary_bubble(
-                df_estado_view, "nombre_estado", "nombre_estado",
-                "por Estado", n_bubbles=n_estados,
-            )
-
-        with col_b:
-            st.markdown('<div class="section-label">Distribucion ternaria - Top municipios</div>',
-                        unsafe_allow_html=True)
-            todos_estados_mun  = sorted(df_municipio_view["nombre_estado"].dropna().unique())
-            estados_mun_filter = st.multiselect(
-                "Filtrar por estado (vacio = todos)",
-                options=todos_estados_mun, default=[],
-                key="muns_ternary_estados",
-                help="Restringe los municipios a los estados seleccionados antes de elegir el top-N.",
-            )
-            df_mun = (
-                df_municipio_view[df_municipio_view["nombre_estado"].isin(estados_mun_filter)]
-                if estados_mun_filter else df_municipio_view
-            )
-            max_muns = df_mun.groupby(["nombre_estado", "municipio"]).ngroups
-            n_muns = st.slider(
-                "Municipios a mostrar (por volumen de votos)",
-                min_value=2, max_value=min(max(max_muns, 2), 200),
-                value=min(5, max_muns),
-                key="slider_muns_ternary",
-            )
-            render_ternary_bubble(
-                df_mun, ["nombre_estado", "municipio"], ["municipio", "nombre_estado"],
-                "Top municipios (Nacional)", n_bubbles=n_muns,
-            )
-
-        # 3. BAR CHARTS
-        st.markdown("---")
-        render_both_charts(df_raw)
-
-        # 4. TABLES
-        st.markdown("---")
-        render_results_table(df_estado_view, "nombre_estado", "Estado",
-                             election_id, candidates_df, id_distrito)
-        render_results_table(df_municipio_view, ["nombre_estado", "municipio"], "Municipio",
-                             election_id, candidates_df, id_distrito)
-
-    elif page_level == "Estado":
+    if page_level == "Estado":
         # 1. MAP
         st.markdown("---")
         render_mexico_map(df_raw, map_key_suffix="estado")
@@ -1012,7 +1196,7 @@ def render_results_tab(df_raw: pd.DataFrame, page_level: str, election_id: str,
                                  election_id, candidates_df, id_distrito)
 
 
-# ── App shell ──────────────────────────────────────────────────────────────────
+# ── App shell (single panel -- no sidebar) ──────────────────────────────────────
 
 st.markdown("## INE PREP 2024")
 st.markdown("##### Explorador de resultados electorales")
@@ -1021,96 +1205,60 @@ elections = get_available_elections()
 if not elections:
     st.error(
         "No se encontraron archivos Parquet materializados. "
-        "Ejecuta `python ingestion/pipeline.py all` primero."
+        "Ejecuta `python ingestion/pipeline.py` y luego `python ingestion/materialize.py` primero."
     )
     st.stop()
-
-default_election = "PRE_2024" if "PRE_2024" in elections else elections[0]
-election_sel = st.sidebar.selectbox(
-    "Elección",
-    elections,
-    index=elections.index(default_election),
-    format_func=election_label,
-)
 
 # Load candidate names once (used by tables across all pages)
 candidates_df = load_candidates()
 
-st.sidebar.markdown("---")
-page_options = ["Nacional", "Estado", "Municipio"]
-page = st.sidebar.selectbox(
-    "Unidad de análisis", page_options, index=page_options.index("Estado")
+filt_cols = st.columns([1.6, 1, 1.4])
+with filt_cols[0]:
+    default_election = "PRE_2024" if "PRE_2024" in elections else elections[0]
+    election_sel = st.selectbox(
+        "Elección", elections,
+        index=elections.index(default_election),
+        format_func=election_label,
+    )
+with filt_cols[1]:
+    page_options = ["Estado", "Municipio"]
+    page = st.selectbox("Unidad de análisis", page_options, index=page_options.index("Estado"))
+
+# Estado view always loaded first -- it's both the state picker source and,
+# on the Estado page, the scorecard/metadata source.
+df_est_full = load_view("estado", election_sel)
+if df_est_full.empty:
+    st.error("Sin datos. Ejecuta `python ingestion/materialize.py views` primero.")
+    st.stop()
+
+estado_options = (
+    df_est_full[["id_estado", "nombre_estado"]]
+    .dropna().drop_duplicates().sort_values("nombre_estado")
 )
+estado_names = estado_options["nombre_estado"].tolist()
+default_e    = next((e for e in estado_names if "CIUDAD" in e.upper()), estado_names[0])
 
-
-# ── PAGE: NACIONAL ─────────────────────────────────────────────────────────────
-if page == "Nacional":
-    df_nac = load_view("nacional", election_sel)
-    if df_nac.empty:
-        st.error("Sin datos. Ejecuta ingestion/pipeline.py primero.")
-        st.stop()
-
-    meta_row  = df_nac.iloc[0]
-    num_est   = int(meta_row.get("num_estados",   32))
-    num_dist  = int(meta_row.get("num_distritos", 300))
-    num_mun   = int(meta_row.get("num_municipios", 0))
-    num_cas   = int(meta_row.get("num_casillas",   0))
-    total_v   = int(
-        df_nac.drop_duplicates(["election_id"])["total_votos"].sum()
-        if "election_id" in df_nac.columns
-        else df_nac["total_votos"].iloc[0]
-    )
-    lista_nom = int(meta_row.get("lista_nominal_part", 0))
-    part_pct  = total_v / lista_nom * 100 if lista_nom > 0 else 0
-    # FIX: sum num_votos_nulos across all party rows deduplicated by election_id,
-    # not just iloc[0] which was only the first party's row.
-    nulos_raw = int(df_nac.drop_duplicates("election_id")["num_votos_nulos"].sum())
-    nulos_pct = nulos_raw / total_v * 100 if total_v > 0 else 0
-
-    header_badge([
-        "Mexico",
-        f"{num_est} estados",
-        f"{num_dist} distritos",
-        f"{num_mun:,} municipios",
-        f"{num_cas:,} actas",
-    ])
-
-    render_results_tab(
-        df_nac, "Nacional", election_sel, candidates_df,
-        scorecards=(total_v, lista_nom, part_pct, nulos_pct),
-    )
+with filt_cols[2]:
+    estado_sel = st.selectbox("Estado", estado_names, index=estado_names.index(default_e))
+id_estado_sel = int(estado_options.loc[estado_options["nombre_estado"] == estado_sel, "id_estado"].iloc[0])
 
 
 # ── PAGE: ESTADO ───────────────────────────────────────────────────────────────
-elif page == "Estado":
-    df_est_full = load_view("estado", election_sel)
-    if df_est_full.empty:
-        st.error("Sin datos. Ejecuta ingestion/pipeline.py primero.")
-        st.stop()
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown('<div class="section-label">Unidad de analisis</div>',
-                        unsafe_allow_html=True)
-
-    estados    = sorted(df_est_full["nombre_estado"].dropna().unique())
-    default_e  = next((e for e in estados if "CIUDAD" in e.upper()), estados[0])
-    estado_sel = st.sidebar.selectbox(
-        "Estado", estados, index=estados.index(default_e))
-    df_view = df_est_full[df_est_full["nombre_estado"] == estado_sel]
-
+if page == "Estado":
+    df_view = df_est_full[df_est_full["id_estado"] == id_estado_sel]
     if df_view.empty:
         st.info("Sin datos para este estado.")
         st.stop()
 
-    meta_row  = df_view.drop_duplicates("nombre_estado").iloc[0]
-    num_dist  = int(meta_row.get("num_distritos",  0))
-    num_mun   = int(meta_row.get("num_municipios", 0))
-    num_sec   = int(meta_row.get("num_secciones",  0))
-    num_cas   = int(meta_row.get("num_casillas",   0))
-    total_v   = int(df_view.drop_duplicates("nombre_estado")["total_votos"].sum())
-    lista_nom = int(meta_row.get("lista_nominal_part", 0))
+    meta_row  = df_view.drop_duplicates("id_estado").iloc[0]
+    num_dist  = safe_int(meta_row.get("num_distritos"))
+    num_mun   = safe_int(meta_row.get("num_municipios"))
+    num_sec   = safe_int(meta_row.get("num_secciones"))
+    num_cas   = safe_int(meta_row.get("num_casillas"))
+    total_v   = safe_int(df_view.drop_duplicates("id_estado")["total_votos"].sum())
+    lista_nom = safe_int(meta_row.get("lista_nominal_part"))
     part_pct  = total_v / lista_nom * 100 if lista_nom > 0 else 0
-    nulos_raw = int(df_view.drop_duplicates("nombre_estado")["num_votos_nulos"].sum())
+    nulos_raw = safe_int(df_view.drop_duplicates("id_estado")["num_votos_nulos"].sum())
     nulos_pct = nulos_raw / total_v * 100 if total_v > 0 else 0
 
     header_badge([
@@ -1121,9 +1269,26 @@ elif page == "Estado":
         f"{num_cas} actas",
     ])
 
+    # ── Serie de tiempo por partido (2012 · 2018 · 2024) ───────────────────────
+    st.markdown('<div class="section-label">Serie de tiempo · Votos por partido</div>',
+                unsafe_allow_html=True)
+    df_ts = load_timeseries(TIMESERIES_PATH.stat().st_mtime if TIMESERIES_PATH.exists() else 0.0)
+    if df_ts.empty:
+        st.info(
+            "No se encontró el archivo de series de tiempo. "
+            "Ejecuta `python ingestion/materialize.py timeseries` primero."
+        )
+    else:
+        render_timeseries_for_estado(df_ts, id_estado_sel, estado_sel)
+
+    # ── Resultados de la última elección ───────────────────────────────────────
+    st.markdown("---")
+    st.markdown('<div class="section-label">Resultados de la última elección</div>',
+                unsafe_allow_html=True)
+
     # For estado-level map and ternary we use the municipio view filtered to this state
     df_mun_view = load_view("municipio", election_sel)
-    df_mun_view = df_mun_view[df_mun_view["nombre_estado"] == estado_sel]
+    df_mun_view = df_mun_view[df_mun_view["id_estado"] == id_estado_sel]
 
     render_results_tab(
         df_mun_view, "Estado", election_sel, candidates_df,
@@ -1135,21 +1300,12 @@ elif page == "Estado":
 elif page == "Municipio":
     df_mun_full = load_view("municipio", election_sel)
     if df_mun_full.empty:
-        st.error("Sin datos. Ejecuta ingestion/pipeline.py primero.")
+        st.error("Sin datos. Ejecuta `python ingestion/materialize.py views` primero.")
         st.stop()
 
-    st.sidebar.markdown("---")
-    st.sidebar.markdown('<div class="section-label">Unidad de analisis</div>',
-                        unsafe_allow_html=True)
-
-    estados    = sorted(df_mun_full["nombre_estado"].dropna().unique())
-    default_e  = next((e for e in estados if "CIUDAD" in e.upper()), estados[0])
-    estado_sel = st.sidebar.selectbox(
-        "Estado", estados, index=estados.index(default_e))
-
-    df_e       = df_mun_full[df_mun_full["nombre_estado"] == estado_sel]
+    df_e = df_mun_full[df_mun_full["id_estado"] == id_estado_sel]
     municipios = sorted(df_e["municipio"].dropna().unique())
-    mun_sel    = st.sidebar.selectbox("Municipio", municipios)
+    mun_sel    = st.selectbox("Municipio", municipios)
     df_view    = df_e[df_e["municipio"] == mun_sel]
 
     if df_view.empty:
@@ -1157,12 +1313,12 @@ elif page == "Municipio":
         st.stop()
 
     meta_row  = df_view.drop_duplicates("municipio").iloc[0]
-    num_cas   = int(meta_row.get("num_casillas",  0))
-    num_sec   = int(meta_row.get("num_secciones", 0))
-    total_v   = int(df_view.drop_duplicates("municipio")["total_votos"].sum())
-    lista_nom = int(meta_row.get("lista_nominal_part", 0))
+    num_cas   = safe_int(meta_row.get("num_casillas"))
+    num_sec   = safe_int(meta_row.get("num_secciones"))
+    total_v   = safe_int(df_view.drop_duplicates("municipio")["total_votos"].sum())
+    lista_nom = safe_int(meta_row.get("lista_nominal_part"))
     part_pct  = total_v / lista_nom * 100 if lista_nom > 0 else 0
-    nulos_raw = int(df_view.drop_duplicates("municipio")["num_votos_nulos"].sum())
+    nulos_raw = safe_int(df_view.drop_duplicates("municipio")["num_votos_nulos"].sum())
     nulos_pct = nulos_raw / total_v * 100 if total_v > 0 else 0
 
     header_badge([
@@ -1178,7 +1334,7 @@ elif page == "Municipio":
     # Secciones table (loaded separately, appended after the main results block)
     df_sec_view = load_view("seccion", election_sel)
     df_sec_view = df_sec_view[
-        (df_sec_view["nombre_estado"] == estado_sel) &
+        (df_sec_view["id_estado"] == id_estado_sel) &
         (df_sec_view["municipio"] == mun_sel)
     ]
     if not df_sec_view.empty:

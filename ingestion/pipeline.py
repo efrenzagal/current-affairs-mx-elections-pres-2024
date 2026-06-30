@@ -1,31 +1,28 @@
 """
-Election Data Pipeline — Ingest + Materialize
-==============================================
-Combines SQLite ingestion and Parquet materialization in one file.
+Election Data Pipeline — Ingest
+================================
+Loads clean per-cycle parquets into SQLite (election_data.db).
 
 This file never touches raw CSVs. Per-cycle CSV → Parquet extraction lives in
 the cycle's own notebook (e.g. notebook_2024.py), which writes to data/clean/.
-This pipeline only reads from data/clean/*.parquet and SQLite from here on.
+This pipeline only reads from data/clean/*.parquet from here on.
+
+Once SQLite is populated, run ingestion/materialize.py to build the Parquet
+files Streamlit reads (per-election views + the multi-year timeseries).
 
 Usage:
-    python ingestion/pipeline.py ingest        # clean parquets → SQLite
-    python ingestion/pipeline.py materialize   # SQLite → materialized view parquets
-    python ingestion/pipeline.py all           # both in sequence
+    python ingestion/pipeline.py               # clean parquets → SQLite
 """
 
 import argparse
-import json
-import shutil
 import sqlite3
-import unicodedata
 import pandas as pd
 from pathlib import Path
 
 
 # ── Shared config ──────────────────────────────────────────────────────────────
 
-DB_PATH       = "election_data.db"
-MATERIALIZED  = Path("data/materialized") # output: Streamlit reads these
+DB_PATH = "election_data.db"
 
 # Each entry now carries its own clean_dir, since each cycle's notebook writes
 # to a separate folder (data/clean_2024, data/clean_2018, ...) and the column
@@ -393,13 +390,6 @@ SCHEMA_MAP = {
     }
 }
 
-
-# ── Shared geo-normalisation (same logic used in Streamlit for join keys) ──────
-
-def _norm(s: str) -> str:
-    s = str(s).upper().strip()
-    s = unicodedata.normalize("NFD", s)
-    return "".join(c for c in s if unicodedata.category(c) != "Mn")
 
 class ElectionWarehouse:
     """Manages SQLite schema and ingestion for election data."""
@@ -827,356 +817,13 @@ def run_ingest(db_path: str = DB_PATH, parquet_dir: Path = None):
     print("\n✓ Ingest complete")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PART 2 — MATERIALIZE: SQLite → view parquets for Streamlit
-# ══════════════════════════════════════════════════════════════════════════════
-
-def get_conn(db_path: str) -> sqlite3.Connection:
-    return sqlite3.connect(db_path)
-
-
-def get_all_elections(conn: sqlite3.Connection) -> list[str]:
-    return pd.read_sql_query(
-        "SELECT election_id FROM dim_election ORDER BY election_id", conn
-    )["election_id"].tolist()
-
-
-# ── Casilla ────────────────────────────────────────────────────────────────────
-
-def query_casilla(conn, election_id: str) -> pd.DataFrame:
-    return pd.read_sql_query(f"""
-        SELECT
-            f.election_id,
-            c.casilla_id,
-            c.geo_id,
-            g.id_estado,
-            g.nombre_estado,
-            g.id_distrito_federal,
-            g.cabecera_distrital_federal,
-            g.id_municipio,
-            g.municipio,
-            g.seccion,
-            c.tipo_casilla,
-            c.id_casilla,
-            c.ext_contigua,
-            c.lista_nominal,
-            c.urna_electronica,
-            c.estatus_acta,
-            c.ruta_acta,
-            c.acta_casilla_mec,
-            f.party_key,
-            f.votes,
-            f.num_votos_validos,
-            f.num_votos_nulos,
-            f.num_votos_can_nreg,
-            f.total_votos
-        FROM fact_casilla_vote f
-        JOIN dim_casilla  c ON f.casilla_id  = c.casilla_id
-                            AND f.election_id = c.election_id
-        JOIN dim_geography g ON c.geo_id      = g.geo_id
-        WHERE f.election_id = '{election_id}'
-        ORDER BY g.id_estado, g.seccion, c.casilla_id, f.party_key
-    """, conn)
-
-
-# ── Sección ────────────────────────────────────────────────────────────────────
-
-def query_seccion(conn, election_id: str) -> pd.DataFrame:
-    votes = pd.read_sql_query(f"""
-        SELECT
-            f.election_id,
-            g.id_estado,
-            g.nombre_estado,
-            g.id_municipio,
-            g.municipio,
-            g.seccion,
-            f.party_key,
-            SUM(f.votes)              AS votes,
-            SUM(f.num_votos_validos)  AS num_votos_validos,
-            SUM(f.num_votos_nulos)    AS num_votos_nulos,
-            SUM(f.num_votos_can_nreg) AS num_votos_can_nreg,
-            SUM(f.total_votos)        AS total_votos,
-            COUNT(DISTINCT c.casilla_id) AS num_casillas
-        FROM fact_casilla_vote f
-        JOIN dim_casilla   c ON f.casilla_id  = c.casilla_id
-                             AND f.election_id = c.election_id
-        JOIN dim_geography g ON c.geo_id       = g.geo_id
-        WHERE f.election_id = '{election_id}'
-        GROUP BY f.election_id,
-                 g.id_estado, g.nombre_estado,
-                 g.id_municipio, g.municipio,
-                 g.seccion, f.party_key
-        ORDER BY g.id_estado, g.municipio, g.seccion, f.party_key
-    """, conn)
-
-    nominal = pd.read_sql_query(f"""
-        SELECT
-            g.id_estado,
-            g.municipio,
-            g.seccion,
-            SUM(c.lista_nominal) AS lista_nominal_part
-        FROM dim_casilla   c
-        JOIN dim_geography g ON c.geo_id = g.geo_id
-        WHERE c.election_id  = '{election_id}'
-          AND c.tipo_casilla != 'S'
-          AND g.seccion       > 0
-        GROUP BY g.id_estado, g.municipio, g.seccion
-    """, conn)
-
-    return votes.merge(nominal, on=["id_estado", "municipio", "seccion"], how="left")
-
-
-# ── Municipio ──────────────────────────────────────────────────────────────────
-
-def query_municipio(conn, election_id: str) -> pd.DataFrame:
-    votes = pd.read_sql_query(f"""
-        SELECT
-            f.election_id,
-            g.id_estado,
-            g.nombre_estado,
-            g.id_municipio,
-            g.municipio,
-            f.party_key,
-            SUM(f.votes)              AS votes,
-            SUM(f.num_votos_validos)  AS num_votos_validos,
-            SUM(f.num_votos_nulos)    AS num_votos_nulos,
-            SUM(f.num_votos_can_nreg) AS num_votos_can_nreg,
-            SUM(f.total_votos)        AS total_votos,
-            COUNT(DISTINCT c.casilla_id) AS num_casillas,
-            COUNT(DISTINCT g.seccion)    AS num_secciones
-        FROM fact_casilla_vote f
-        JOIN dim_casilla   c ON f.casilla_id  = c.casilla_id
-                             AND f.election_id = c.election_id
-        JOIN dim_geography g ON c.geo_id       = g.geo_id
-        WHERE f.election_id = '{election_id}'
-        GROUP BY f.election_id,
-                 g.id_estado, g.nombre_estado,
-                 g.id_municipio, g.municipio,
-                 f.party_key
-        ORDER BY g.id_estado, g.municipio, f.party_key
-    """, conn)
-
-    nominal = pd.read_sql_query(f"""
-        SELECT
-            g.id_estado,
-            g.municipio,
-            SUM(c.lista_nominal) AS lista_nominal_part
-        FROM dim_casilla   c
-        JOIN dim_geography g ON c.geo_id = g.geo_id
-        WHERE c.election_id  = '{election_id}'
-          AND c.tipo_casilla != 'S'
-          AND g.seccion       > 0
-        GROUP BY g.id_estado, g.municipio
-    """, conn)
-
-    df = votes.merge(nominal, on=["id_estado", "municipio"], how="left")
-    # Pre-compute join key so map rendering needs zero normalization at runtime
-    df["_join_key"] = df["nombre_estado"].map(_norm) + "||" + df["municipio"].map(_norm)
-    return df
-
-
-# ── Estado ─────────────────────────────────────────────────────────────────────
-
-def query_estado(conn, election_id: str) -> pd.DataFrame:
-    votes = pd.read_sql_query(f"""
-        SELECT
-            f.election_id,
-            g.id_estado,
-            g.nombre_estado,
-            f.party_key,
-            SUM(f.votes)              AS votes,
-            SUM(f.num_votos_validos)  AS num_votos_validos,
-            SUM(f.num_votos_nulos)    AS num_votos_nulos,
-            SUM(f.num_votos_can_nreg) AS num_votos_can_nreg,
-            SUM(f.total_votos)        AS total_votos,
-            COUNT(DISTINCT c.casilla_id)          AS num_casillas,
-            COUNT(DISTINCT g.municipio)           AS num_municipios,
-            COUNT(DISTINCT g.seccion)             AS num_secciones,
-            COUNT(DISTINCT g.id_distrito_federal) AS num_distritos
-        FROM fact_casilla_vote f
-        JOIN dim_casilla   c ON f.casilla_id  = c.casilla_id
-                             AND f.election_id = c.election_id
-        JOIN dim_geography g ON c.geo_id       = g.geo_id
-        WHERE f.election_id = '{election_id}'
-        GROUP BY f.election_id, g.id_estado, g.nombre_estado, f.party_key
-        ORDER BY g.id_estado, f.party_key
-    """, conn)
-
-    nominal = pd.read_sql_query(f"""
-        SELECT
-            g.id_estado,
-            SUM(c.lista_nominal) AS lista_nominal_part
-        FROM dim_casilla   c
-        JOIN dim_geography g ON c.geo_id = g.geo_id
-        WHERE c.election_id  = '{election_id}'
-          AND c.tipo_casilla != 'S'
-          AND g.seccion       > 0
-        GROUP BY g.id_estado
-    """, conn)
-
-    return votes.merge(nominal, on="id_estado", how="left")
-
-
-# ── Nacional ───────────────────────────────────────────────────────────────────
-
-def query_nacional(conn, election_id: str) -> pd.DataFrame:
-    votes = pd.read_sql_query(f"""
-        SELECT
-            f.election_id,
-            f.party_key,
-            SUM(f.votes)              AS votes,
-            SUM(f.num_votos_validos)  AS num_votos_validos,
-            SUM(f.num_votos_nulos)    AS num_votos_nulos,
-            SUM(f.num_votos_can_nreg) AS num_votos_can_nreg,
-            SUM(f.total_votos)        AS total_votos,
-            COUNT(DISTINCT c.casilla_id)          AS num_casillas,
-            COUNT(DISTINCT g.municipio)           AS num_municipios,
-            COUNT(DISTINCT g.seccion)             AS num_secciones,
-            COUNT(DISTINCT g.id_estado)           AS num_estados,
-            COUNT(DISTINCT g.id_distrito_federal) AS num_distritos
-        FROM fact_casilla_vote f
-        JOIN dim_casilla   c ON f.casilla_id  = c.casilla_id
-                             AND f.election_id = c.election_id
-        JOIN dim_geography g ON c.geo_id       = g.geo_id
-        WHERE f.election_id = '{election_id}'
-        GROUP BY f.election_id, f.party_key
-        ORDER BY f.party_key
-    """, conn)
-
-    nominal = pd.read_sql_query(f"""
-        SELECT SUM(c.lista_nominal) AS lista_nominal_part
-        FROM dim_casilla   c
-        JOIN dim_geography g ON c.geo_id = g.geo_id
-        WHERE c.election_id  = '{election_id}'
-          AND c.tipo_casilla != 'S'
-          AND g.seccion       > 0
-    """, conn)
-
-    nominal_val = nominal["lista_nominal_part"].iloc[0]
-    votes["lista_nominal_part"] = int(nominal_val) if pd.notna(nominal_val) else None
-    return votes
-
-
-# ── GeoJSON preprocessing ──────────────────────────────────────────────────────
-
-def preprocess_geojson(src: str = "municipios.geojson", out_dir: Path = MATERIALIZED) -> None:
-    """
-    Normalize the raw municipios GeoJSON once at pipeline time:
-      - Strip accents, uppercase, build _join_key, set feat["id"]
-      - Write to data/materialized/municipios_processed.geojson
-    Streamlit then does a plain json.load() with zero per-feature processing.
-    """
-    src_path = Path(src)
-    if not src_path.exists():
-        print(f"  ⚠️  {src} not found — GeoJSON preprocessing skipped")
-        return
-
-    with open(src_path, encoding="utf-8") as f:
-        geo = json.load(f)
-
-    for feat in geo["features"]:
-        p          = feat["properties"]
-        raw_estado = p.get("NAME_1", "")
-        raw_mun    = p.get("NAME_2", "")
-        if _norm(raw_estado) == "DISTRITO FEDERAL":
-            raw_estado = "Ciudad de Mexico"
-        join_key       = _norm(raw_estado) + "||" + _norm(raw_mun)
-        p["_join_key"] = join_key
-        feat["id"]     = join_key
-
-    dst = out_dir / "municipios_processed.geojson"
-    with open(dst, "w", encoding="utf-8") as f:
-        json.dump(geo, f, ensure_ascii=False)
-    print(f"  ✓ municipios_processed.geojson  ({dst.stat().st_size/1024/1024:.1f} MB)")
-
-
-# ── Materialize runner ─────────────────────────────────────────────────────────
-
-def run_materialize(db_path: str = DB_PATH, out_dir: Path = MATERIALIZED,
-                    geojson: str = "municipios.geojson", force: bool = False):
-    print("=" * 55)
-    print("STEP 2 — MATERIALIZE: SQLite → parquet views + aux")
-    print("=" * 55)
-    if force:
-        print("  (--force: overwriting existing files)\n")
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    conn = get_conn(db_path)
-
-    try:
-        elections = get_all_elections(conn)
-        print(f"Found {len(elections)} election(s): {elections}\n")
-
-        for eid in elections:
-            print(f"Processing {eid}...")
-            for name, fn in [
-                ("casilla",   query_casilla),
-                ("seccion",   query_seccion),
-                ("municipio", query_municipio),
-                ("estado",    query_estado),
-                ("nacional",  query_nacional),
-            ]:
-                path = out_dir / f"view_{name}_{eid}.parquet"
-                if path.exists() and not force:
-                    mb = path.stat().st_size / 1024 / 1024
-                    print(f"  → {name}... ⏭  already exists ({mb:.2f} MB), skipping")
-                    continue
-                print(f"  → {name}...", end=" ", flush=True)
-                df = fn(conn, eid)
-                df.to_parquet(path, index=False)
-                mb = path.stat().st_size / 1024 / 1024
-                print(f"✓  {len(df):>10,} rows  ({mb:.2f} MB)")
-            print()
-
-        print("Building auxiliary files...")
-
-        # dim_candidatos: straight copy-through from SQLite (no CSV access here).
-        # SQLite is the source of truth post-ingest; we dump it back to parquet
-        # so Streamlit's read path stays "parquet only", same as every other view.
-        cand_path = out_dir / "dim_candidatos.parquet"
-        if cand_path.exists() and not force:
-            print(f"  ⏭  dim_candidatos already exists, skipping")
-        else:
-            df_cand = pd.read_sql_query("SELECT * FROM dim_candidatos", conn)
-            if df_cand.empty:
-                print("  ⚠️  dim_candidatos is empty in SQLite — skipping parquet write")
-            else:
-                df_cand.to_parquet(cand_path, index=False)
-                print(f"  ✓ dim_candidatos  ({len(df_cand):,} rows  →  {cand_path.stat().st_size/1024:.0f} KB)")
-
-        geo_path = out_dir / "municipios_processed.geojson"
-        if geo_path.exists() and not force:
-            print(f"  ⏭  municipios_processed.geojson already exists, skipping")
-        else:
-            preprocess_geojson(src=geojson, out_dir=out_dir)
-
-        print(f"\nAll files in {out_dir.resolve()}\n")
-        for f in sorted(out_dir.glob("*.parquet")):
-            mb = f.stat().st_size / 1024 / 1024
-            print(f"  {f.name:<50}  {mb:>6.2f} MB")
-
-    finally:
-        conn.close()
-
-    print("\n✓ Materialize complete")
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CLI entry point
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Election data pipeline")
-    parser.add_argument(
-        "command",
-        choices=["ingest", "materialize", "all"],
-        help=(
-            "ingest       — load clean parquets into SQLite\n"
-            "materialize  — build view parquets from SQLite\n"
-            "all          — run both in sequence"
-        ),
-    )
-    parser.add_argument("--db",        default=DB_PATH,              help="SQLite path")
+    parser = argparse.ArgumentParser(description="Election data ingest: clean parquets -> SQLite")
     parser.add_argument(
         "--clean-dir", default=None,
         help=(
@@ -1185,17 +832,7 @@ if __name__ == "__main__":
             "Leave unset for normal multi-cycle ingestion."
         ),
     )
-    parser.add_argument("--mat-dir",   default=str(MATERIALIZED),    help="Output parquet dir (data/materialized)")
-    parser.add_argument("--geojson",   default="municipios.geojson", help="Raw GeoJSON path to pre-process")
-    parser.add_argument("--force",     action="store_true",          help="Overwrite existing materialized files")
+    parser.add_argument("--db", default=DB_PATH, help="SQLite path")
     args = parser.parse_args()
 
-    db    = args.db
-    clean = Path(args.clean_dir) if args.clean_dir else None
-    mat   = Path(args.mat_dir)
-
-    if args.command in ("ingest", "all"):
-        run_ingest(db_path=db, parquet_dir=clean)
-
-    if args.command in ("materialize", "all"):
-        run_materialize(db_path=db, out_dir=mat, geojson=args.geojson, force=args.force)
+    run_ingest(db_path=args.db, parquet_dir=Path(args.clean_dir) if args.clean_dir else None)
