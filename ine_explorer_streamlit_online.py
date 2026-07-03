@@ -622,7 +622,7 @@ def _agg_blocs(df: pd.DataFrame, group_cols, blocs: dict) -> pd.DataFrame:
     b_keys = [k for k, v in blocs["map"].items() if v == "B"]
     c_keys = [k for k, v in blocs["map"].items() if v == "C"]
 
-    extra = {c: "first" for c in ["_join_key", "total_votos", "nombre_estado"]
+    extra = {c: "first" for c in ["_join_key", "_mun_code", "total_votos", "nombre_estado"]
              if c in df.columns and c not in grp}
 
     def _row(g):
@@ -631,8 +631,9 @@ def _agg_blocs(df: pd.DataFrame, group_cols, blocs: dict) -> pd.DataFrame:
         c  = g[g["party_key"].isin(c_keys)]["votes"].sum()
         tv = g["total_votos"].iloc[0] if "total_votos" in g.columns else 0
         jk = g["_join_key"].iloc[0]  if "_join_key"   in g.columns else ""
+        mc = g["_mun_code"].iloc[0]  if "_mun_code"   in g.columns else ""
         return pd.Series({"bloc_A": a, "bloc_B": b, "bloc_C": c,
-                          "total_votos": tv, "_join_key": jk})
+                          "total_votos": tv, "_join_key": jk, "_mun_code": mc})
 
     agg = df.groupby(grp).apply(_row).reset_index()
     total = (agg["bloc_A"] + agg["bloc_B"] + agg["bloc_C"]).replace(0, float("nan"))
@@ -755,11 +756,12 @@ def render_hist_winner_map(df: pd.DataFrame, blocs: dict, geojson: dict, title: 
         st.info("Sin datos para el mapa.")
         return
 
+    loc_col = _map_location_col(agg, geojson)
     all_ids = {f["id"] for f in geojson["features"]}
-    agg = agg[agg["_join_key"].isin(all_ids)].copy()
+    agg = agg[agg[loc_col].isin(all_ids)].copy()
     agg["_label"] = agg["nombre_estado"] + " — " + agg["municipio"]
 
-    matched_ids = set(agg["_join_key"])
+    matched_ids = set(agg[loc_col])
     matched_features = [f for f in geojson["features"] if f["id"] in matched_ids]
     center, zoom = _bbox_to_zoom_center(matched_features)
 
@@ -769,11 +771,11 @@ def render_hist_winner_map(df: pd.DataFrame, blocs: dict, geojson: dict, title: 
         subset = agg[agg["winner"] == bloc_key]
         if subset.empty:
             continue
-        ids_set = set(subset["_join_key"])
+        ids_set = set(subset[loc_col])
         geo_sub = {"type": "FeatureCollection",
                    "features": [f for f in geojson["features"] if f["id"] in ids_set]}
         fig.add_trace(go.Choroplethmapbox(
-            geojson=geo_sub, locations=subset["_join_key"],
+            geojson=geo_sub, locations=subset[loc_col],
             z=[1] * len(subset),
             colorscale=[[0, cfg["color"]], [1, cfg["color"]]],
             showscale=False, marker_opacity=0.82,
@@ -944,6 +946,7 @@ def _build_map_agg(df: pd.DataFrame) -> pd.DataFrame:
         "lista_nominal":     g["lista_nominal_part"].iloc[0] if "lista_nominal_part" in g.columns else 0,
         # Use pre-computed join key from the parquet (set by pipeline._norm)
         "_join_key":         g["_join_key"].iloc[0] if "_join_key" in g.columns else "",
+        "_mun_code":         g["_mun_code"].iloc[0] if "_mun_code" in g.columns else "",
     })).reset_index()
 
     agg = agg[agg["NUM_VOTOS_VALIDOS"] > 0].copy()
@@ -972,10 +975,21 @@ def _build_map_agg(df: pd.DataFrame) -> pd.DataFrame:
     return agg
 
 
+def _map_location_col(agg: pd.DataFrame, geo: dict) -> str:
+    """Prefer INEGI CVEGEO municipality codes, fall back to legacy name keys."""
+    geo_keys = {f["id"] for f in geo["features"]}
+    if "_mun_code" in agg.columns:
+        codes = agg["_mun_code"].dropna().astype(str)
+        if not codes.empty and codes.isin(geo_keys).sum() >= agg["_join_key"].isin(geo_keys).sum():
+            return "_mun_code"
+    return "_join_key"
+
+
 def _build_winner_fig(agg: pd.DataFrame, geo: dict, center: dict, zoom: float,
                       opacity: float) -> go.Figure:
     """Discrete winner choropleth — one color per candidate."""
-    agg_matched = agg[agg["_join_key"].isin({f["id"] for f in geo["features"]})].copy()
+    loc_col = _map_location_col(agg, geo)
+    agg_matched = agg[agg[loc_col].isin({f["id"] for f in geo["features"]})].copy()
     fig = go.Figure()
     winner_cfg = {
         "SHH": {"color": "#8B0000", "name": "Sheinbaum (SHH)"},
@@ -986,11 +1000,11 @@ def _build_winner_fig(agg: pd.DataFrame, geo: dict, center: dict, zoom: float,
         subset = agg_matched[agg_matched["winner"] == cand_key]
         if subset.empty:
             continue
-        ids_set = set(subset["_join_key"])
+        ids_set = set(subset[loc_col])
         geo_sub = {"type": "FeatureCollection",
                    "features": [f for f in geo["features"] if f["id"] in ids_set]}
         fig.add_trace(go.Choroplethmapbox(
-            geojson=geo_sub, locations=subset["_join_key"],
+            geojson=geo_sub, locations=subset[loc_col],
             z=[1] * len(subset),
             colorscale=[[0, cfg["color"]], [1, cfg["color"]]],
             showscale=False, marker_opacity=opacity,
@@ -1023,7 +1037,8 @@ def _build_winner_fig(agg: pd.DataFrame, geo: dict, center: dict, zoom: float,
 def _build_continuous_fig(agg: pd.DataFrame, geo: dict, center: dict, zoom: float,
                            metric: dict, opacity: float) -> go.Figure:
     """Continuous choropleth for a single numeric metric."""
-    agg_matched = agg[agg["_join_key"].isin({f["id"] for f in geo["features"]})].copy()
+    loc_col = _map_location_col(agg, geo)
+    agg_matched = agg[agg[loc_col].isin({f["id"] for f in geo["features"]})].copy()
     # Exclude internal columns from hover — only show human-readable fields
     # (note: "_join_key" is intentionally absent from this dict, so it has
     # never been shown in the hover tooltip; hover_data is built from this
@@ -1043,7 +1058,7 @@ def _build_continuous_fig(agg: pd.DataFrame, geo: dict, center: dict, zoom: floa
         float(agg_matched[col].quantile(0.95)),
     ]
     fig = px.choropleth_mapbox(
-        agg_matched, geojson=geo, locations="_join_key", color=col,
+        agg_matched, geojson=geo, locations=loc_col, color=col,
         color_continuous_scale=metric["scale"], range_color=r_color,
         mapbox_style="carto-darkmatter", zoom=zoom, center=center,
         opacity=opacity, hover_name="_label",
@@ -1363,9 +1378,10 @@ def render_mexico_map(
 
     agg = _build_map_agg(df)
 
+    loc_col     = _map_location_col(agg, geo)
     geo_keys    = {f["id"] for f in geo["features"]}
-    unmatched   = len(agg) - len(agg[agg["_join_key"].isin(geo_keys)])
-    matched_ids = set(agg[agg["_join_key"].isin(geo_keys)]["_join_key"])
+    unmatched   = len(agg) - len(agg[agg[loc_col].isin(geo_keys)])
+    matched_ids = set(agg[agg[loc_col].isin(geo_keys)][loc_col])
     center, zoom = _bbox_to_zoom_center(
         [f for f in geo["features"] if f["id"] in matched_ids]
     )
@@ -1782,27 +1798,30 @@ elif page == "Nacional · Histórico":
     else:
         # Non-presidential or election without bloc mapping: winner map only
         # Build a generic party-color winner map using TS_PARTY_COLORS
-        agg_gen = df_nacional.groupby(["nombre_estado", "municipio", "_join_key", "party_key"],
-                                       as_index=False)["votes"].sum()
-        idx_win = agg_gen.groupby("_join_key")["votes"].idxmax()
+        loc_group_cols = ["nombre_estado", "municipio", "_join_key", "party_key"]
+        if "_mun_code" in df_nacional.columns:
+            loc_group_cols.insert(3, "_mun_code")
+        agg_gen = df_nacional.groupby(loc_group_cols, as_index=False)["votes"].sum()
+        loc_col = _map_location_col(agg_gen, geo)
+        idx_win = agg_gen.groupby(loc_col)["votes"].idxmax()
         winners = agg_gen.loc[idx_win].copy()
         winners["_color"] = winners["party_key"].map(
             lambda k: TS_PARTY_COLORS.get(k, _ts_fallback_color(k))
         )
         winners["_label"] = winners["nombre_estado"] + " — " + winners["municipio"]
         all_ids = {f["id"] for f in geo["features"]}
-        winners = winners[winners["_join_key"].isin(all_ids)]
+        winners = winners[winners[loc_col].isin(all_ids)]
 
         party_keys_present = sorted(winners["party_key"].unique())
         fig = go.Figure()
         for pk in party_keys_present:
             subset = winners[winners["party_key"] == pk]
             color  = TS_PARTY_COLORS.get(pk, _ts_fallback_color(pk))
-            ids_set = set(subset["_join_key"])
+            ids_set = set(subset[loc_col])
             geo_sub = {"type": "FeatureCollection",
                        "features": [f for f in geo["features"] if f["id"] in ids_set]}
             fig.add_trace(go.Choroplethmapbox(
-                geojson=geo_sub, locations=subset["_join_key"],
+                geojson=geo_sub, locations=subset[loc_col],
                 z=[1] * len(subset),
                 colorscale=[[0, color], [1, color]],
                 showscale=False, marker_opacity=0.82,

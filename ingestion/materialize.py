@@ -29,8 +29,12 @@ Usage:
 import argparse
 import json
 import sqlite3
+import tempfile
 import unicodedata
+import urllib.request
+import zipfile
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
@@ -39,12 +43,32 @@ import pandas as pd
 DB_PATH           = "election_data.db"
 MATERIALIZED      = Path("data/materialized")  # output: Streamlit reads these
 TIMESERIES_FILE   = "timeseries_estados.parquet"
+INEGI_MG_2024_URL = (
+    "https://www.inegi.org.mx/contenidos/productos/prod_serv/contenidos/"
+    "espanol/bvinegi/productos/geografia/marcogeo/794551132173/"
+    "mg_2024_integrado.zip"
+)
+INE_TO_INEGI_MUNICIPIO_CODES = {
+    # INE result files carry these older/local municipio codes; INEGI Marco
+    # Geoestadistico 2024 uses the current CVEGEO codes below.
+    (3, 4): "03008",   # Baja California Sur, Los Cabos
+    (3, 5): "03009",   # Baja California Sur, Loreto
+    (7, 95): "07094",  # Chiapas, Teopisca
+}
 
 
 def _norm(s: str) -> str:
     s = str(s).upper().strip()
     s = unicodedata.normalize("NFD", s)
     return "".join(c for c in s if unicodedata.category(c) != "Mn")
+
+
+def _mun_code(id_estado, id_municipio) -> str:
+    if pd.isna(id_estado) or pd.isna(id_municipio):
+        return ""
+    ent = int(id_estado)
+    mun = int(id_municipio)
+    return INE_TO_INEGI_MUNICIPIO_CODES.get((ent, mun), f"{ent:02d}{mun:03d}")
 
 
 # Canonical id_estado -> state name. Each cycle's source data spells/accents
@@ -297,8 +321,13 @@ def query_municipio(conn, election_id: str) -> pd.DataFrame:
     """, conn)
 
     df = votes.merge(nominal, on=["id_estado", "municipio"], how="left")
-    # Pre-compute join key so map rendering needs zero normalization at runtime
+    # Keep the legacy name key for old GeoJSONs, but also add the stable
+    # INEGI municipality code used by Marco Geoestadistico geometries.
     df["_join_key"] = df["nombre_estado"].map(_norm) + "||" + df["municipio"].map(_norm)
+    df["_mun_code"] = df.apply(
+        lambda r: _mun_code(r["id_estado"], r["id_municipio"]),
+        axis=1,
+    )
     return df
 
 
@@ -346,6 +375,182 @@ def query_estado(conn, election_id: str) -> pd.DataFrame:
 
 # ── GeoJSON preprocessing ──────────────────────────────────────────────────────
 
+def _download_file(url: str, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    print(f"  ↓ downloading {url}")
+    urllib.request.urlretrieve(url, dst)
+
+
+def _find_municipio_shp(root: Path) -> Path:
+    candidates = [
+        p for p in root.rglob("*.shp")
+        if "municip" in p.name.lower() or p.stem.lower().endswith("mun")
+    ]
+    if not candidates:
+        candidates = list(root.rglob("*mun*.shp"))
+    if not candidates:
+        raise FileNotFoundError("No municipio shapefile found inside INEGI archive")
+    return sorted(candidates, key=lambda p: (len(p.parts), str(p)))[0]
+
+
+def _rdp(points: list[tuple[float, float]], tolerance: float) -> list[tuple[float, float]]:
+    if tolerance <= 0 or len(points) <= 2:
+        return points
+
+    first, last = points[0], points[-1]
+    x1, y1 = first
+    x2, y2 = last
+    dx, dy = x2 - x1, y2 - y1
+    denom = (dx * dx + dy * dy) ** 0.5
+
+    max_dist = -1.0
+    max_idx = 0
+    for idx, (x0, y0) in enumerate(points[1:-1], start=1):
+        if denom == 0:
+            dist = ((x0 - x1) ** 2 + (y0 - y1) ** 2) ** 0.5
+        else:
+            dist = abs(dy * x0 - dx * y0 + x2 * y1 - y2 * x1) / denom
+        if dist > max_dist:
+            max_dist = dist
+            max_idx = idx
+
+    if max_dist > tolerance:
+        left = _rdp(points[: max_idx + 1], tolerance)
+        right = _rdp(points[max_idx:], tolerance)
+        return left[:-1] + right
+    return [first, last]
+
+
+def _simplify_ring(ring, tolerance_m: float):
+    points = [(float(x), float(y)) for x, y in ring]
+    if len(points) <= 4 or tolerance_m <= 0:
+        return points
+
+    closed = points[0] == points[-1]
+    work = points[:-1] if closed else points
+    simplified = _rdp(work, tolerance_m)
+    if closed and simplified[0] != simplified[-1]:
+        simplified.append(simplified[0])
+    return simplified if len(simplified) >= 4 else points
+
+
+def _transform_ring(ring, transformer):
+    return [list(transformer.transform(x, y)) for x, y in ring]
+
+
+def _shape_to_wgs84_geometry(shape, transformer, simplify_tolerance_m: float):
+    geom = shape.__geo_interface__
+    if geom["type"] == "Polygon":
+        coords = [
+            _transform_ring(_simplify_ring(ring, simplify_tolerance_m), transformer)
+            for ring in geom["coordinates"]
+        ]
+        return {"type": "Polygon", "coordinates": coords}
+    if geom["type"] == "MultiPolygon":
+        coords = [
+            [
+                _transform_ring(_simplify_ring(ring, simplify_tolerance_m), transformer)
+                for ring in polygon
+            ]
+            for polygon in geom["coordinates"]
+        ]
+        return {"type": "MultiPolygon", "coordinates": coords}
+    raise ValueError(f"Unsupported geometry type: {geom['type']}")
+
+
+def preprocess_inegi_municipios(
+    src_zip: Optional[str] = None,
+    out_dir: Path = MATERIALIZED,
+    simplify_tolerance_m: float = 120.0,
+) -> None:
+    """
+    Build municipios_processed.geojson from INEGI Marco Geoestadistico 2024.
+
+    The INEGI layer carries CVEGEO, a stable 5-digit municipality key
+    (CVE_ENT + CVE_MUN). This is safer than name joins and covers newer
+    municipios missing from the old GitHub GeoJSON.
+    """
+    try:
+        import shapefile
+        from pyproj import CRS, Transformer
+    except ImportError as exc:
+        raise RuntimeError(
+            "INEGI GeoJSON preprocessing requires optional dependencies: "
+            "`pip install pyshp pyproj`."
+        ) from exc
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="inegi_mg_") as tmp:
+        tmp_dir = Path(tmp)
+        zip_path = tmp_dir / "mg_2024_integrado.zip"
+        if src_zip:
+            src_path = Path(src_zip)
+            if src_path.exists():
+                zip_path = src_path
+            else:
+                _download_file(src_zip, zip_path)
+        else:
+            _download_file(INEGI_MG_2024_URL, zip_path)
+
+        extract_dir = tmp_dir / "extract"
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(extract_dir)
+
+        shp_path = _find_municipio_shp(extract_dir)
+        reader = shapefile.Reader(str(shp_path), encoding="latin1")
+        fields = [f[0] for f in reader.fields[1:]]
+
+        prj_path = shp_path.with_suffix(".prj")
+        if not prj_path.exists():
+            raise FileNotFoundError(f"Missing projection file for {shp_path}")
+        src_crs = CRS.from_wkt(prj_path.read_text(encoding="latin1"))
+        transformer = Transformer.from_crs(src_crs, "EPSG:4326", always_xy=True)
+
+        features = []
+        for sr in reader.iterShapeRecords():
+            props = dict(zip(fields, sr.record))
+            cvegeo = str(props.get("CVEGEO", "")).strip()
+            if len(cvegeo) != 5 or not cvegeo.isdigit():
+                cve_ent = str(props.get("CVE_ENT", "")).zfill(2)
+                cve_mun = str(props.get("CVE_MUN", "")).zfill(3)
+                cvegeo = cve_ent + cve_mun
+            if not cvegeo.isdigit() or cvegeo.endswith("000"):
+                continue
+
+            feature_props = {
+                "CVEGEO": cvegeo,
+                "CVE_ENT": cvegeo[:2],
+                "CVE_MUN": cvegeo[2:],
+                "NOMGEO": props.get("NOMGEO") or props.get("NOM_MUN"),
+                "_join_key": cvegeo,
+            }
+            for key in ("NOM_ENT", "NOM_MUN"):
+                if key in props:
+                    feature_props[key] = props[key]
+
+            features.append({
+                "type": "Feature",
+                "id": cvegeo,
+                "properties": feature_props,
+                "geometry": _shape_to_wgs84_geometry(
+                    sr.shape, transformer, simplify_tolerance_m
+                ),
+            })
+
+    geo = {
+        "type": "FeatureCollection",
+        "name": "INEGI Marco Geoestadistico 2024 - municipios",
+        "features": features,
+    }
+    dst = out_dir / "municipios_processed.geojson"
+    with open(dst, "w", encoding="utf-8") as f:
+        json.dump(geo, f, ensure_ascii=False, separators=(",", ":"))
+    print(
+        f"  ✓ municipios_processed.geojson from INEGI 2024 "
+        f"({len(features):,} features, {dst.stat().st_size/1024/1024:.1f} MB)"
+    )
+
+
 def preprocess_geojson(src: str = "municipios.geojson", out_dir: Path = MATERIALIZED) -> None:
     """
     Normalize the raw municipios GeoJSON once at materialize time:
@@ -381,8 +586,15 @@ def preprocess_geojson(src: str = "municipios.geojson", out_dir: Path = MATERIAL
     print(f"  ✓ municipios_processed.geojson  ({dst.stat().st_size/1024/1024:.1f} MB)")
 
 
-def materialize_views(db_path: str = DB_PATH, out_dir: Path = MATERIALIZED,
-                       geojson: str = "municipios.geojson", force: bool = False):
+def materialize_views(
+    db_path: str = DB_PATH,
+    out_dir: Path = MATERIALIZED,
+    geojson: str = "municipios.geojson",
+    geo_source: str = "legacy",
+    inegi_zip: Optional[str] = None,
+    simplify_tolerance_m: float = 120.0,
+    force: bool = False,
+):
     print("=" * 55)
     print("PER-ELECTION VIEWS: SQLite → parquet views + aux")
     print("=" * 55)
@@ -435,6 +647,12 @@ def materialize_views(db_path: str = DB_PATH, out_dir: Path = MATERIALIZED,
         geo_path = out_dir / "municipios_processed.geojson"
         if geo_path.exists() and not force:
             print(f"  ⏭  municipios_processed.geojson already exists, skipping")
+        elif geo_source == "inegi2024":
+            preprocess_inegi_municipios(
+                src_zip=inegi_zip,
+                out_dir=out_dir,
+                simplify_tolerance_m=simplify_tolerance_m,
+            )
         else:
             preprocess_geojson(src=geojson, out_dir=out_dir)
 
@@ -838,14 +1056,42 @@ if __name__ == "__main__":
     )
     parser.add_argument("--db",      default=DB_PATH,              help="SQLite path")
     parser.add_argument("--mat-dir", default=str(MATERIALIZED),    help="Output parquet dir (data/materialized)")
-    parser.add_argument("--geojson", default="municipios.geojson", help="Raw GeoJSON path to pre-process (views only)")
+    parser.add_argument("--geojson", default="municipios.geojson", help="Raw GeoJSON path to pre-process (legacy geo source only)")
+    parser.add_argument(
+        "--geo-source",
+        choices=["legacy", "inegi2024"],
+        default="legacy",
+        help="Municipio geometry source for municipios_processed.geojson",
+    )
+    parser.add_argument(
+        "--inegi-zip",
+        default=None,
+        help=(
+            "Optional local path or URL for INEGI mg_2024_integrado.zip. "
+            "If omitted with --geo-source inegi2024, the official INEGI URL is downloaded."
+        ),
+    )
+    parser.add_argument(
+        "--simplify-tolerance-m",
+        type=float,
+        default=120.0,
+        help="Simplification tolerance in source meters for INEGI municipio polygons",
+    )
     parser.add_argument("--force",   action="store_true",          help="Overwrite existing materialized view files")
     args = parser.parse_args()
 
     mat = Path(args.mat_dir)
 
     if args.command in ("views", "all"):
-        materialize_views(db_path=args.db, out_dir=mat, geojson=args.geojson, force=args.force)
+        materialize_views(
+            db_path=args.db,
+            out_dir=mat,
+            geojson=args.geojson,
+            geo_source=args.geo_source,
+            inegi_zip=args.inegi_zip,
+            simplify_tolerance_m=args.simplify_tolerance_m,
+            force=args.force,
+        )
 
     if args.command in ("timeseries", "all"):
         materialize_timeseries(db_path=args.db, out_dir=mat)

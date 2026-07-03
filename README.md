@@ -1,49 +1,20 @@
 # Mexican Federal Election Results Explorer
 
-Work-in-progress data pipeline and Streamlit explorer for Mexican federal
-election results at casilla, seccion, municipio, estado, and time-series levels.
+This repository builds a normalized warehouse of Mexican federal election
+results and serves analysis-ready files through a Streamlit dashboard.
 
-The project normalizes official INE result files from multiple election cycles
-into a common SQLite warehouse, materializes analysis-ready parquet files, and
-serves those parquets through a Streamlit dashboard.
+The most useful way to understand the project is as a three-stage pipeline:
 
-## Current Scope
+```text
+official INE/raw files
+  -> cycle-specific converters in ingestion/*_to_arrow_*.py
+  -> clean per-cycle parquet folders in data/clean_<year>/
+  -> ingestion/pipeline.py builds SQLite warehouse
+  -> ingestion/materialize.py builds Streamlit parquet/GeoJSON artifacts
+  -> ine_explorer_streamlit_online.py renders the app
+```
 
-The repository currently includes ingestion and materialization code for several
-federal election cycles, including presidential, deputies, and senate contests
-where available. Older source files differ substantially by year, so the
-pipeline keeps cycle-specific converters and then maps the cleaned outputs into
-a shared schema.
-
-The Streamlit app is focused on the online/lightweight deployment path:
-
-- state and municipality result views
-- materialized parquet inputs
-- multi-year state-level party time series
-- preprocessed municipio GeoJSON for map joins
-
-## Repository Layout
-
-- `ingestion/` - cycle-specific converters, SQLite ingestion, and parquet
-  materialization.
-- `ine_explorer_streamlit_online.py` - Streamlit app backed by materialized
-  parquet files.
-- `data/materialized/` - final parquet artifacts used by the Streamlit app.
-- `documentation/table_dictionaries/` - warehouse table dictionaries and raw
-  source-file references.
-- `aux_scripts/` - exploratory R scripts and QA checks used during validation.
-- `graveyard/` - older notebooks and scripts kept as historical reference.
-
-## Data Policy
-
-Raw files, cleaned intermediate files, and local SQLite databases are not meant
-to be uploaded to the repository.
-
-The intended checked-in data artifacts are the finished Streamlit parquets in
-`data/materialized/`, plus lightweight documentation files that explain how the
-warehouse and source files are structured.
-
-## Rebuild Flow
+## Quick Start
 
 Install dependencies:
 
@@ -51,32 +22,278 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-Build or refresh the SQLite warehouse from cleaned cycle parquets:
+Rebuild the SQLite warehouse from the clean parquet folders:
 
 ```bash
 python ingestion/pipeline.py
 ```
 
-Materialize Streamlit-ready parquets:
+Materialize the files used by Streamlit:
 
 ```bash
 python ingestion/materialize.py
 ```
 
-Run the app locally:
+Run the app:
 
 ```bash
 streamlit run ine_explorer_streamlit_online.py
 ```
 
-## Documentation
+Useful partial materialization commands:
 
-Start with `documentation/table_dictionaries/overview.csv` for the normalized
-warehouse schema. The table dictionary README explains the distinction between
-warehouse dictionaries and raw source-file references.
+```bash
+python ingestion/materialize.py views
+python ingestion/materialize.py timeseries
+python ingestion/materialize.py --force
+```
 
-## Status
+## What To Open First
 
-This project is still under active development. The core pipeline structure is
-in place, but documentation, QA coverage, and the final online data-storage
-strategy are still evolving.
+Open only the files needed for the task:
+
+- App/UI behavior: `ine_explorer_streamlit_online.py`
+- Streamlit-ready parquet and GeoJSON generation: `ingestion/materialize.py`
+- Clean parquet to SQLite ingestion: `ingestion/pipeline.py`
+- Raw/cycle-specific parsing: the matching converter in `ingestion/`
+- Warehouse schema meaning: `documentation/table_dictionaries/overview.csv`
+- Column-level table dictionaries: `documentation/table_dictionaries/*.csv`
+- Validation/reference scripts: `aux_scripts/`
+
+Avoid reading large `data/` artifacts unless the task explicitly requires
+debugging data values, joins, row counts, or generated output.
+
+## Main Files
+
+### `ine_explorer_streamlit_online.py`
+
+Single-file Streamlit app backed by `data/materialized/`.
+
+Important responsibilities:
+
+- Loads materialized parquet views.
+- Provides year/type/unit selectors.
+- Renders state, municipality, and national historical views.
+- Builds maps, ternary plots, bar charts, tables, scorecards, and party
+  time-series visualizations.
+- Defines 2024 party groups and historical presidential bloc mappings used for
+  ternary charts and historical winner maps.
+
+Open this file for UI changes, chart behavior, filters, page flow, color logic,
+or Streamlit deployment issues.
+
+### `ingestion/materialize.py`
+
+Turns `election_data.db` into files under `data/materialized/`.
+
+Important responsibilities:
+
+- Builds `view_<level>_<election_id>.parquet` files for:
+  `casilla`, `seccion`, `municipio`, `estado`, and `nacional`.
+- Writes `data/materialized/dim_candidatos.parquet`.
+- Writes `data/materialized/timeseries_estados.parquet`.
+- Builds `data/materialized/municipios_processed.geojson`, preferably from
+  INEGI Marco Geoestadístico 2024, with a legacy `municipios.geojson` fallback.
+- Canonicalizes state names and municipio join keys, including INEGI `CVEGEO`
+  municipality codes for map joins.
+- Splits coalition votes for historical party time series.
+
+Open this file when app data is missing, joins do not match, maps fail,
+historical time series look wrong, or new materialized outputs are needed.
+
+### `ingestion/pipeline.py`
+
+Builds the normalized SQLite warehouse from clean per-cycle parquets.
+
+Important responsibilities:
+
+- Defines `ELECTION_META`, the authoritative list of ingested election IDs,
+  years, offices, and clean parquet directories.
+- Defines `SCHEMA_MAP`, which maps cycle-specific clean parquet columns into
+  the common warehouse schema.
+- Creates and populates:
+  `dim_election`, `dim_geography`, `dim_casilla`, `dim_party`,
+  `dim_candidatos`, and `fact_casilla_vote`.
+
+Open this file when adding a new election cycle, changing warehouse schema,
+fixing ingestion into SQLite, or checking which election IDs exist.
+
+### `ingestion/*_to_arrow_*.py`
+
+Cycle-specific converters from raw INE files to clean parquet folders.
+
+Current converters:
+
+- `dat_to_arrow_1994.py`
+- `dat_to_arrow_2000.py`
+- `dat_to_arrow_2006.py`
+- `csv_to_arrow_2012.py`
+- `csv_to_arrow_2015.py`
+- `csv_to_arrow_2018.py`
+- `csv_to_arrow_2021.py`
+- `csv_to_arrow_2024.py`
+
+These scripts handle source quirks by year. Open one only when changing raw
+file parsing or regenerating `data/clean_<year>/`.
+
+## Data Layout
+
+### Raw and Clean Inputs
+
+These are local/intermediate data folders:
+
+- `data/raw_<year>/`: official source files, often large and inconsistent by
+  year.
+- `data/clean_<year>/`: normalized per-cycle parquet outputs from the converter
+  scripts.
+- `data/election_data.db`: SQLite warehouse generated by `ingestion/pipeline.py`.
+
+### Streamlit Artifacts
+
+`data/materialized/` contains the app-facing files generated by
+`ingestion/materialize.py`.
+
+Important patterns:
+
+- `view_casilla_<election_id>.parquet`
+- `view_seccion_<election_id>.parquet`
+- `view_municipio_<election_id>.parquet`
+- `view_estado_<election_id>.parquet`
+- `view_nacional_<election_id>.parquet`
+- `timeseries_estados.parquet`
+- `dim_candidatos.parquet`
+- `municipios_processed.geojson`
+
+`municipios_processed.geojson` is preferably generated from INEGI Marco
+Geoestadístico 2024 and contains feature `id` values keyed by 5-digit
+municipality `CVEGEO` codes. The municipio parquet views carry `_mun_code`
+for these joins, plus the legacy normalized-name `_join_key` fallback.
+
+## Election IDs
+
+Election IDs follow this pattern:
+
+```text
+PRE_<year>
+DIP_MR_<year>
+SEN_MR_<year>
+```
+
+Examples:
+
+- `PRE_1994`, `PRE_2000`, `PRE_2006`, `PRE_2012`, `PRE_2018`, `PRE_2024`
+- `DIP_MR_2000`, `DIP_MR_2006`, `DIP_MR_2012`, `DIP_MR_2015`,
+  `DIP_MR_2018`, `DIP_MR_2021`, `DIP_MR_2024`
+- `SEN_MR_2000`, `SEN_MR_2006`, `SEN_MR_2012`, `SEN_MR_2018`, `SEN_MR_2024`
+
+The authoritative source is `ELECTION_META` in `ingestion/pipeline.py`.
+
+## Warehouse Schema
+
+The normalized warehouse uses these tables:
+
+- `dim_election`: one row per election contest.
+- `dim_geography`: normalized geography keys.
+- `dim_casilla`: polling-station/acta identifiers and attributes.
+- `dim_party`: parties, coalitions, and vote options.
+- `dim_candidatos`: candidate catalog rows where available.
+- `fact_casilla_vote`: long-format vote totals by election/casilla/party.
+
+Start with `documentation/table_dictionaries/overview.csv` for row grain,
+primary keys, joins, and purpose. Use the other CSVs in
+`documentation/table_dictionaries/` for column-level details.
+
+## Common Workflows
+
+### Change app UI or charts
+
+Usually open:
+
+- `ine_explorer_streamlit_online.py`
+
+Then run:
+
+```bash
+streamlit run ine_explorer_streamlit_online.py
+```
+
+### Fix map joins or missing municipios
+
+Usually open:
+
+- `ingestion/materialize.py`
+- `municipios.geojson` only when debugging the legacy fallback source
+
+Then run:
+
+```bash
+python ingestion/materialize.py views --geo-source inegi2024 --force
+streamlit run ine_explorer_streamlit_online.py
+```
+
+### Fix historical party time series
+
+Usually open:
+
+- `ingestion/materialize.py`
+- `documentation/table_dictionaries/dim_party.csv` if party/coalition meaning
+  is unclear
+
+Then run:
+
+```bash
+python ingestion/materialize.py timeseries
+```
+
+### Add or fix a raw election converter
+
+Usually open:
+
+- The matching `ingestion/*_to_arrow_*.py`
+- `ingestion/pipeline.py` if the clean schema or election metadata changes
+- `documentation/table_dictionaries/raw_cycle_examples.csv` for source quirks
+
+Then run the converter, followed by:
+
+```bash
+python ingestion/pipeline.py
+python ingestion/materialize.py --force
+```
+
+### Update warehouse schema
+
+Usually open:
+
+- `ingestion/pipeline.py`
+- `ingestion/materialize.py`
+- `documentation/table_dictionaries/*.csv`
+- `ine_explorer_streamlit_online.py` only if app-facing columns changed
+
+## Git and Data Policy
+
+Large raw files, clean intermediate parquets, and local SQLite databases should
+not be treated as source code. The repo's `.gitignore` ignores `data/`, so use
+care when staging generated artifacts.
+
+The intended code review surface is usually:
+
+- Python source files
+- Documentation files
+- Selected app-facing materialized artifacts when deliberately refreshed
+
+If Git says a path under `data/` is ignored, existing tracked files can still
+record modifications, but new ignored files require `git add -f`.
+
+## Notes for AI Assistants
+
+- Prefer reading this README, `documentation/table_dictionaries/overview.csv`,
+  and the specific target file before scanning the repo broadly.
+- Do not open `data/materialized/*.parquet` or large raw files unless the task
+  is explicitly about data debugging.
+- For generated GeoJSON diffs, use summary commands (`git diff --stat`,
+  row/key checks, or targeted JSON inspection) instead of reading the whole
+  one-line file.
+- If behavior depends on currently generated data, inspect the materialization
+  code first, then query the relevant parquet only as needed.
+- Keep README updates high-signal: this file is an orientation map, not a full
+  data dictionary.
