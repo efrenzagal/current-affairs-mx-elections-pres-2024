@@ -78,6 +78,74 @@ def _sql_quote(name: str) -> str:
     return name.replace("'", "''")
 
 
+GEOJSON_ESTADO_ALIASES = {
+    "COAHUILA": CANONICAL_ESTADO_NOMBRES[5],
+    "DISTRITO FEDERAL": CANONICAL_ESTADO_NOMBRES[9],
+    "MICHOACAN": CANONICAL_ESTADO_NOMBRES[16],
+    "VERACRUZ": CANONICAL_ESTADO_NOMBRES[30],
+}
+
+
+GEOJSON_MUNICIPIO_ALIASES = {
+    ("CHIHUAHUA", "BATOPILAS"): "BATOPILAS DE MANUEL GOMEZ MORIN",
+    ("CHIHUAHUA", "CARICHIC"): "CARICHI",
+    ("CHIHUAHUA", "CUSIHUIRIACHIC"): "CUSIHUIRIACHI",
+    ("CHIHUAHUA", "GUACHOCHIC"): "GUACHOCHI",
+    ("CHIHUAHUA", "MAGUARICHIC"): "MAGUARICHI",
+    ("CHIHUAHUA", "MATACHIC"): "MATACHI",
+    ("CHIHUAHUA", "GENERAL TRIAS"): "SANTA ISABEL",
+    ("CHIHUAHUA", "URUACHIC"): "URUACHI",
+    ("CIUDAD DE MEXICO", "MAGDALENA CONTRERAS"): "LA MAGDALENA CONTRERAS",
+    ("COAHUILA DE ZARAGOZA", "NUEVA ROSITA"): "SAN JUAN DE SABINAS",
+    ("DURANGO", "GENERAL SIMON BOLIVAR"): "SIMON BOLIVAR",
+    ("DURANGO", "SAN LUIS DE CORDERO"): "SAN LUIS DEL CORDERO",
+    ("GUANAJUATO", "ALLENDE"): "SAN MIGUEL DE ALLENDE",
+    ("GUANAJUATO", "DOLORES HIDALGO"): "DOLORES HIDALGO CUNA DE LA INDEPENDENCIA NACIONAL",
+    ("GUANAJUATO", "SILAO"): "SILAO DE LA VICTORIA",
+    ("GUERRERO", "JOSE AZUETA"): "ZIHUATANEJO DE AZUETA",
+    ("GUERRERO", "LA UNION"): "LA UNION DE ISIDORO MONTES DE OCA",
+    ("JALISCO", "CIUDAD GUZMAN"): "ZAPOTLAN EL GRANDE",
+    ("JALISCO", "CIUDAD VENUSTIANO CARRANZA"): "SAN GABRIEL",
+    ("JALISCO", "ANTONIO ESCOBEDO"): "SAN JUANITO DE ESCOBEDO",
+    ("JALISCO", "CUQUITO"): "CUQUIO",
+    ("JALISCO", "MANUEL M. DIEGUEZ"): "SANTA MARIA DEL ORO",
+    ("JALISCO", "TLAQUEPAQUE"): "SAN PEDRO TLAQUEPAQUE",
+    ("MEXICO", "ACAMBAY"): "ACAMBAY DE RUIZ CASTANEDA",
+    ("MEXICO", "JALATLACO"): "XALATLACO",
+    ("MEXICO", "SAN MARTIN DE LAS PIRAAMIDES"): "SAN MARTIN DE LAS PIRAMIDES",
+    ("MEXICO", "TLALNEPANTLA"): "TLALNEPANTLA DE BAZ",
+    ("MEXICO", "ZINACATEPEC"): "ZINACANTEPEC",
+    ("MORELOS", "TLALTIZAPAN"): "TLALTIZAPAN DE ZAPATA",
+    ("MORELOS", "ZACATEPEC DE HIDALGO"): "ZACATEPEC",
+    ("MORELOS", "ZACUALPAN"): "ZACUALPAN DE AMILPAS",
+    ("NUEVO LEON", "DOCTOR ARROYO"): "DR. ARROYO",
+    ("NUEVO LEON", "DOCTOR COSS"): "DR. COSS",
+    ("NUEVO LEON", "DOCTOR GONZALEZ"): "DR. GONZALEZ",
+    ("NUEVO LEON", "GENERAL BRAVO"): "GRAL. BRAVO",
+    ("NUEVO LEON", "GENERAL ESCOBEDO"): "GRAL. ESCOBEDO",
+    ("NUEVO LEON", "GENERAL TERAN"): "GRAL. TERAN",
+    ("NUEVO LEON", "GENERAL TREVINO"): "GRAL. TREVINO",
+    ("NUEVO LEON", "GENERAL ZARAGOZA"): "GRAL. ZARAGOZA",
+    ("NUEVO LEON", "GENERAL ZUAZUA"): "GRAL. ZUAZUA",
+    ("SAN LUIS POTOSI", "TANCANHUITZ DE SANTOS"): "TANCANHUITZ",
+    ("CHIAPAS", "VILLA COMALTITLAN"): "VILLACOMALTITLAN",
+    ("SINALOA", "EL ROSARIO"): "ROSARIO",
+    ("TLAXCALA", "ALTZAYANCA"): "ATLTZAYANCA",
+    ("TLAXCALA", "YAUHQUEMECAN"): "YAUHQUEMEHCAN",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "AMATITLAN DE LOS REYES"): "AMATLAN DE LOS REYES",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "AMATLAN TUXPAN"): "NARANJOS AMATLAN",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "CAMARON DE TEJADA"): "CAMARON DE TEJEDA",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "CHOCOMAN"): "CHOCAMAN",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "COXQUIHI"): "COXQUIHUI",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "JALANCINGO"): "JALACINGO",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "MEDELLIN"): "MEDELLIN DE BRAVO",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "MIHUATLAN"): "MIAHUATLAN",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "TEMAPACHE"): "ALAMO TEMAPACHE",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "TLAJOCALPAN"): "TLACOJALPAN",
+    ("VERACRUZ DE IGNACIO DE LA LLAVE", "TLAQUILPAN"): "TLAQUILPA",
+}
+
+
 # SQL CASE expression so GROUP BY collapses duplicate spellings at the
 # source, instead of fragmenting one state into several rows.
 _ESTADO_CASE_SQL = "CASE g.id_estado " + " ".join(
@@ -297,9 +365,13 @@ def preprocess_geojson(src: str = "municipios.geojson", out_dir: Path = MATERIAL
         p          = feat["properties"]
         raw_estado = p.get("NAME_1", "")
         raw_mun    = p.get("NAME_2", "")
-        if _norm(raw_estado) == "DISTRITO FEDERAL":
-            raw_estado = "Ciudad de Mexico"
-        join_key       = _norm(raw_estado) + "||" + _norm(raw_mun)
+        raw_estado = GEOJSON_ESTADO_ALIASES.get(_norm(raw_estado), raw_estado)
+        estado_key = _norm(raw_estado)
+        mun_key = GEOJSON_MUNICIPIO_ALIASES.get(
+            (estado_key, _norm(raw_mun)),
+            _norm(raw_mun),
+        )
+        join_key       = estado_key + "||" + mun_key
         p["_join_key"] = join_key
         feat["id"]     = join_key
 
@@ -417,6 +489,17 @@ PARTY_ALIASES = {
     "CAND_IND2":            "CAND_IND_2",
 }
 
+# When ALL coalition members had 0 direct votes (i.e. they only ran under the
+# coalition banner), the proportional-split fallback would otherwise assign
+# equal shares to every member. For well-known presidential coalitions where
+# the candidacy clearly belonged to one party, attribute 100% to that party.
+COALITION_LEAD_PARTY = {
+    "A. CAM.": "PAN",   # 2000: Fox (PAN) ran under Alianza por el Cambio
+    "A. MEX.": "PRD",   # 2000: Cárdenas (PRD) ran under Alianza por México
+    "APM":     "PRI",   # 2006: Madrazo (PRI) ran under Alianza por México
+    "PBT":     "PRD",   # 2006: AMLO (PRD) ran under Por el Bien de Todos
+}
+
 # Full Spanish names for standalone (non-coalition) parties, keyed by the
 # post-alias canonical code. Coalitions don't need an entry here — their
 # label is built from member codes instead (see build_party_labels below).
@@ -494,7 +577,7 @@ def load_raw_votes(conn: sqlite3.Connection) -> pd.DataFrame:
           AND g.seccion        > 0
         GROUP BY
             e.election_id, e.year, e.election_type,
-            g.id_estado, g.nombre_estado,
+            g.id_estado,
             f.party_key
         ORDER BY e.year, g.id_estado, f.party_key
     """, conn)
@@ -541,7 +624,8 @@ def split_coalitions(
     """
     For each (election_id, id_estado, coalition_key), distribute coalition
     votes to member parties proportional to each member's own direct votes.
-    Fallback: equal weight when all members have 0 direct votes.
+    Fallback when all members have 0 direct votes: 100% to the lead party
+    if the coalition is in COALITION_LEAD_PARTY, otherwise equal weight.
 
     Returns a long DataFrame with columns:
         election_id, id_estado, party_key, votes_split
@@ -581,6 +665,10 @@ def split_coalitions(
         lambda r: (
             r["member_indiv"] / r["total_member_indiv"]
             if r["total_member_indiv"] > 0
+            else (
+                1.0 if r["member_key"] == COALITION_LEAD_PARTY.get(r["coalition_key"])
+                else 0.0
+            ) if r["coalition_key"] in COALITION_LEAD_PARTY
             else 1.0 / r["n_members"]
         ),
         axis=1,

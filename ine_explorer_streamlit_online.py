@@ -29,7 +29,7 @@ from pathlib import Path
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="INE PREP 2024 · Explorador",
+    page_title="INE · Explorador Electoral",
     page_icon="🗳️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -42,18 +42,22 @@ html, body, [class*="css"] { font-family: 'IBM Plex Sans', sans-serif; }
 h1, h2, h3 { font-family: 'IBM Plex Mono', monospace; letter-spacing: -0.02em; }
 .metric-card {
     background: #F7F7F5;
-    border-left: 3px solid #C84B31;
-    padding: 1rem 1.2rem;
+    border-left: 4px solid #C84B31;
+    padding: 1.4rem 1.6rem;
     border-radius: 2px;
     margin-bottom: 0.5rem;
 }
 .metric-card .label {
-    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em;
-    color: #888; font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: #888; font-family: 'IBM Plex Mono', monospace; margin-bottom: 0.3rem;
 }
 .metric-card .value {
-    font-size: 1.6rem; font-weight: 600; color: #1A1A1A;
-    font-family: 'IBM Plex Mono', monospace;
+    font-size: 2.4rem; font-weight: 600; color: #1A1A1A;
+    font-family: 'IBM Plex Mono', monospace; line-height: 1.1;
+}
+.metric-card .sub {
+    font-size: 0.75rem; color: #666; font-family: 'IBM Plex Sans', sans-serif;
+    margin-top: 0.2rem;
 }
 .tag {
     display: inline-block; background: #EAEAEA; color: #444;
@@ -65,6 +69,12 @@ h1, h2, h3 { font-family: 'IBM Plex Mono', monospace; letter-spacing: -0.02em; }
     text-transform: uppercase; letter-spacing: 0.1em;
     color: #C84B31; margin-bottom: 0.3rem;
     margin-top: 1rem;
+}
+.panel-divider {
+    border-left: 1px solid rgba(136, 136, 136, 0.28);
+    height: 640px;
+    margin: 2.3rem auto 0 auto;
+    width: 1px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -117,6 +127,64 @@ PARTY_GROUPS = {
     "PAN_PRD":        {"label": "PAN+PRD",        "color": "#1E90FF", "cand": "CAND_FCM"},
     "PRI_PRD":        {"label": "PRI+PRD",        "color": "#1E90FF", "cand": "CAND_FCM"},
     "MC":             {"label": "MC",             "color": "#FF8C00", "cand": "CAND_MC"},
+}
+
+# Consistent ideological corners across all presidential elections:
+#   A (bottom-left) = Left  (PRD lineage → MORENA)
+#   B (bottom-right) = Right (PAN lineage)
+#   C (top)          = Center/Establishment (PRI historically;
+#                      MC in 2024 after PRI absorbed into the B coalition)
+CYCLE_BLOCS: dict[str, dict] = {
+    "PRE_1994": {
+        "A": {"label": "Cárdenas — PRD",                   "color": "#FFCC00"},
+        "B": {"label": "Fernández de Cevallos — PAN",      "color": "#003893"},
+        "C": {"label": "Zedillo — PRI",                    "color": "#006847"},
+        "map": {"PRD": "A", "PAN": "B", "PRI": "C"},
+    },
+    "PRE_2000": {
+        "A": {"label": "Cárdenas — Alianza por México",    "color": "#FFCC00"},
+        "B": {"label": "Fox — Alianza por el Cambio",      "color": "#003893"},
+        "C": {"label": "Labastida — PRI",                  "color": "#006847"},
+        "map": {"A. MEX.": "A", "A. CAM.": "B", "PRI": "C"},
+    },
+    "PRE_2006": {
+        "A": {"label": "AMLO — Por el Bien de Todos",      "color": "#FFCC00"},
+        "B": {"label": "Calderón — PAN",                   "color": "#003893"},
+        "C": {"label": "Madrazo — Alianza por México",     "color": "#006847"},
+        "map": {"PBT": "A", "PAN": "B", "APM": "C"},
+    },
+    "PRE_2012": {
+        "A": {"label": "AMLO — PRD+PT+MC",                 "color": "#FFCC00"},
+        "B": {"label": "Vázquez Mota — PAN",               "color": "#003893"},
+        "C": {"label": "Peña Nieto — PRI+PVEM",            "color": "#006847"},
+        "map": {
+            "PRD": "A", "C_PRD_PT_MC": "A", "C_PRD_PT": "A",
+            "C_PRD_MC": "A", "PT": "A", "MC": "A", "C_PT_MC": "A",
+            "PAN": "B",
+            "PRI": "C", "C_PRI_PVEM": "C", "PVEM": "C",
+        },
+    },
+    "PRE_2018": {
+        "A": {"label": "AMLO — Juntos Haremos Historia",   "color": "#8B0000"},
+        "B": {"label": "Anaya — Por México al Frente",     "color": "#003893"},
+        "C": {"label": "Meade — Todos por México",         "color": "#006847"},
+        "map": {
+            "MORENA": "A", "PT": "A", "ENCUENTRO SOCIAL": "A",
+            "PT_MORENA": "A", "PT_MORENA_PES": "A", "MORENA_PES": "A",
+            "PAN": "B", "PRD": "B", "MOVIMIENTO CIUDADANO": "B",
+            "PAN_PRD_MC": "B", "PAN_PRD": "B", "PAN_MC": "B", "PRD_MC": "B",
+            "PRI": "C", "PVEM": "C", "NUEVA ALIANZA": "C",
+            "PRI_PVEM": "C", "PRI_NA": "C", "PRI_PVEM_NA": "C", "PVEM_NA": "C",
+        },
+    },
+    "PRE_2024": {
+        # PRI merged into FCM (B/right), so MC takes the "new center" vertex (C/top)
+        "A": {"label": "Sheinbaum — Sigamos Haciendo Historia", "color": "#8B0000"},
+        "B": {"label": "Gálvez — Fuerza y Corazón por México",  "color": "#1E90FF"},
+        "C": {"label": "Máynez — Movimiento Ciudadano",          "color": "#FF8C00"},
+        "map": {k: ("A" if v["cand"] == "CAND_SHH" else "B" if v["cand"] == "CAND_FCM" else "C")
+                for k, v in PARTY_GROUPS.items()},
+    },
 }
 
 MAP_METRICS = {
@@ -248,19 +316,27 @@ def safe_int(v, default: int = 0) -> int:
     lista_nominal_part comes back NaN for that whole election."""
     return default if pd.isna(v) else int(v)
 
-def metric_card(label, value):
-    st.markdown(f"""<div class="metric-card">
-        <div class="label">{label}</div>
-        <div class="value">{value}</div>
-    </div>""", unsafe_allow_html=True)
+def metric_card(label, value, sub=None):
+    sub_html = f'<div class="sub">{sub}</div>' if sub else ""
+    st.markdown(
+        f'<div class="metric-card">'
+        f'<div class="label">{label}</div>'
+        f'<div class="value">{value}</div>'
+        f'{sub_html}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def render_scorecards(total_v: int, lista_nom: int, part_pct: float, nulos_pct: float):
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: metric_card("Total votos",   fmt_num(total_v))
-    with c2: metric_card("Lista nominal", fmt_num(lista_nom))
-    with c3: metric_card("Participación", fmt_pct(part_pct))
-    with c4: metric_card("Votos nulos",   fmt_pct(nulos_pct))
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        metric_card("Votos emitidos", fmt_num(total_v),
+                    sub=f"de {fmt_num(lista_nom)} en lista nominal" if lista_nom else None)
+    with c2:
+        metric_card("Participación", fmt_pct(part_pct))
+    with c3:
+        metric_card("Votos nulos", fmt_pct(nulos_pct),
+                    sub=f"{fmt_num(round(total_v * nulos_pct / 100))} votos" if total_v else None)
 
 
 def election_label(election_id: str) -> str:
@@ -396,7 +472,7 @@ def render_both_charts(df: pd.DataFrame):
 # ── Ternary bubble ─────────────────────────────────────────────────────────────
 
 def render_ternary_bubble(df: pd.DataFrame, group_cols, label_cols, title_suffix,
-                          n_bubbles: int = None):
+                          n_bubbles: int = None, height: int = 580):
     grp = group_cols if isinstance(group_cols, list) else [group_cols]
     lbl = label_cols if isinstance(label_cols, list) else [label_cols]
 
@@ -523,7 +599,7 @@ def render_ternary_bubble(df: pd.DataFrame, group_cols, label_cols, title_suffix
         xaxis=dict(visible=False, range=[-0.12, 1.12]),
         yaxis=dict(visible=False, scaleanchor="x", scaleratio=1,
                    range=[-0.15, sqrt3_2 + 0.12]),
-        height=580,
+        height=height,
         legend=dict(orientation="h", yanchor="bottom", y=-0.15, xanchor="center", x=0.5),
         margin=dict(l=20, r=20, t=60, b=80),
     )
@@ -535,6 +611,195 @@ def render_ternary_bubble(df: pd.DataFrame, group_cols, label_cols, title_suffix
         "El color indica al ganador. "
         "El centro marca el empate perfecto 33/33/33."
     )
+
+
+# ── Historical visualizations (any election) ───────────────────────────────────
+
+def _agg_blocs(df: pd.DataFrame, group_cols, blocs: dict) -> pd.DataFrame:
+    """Aggregate votes into 3 blocs (A/B/C) per geographic unit."""
+    grp = group_cols if isinstance(group_cols, list) else [group_cols]
+    a_keys = [k for k, v in blocs["map"].items() if v == "A"]
+    b_keys = [k for k, v in blocs["map"].items() if v == "B"]
+    c_keys = [k for k, v in blocs["map"].items() if v == "C"]
+
+    extra = {c: "first" for c in ["_join_key", "total_votos", "nombre_estado"]
+             if c in df.columns and c not in grp}
+
+    def _row(g):
+        a  = g[g["party_key"].isin(a_keys)]["votes"].sum()
+        b  = g[g["party_key"].isin(b_keys)]["votes"].sum()
+        c  = g[g["party_key"].isin(c_keys)]["votes"].sum()
+        tv = g["total_votos"].iloc[0] if "total_votos" in g.columns else 0
+        jk = g["_join_key"].iloc[0]  if "_join_key"   in g.columns else ""
+        return pd.Series({"bloc_A": a, "bloc_B": b, "bloc_C": c,
+                          "total_votos": tv, "_join_key": jk})
+
+    agg = df.groupby(grp).apply(_row).reset_index()
+    total = (agg["bloc_A"] + agg["bloc_B"] + agg["bloc_C"]).replace(0, float("nan"))
+    agg["pct_A"] = (agg["bloc_A"] / total * 100).round(1)
+    agg["pct_B"] = (agg["bloc_B"] / total * 100).round(1)
+    agg["pct_C"] = (agg["bloc_C"] / total * 100).round(1)
+    agg["winner"] = agg[["bloc_A", "bloc_B", "bloc_C"]].idxmax(axis=1).str.replace("bloc_", "")
+    return agg.dropna(subset=["pct_A"])
+
+
+def render_hist_ternary(df: pd.DataFrame, blocs: dict, title: str,
+                        n_bubbles: int = None, height: int = 580):
+    grp = ["nombre_estado", "municipio"] if "nombre_estado" in df.columns else ["municipio"]
+    agg = _agg_blocs(df, grp, blocs)
+    if n_bubbles:
+        agg = agg.nlargest(n_bubbles, "total_votos")
+    if agg.empty:
+        st.info("Sin datos suficientes para el gráfico ternario.")
+        return
+
+    sqrt3_2 = np.sqrt(3) / 2
+    total   = agg["bloc_A"] + agg["bloc_B"] + agg["bloc_C"]
+    pct_a   = agg["bloc_A"] / total
+    pct_b   = agg["bloc_B"] / total
+    pct_c   = agg["bloc_C"] / total
+    agg["tx"] = pct_b + pct_c * 0.5
+    agg["ty"] = pct_c * sqrt3_2
+
+    color_map  = {"A": blocs["A"]["color"], "B": blocs["B"]["color"], "C": blocs["C"]["color"]}
+    agg["_color"] = agg["winner"].map(color_map)
+
+    mun_col = "municipio" if "municipio" in agg.columns else agg.columns[0]
+    def make_hover(r):
+        est = f"{r['nombre_estado']} · " if "nombre_estado" in agg.columns else ""
+        return (
+            f"<b>{est}{r[mun_col]}</b><br>"
+            f"{blocs['A']['label']}: {r['pct_A']:.1f}%<br>"
+            f"{blocs['B']['label']}: {r['pct_B']:.1f}%<br>"
+            f"{blocs['C']['label']}: {r['pct_C']:.1f}%<br>"
+            f"Votos: {int(r['bloc_A']+r['bloc_B']+r['bloc_C']):,}"
+        )
+    agg["_text"] = agg.apply(make_hover, axis=1)
+    agg["_size"] = (total / total.max() * 55).clip(lower=5)
+
+    grid_traces = []
+    for frac in [1/3, 2/3]:
+        ax, ay = 1 - frac, 0;               bx, by = (1-frac)*0.5, (1-frac)*sqrt3_2
+        cx, cy = frac,     0;               dx, dy = frac + (1-frac)*0.5, (1-frac)*sqrt3_2
+        ex, ey = (1-frac) + frac*0.5, frac*sqrt3_2;  fx, fy = frac*0.5, frac*sqrt3_2
+        for (x0,y0,x1,y1) in [(ax,ay,bx,by),(cx,cy,dx,dy),(ex,ey,fx,fy)]:
+            grid_traces.append(go.Scatter(
+                x=[x0,x1], y=[y0,y1], mode="lines",
+                line=dict(color="rgba(180,180,180,0.4)", width=0.8, dash="dot"),
+                hoverinfo="skip", showlegend=False,
+            ))
+
+    lbl_a = blocs["A"]["label"].split("—")[0].strip() if "—" in blocs["A"]["label"] else blocs["A"]["label"]
+    lbl_b = blocs["B"]["label"].split("—")[0].strip() if "—" in blocs["B"]["label"] else blocs["B"]["label"]
+    lbl_c = blocs["C"]["label"].split("—")[0].strip() if "—" in blocs["C"]["label"] else blocs["C"]["label"]
+
+    vertex_labels = go.Scatter(
+        x=[0, 1, 0.5], y=[-0.06, -0.06, sqrt3_2 + 0.04],
+        mode="text",
+        text=[f"<b>{lbl_a}</b>", f"<b>{lbl_b}</b>", f"<b>{lbl_c}</b>"],
+        textfont=dict(size=12, family="IBM Plex Mono",
+                      color=[blocs["A"]["color"], blocs["B"]["color"], blocs["C"]["color"]]),
+        hoverinfo="skip", showlegend=False,
+    )
+    centroid = go.Scatter(
+        x=[0.5], y=[sqrt3_2/3], mode="markers+text",
+        marker=dict(symbol="cross", size=10, color="rgba(100,100,100,0.6)",
+                    line=dict(width=1.5, color="gray")),
+        text=["33/33/33"], textposition="middle right",
+        textfont=dict(size=9, color="#999"),
+        hoverinfo="skip", showlegend=False,
+    )
+    triangle = go.Scatter(
+        x=[0, 1, 0.5, 0], y=[0, 0, sqrt3_2, 0], mode="lines",
+        line=dict(color="white", width=1.5), hoverinfo="skip", showlegend=False,
+    )
+    bubbles = go.Scatter(
+        x=agg["tx"], y=agg["ty"], mode="markers",
+        marker=dict(size=agg["_size"], color=agg["_color"], opacity=0.72,
+                    line=dict(width=0.8, color="white")),
+        hovertemplate=agg["_text"] + "<extra></extra>",
+        showlegend=False,
+    )
+    legend_traces = [
+        go.Scatter(x=[None], y=[None], mode="markers",
+                   marker=dict(size=10, color=blocs[k]["color"]),
+                   name=blocs[k]["label"], showlegend=True)
+        for k in ("A", "B", "C")
+    ]
+    fig = go.Figure(data=grid_traces + [triangle, centroid, vertex_labels, bubbles] + legend_traces)
+    fig.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        font_family="IBM Plex Sans", title_font_family="IBM Plex Mono",
+        font_color="#888888",
+        title=f"<b>Distribución ternaria · {title}</b> ({len(agg):,} municipios)",
+        xaxis=dict(visible=False, range=[-0.12, 1.12]),
+        yaxis=dict(visible=False, scaleanchor="x", scaleratio=1,
+                   range=[-0.18, sqrt3_2 + 0.15]),
+        height=height,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.18, xanchor="center", x=0.5),
+        margin=dict(l=20, r=20, t=60, b=90),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+    st.caption("Cada burbuja = un municipio. Posición = distribución de votos entre los 3 candidatos principales. Tamaño ∝ votos totales.")
+
+
+@st.cache_data(show_spinner="Cargando datos nacionales...")
+def load_mun_national(election_id: str) -> pd.DataFrame:
+    return load_view("municipio", election_id)
+
+
+def render_hist_winner_map(df: pd.DataFrame, blocs: dict, geojson: dict, title: str,
+                           height: int = 560):
+    agg = _agg_blocs(df, ["nombre_estado", "municipio"], blocs)
+    if agg.empty:
+        st.info("Sin datos para el mapa.")
+        return
+
+    all_ids = {f["id"] for f in geojson["features"]}
+    agg = agg[agg["_join_key"].isin(all_ids)].copy()
+    agg["_label"] = agg["nombre_estado"] + " — " + agg["municipio"]
+
+    matched_ids = set(agg["_join_key"])
+    matched_features = [f for f in geojson["features"] if f["id"] in matched_ids]
+    center, zoom = _bbox_to_zoom_center(matched_features)
+
+    fig = go.Figure()
+    for bloc_key in ("A", "B", "C"):
+        cfg    = blocs[bloc_key]
+        subset = agg[agg["winner"] == bloc_key]
+        if subset.empty:
+            continue
+        ids_set = set(subset["_join_key"])
+        geo_sub = {"type": "FeatureCollection",
+                   "features": [f for f in geojson["features"] if f["id"] in ids_set]}
+        fig.add_trace(go.Choroplethmapbox(
+            geojson=geo_sub, locations=subset["_join_key"],
+            z=[1] * len(subset),
+            colorscale=[[0, cfg["color"]], [1, cfg["color"]]],
+            showscale=False, marker_opacity=0.82,
+            marker_line_width=0.25, marker_line_color="rgba(255,255,255,0.1)",
+            hovertext=subset["_label"],
+            customdata=subset[["pct_A", "pct_B", "pct_C", "total_votos"]].values,
+            hovertemplate=(
+                "<b>%{hovertext}</b><br>"
+                f"<span style='color:{blocs['A']['color']}'>{blocs['A']['label'].split('—')[0].strip()}</span>: %{{customdata[0]:.1f}}%<br>"
+                f"<span style='color:{blocs['B']['color']}'>{blocs['B']['label'].split('—')[0].strip()}</span>: %{{customdata[1]:.1f}}%<br>"
+                f"<span style='color:{blocs['C']['color']}'>{blocs['C']['label'].split('—')[0].strip()}</span>: %{{customdata[2]:.1f}}%<br>"
+                "Votos: %{customdata[3]:,}<extra></extra>"
+            ),
+            name=cfg["label"], showlegend=True,
+        ))
+
+    fig.update_layout(
+        mapbox=dict(style="carto-darkmatter", zoom=zoom, center=center),
+        legend=dict(orientation="h", yanchor="top", y=-0.04,
+                    xanchor="center", x=0.5, font=dict(size=11), itemsizing="constant"),
+        title=dict(text=f"<b>{title}</b>", font=dict(family="IBM Plex Mono", size=14)),
+        margin=dict(l=0, r=0, t=50, b=70),
+        height=height,
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 
 # ── Top-N table ────────────────────────────────────────────────────────────────
@@ -641,7 +906,6 @@ def render_results_table(
 # ── Choropleth map ─────────────────────────────────────────────────────────────
 
 def _bbox_to_zoom_center(features):
-    import math
     lats, lons = [], []
     for feat in features:
         geom = feat.get("geometry") or {}
@@ -659,7 +923,7 @@ def _bbox_to_zoom_center(features):
     clat = (min(lats) + max(lats)) / 2
     clon = (min(lons) + max(lons)) / 2
     span = max(max(lats) - min(lats), max(lons) - min(lons))
-    zoom = max(3.5, min(10.0, np.log2(360 / span) + 0.5)) if span > 0 else 5.0
+    zoom = max(3.0, min(9.0, np.log2(360 / span) - 0.4)) if span > 0 else 4.0
     return {"lat": clat, "lon": clon}, round(zoom, 1)
 
 
@@ -839,7 +1103,7 @@ TS_PARTY_COLORS: dict[str, str] = {
     "MC":               "#FF8C00",
     "PT":               "#CC0000",
     "PVEM":             "#4CAF50",
-    "NUEVA ALIANZA":    "#9B59B6",
+    "NUEVA ALIANZA":    "#00BCD4",
     "ENCUENTRO SOCIAL": "#E91E8C",
     "PVEM_PT_MORENA":   "#8B0000",
     "PT_MORENA":        "#A02020",
@@ -978,28 +1242,6 @@ def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int, estado
     election_types = sorted(df_state["election_type"].unique())
     et_options      = {TS_ELECTION_TYPE_LABELS.get(e, e): e for e in election_types}
 
-    cols = st.columns([1.4, 1.6, 1.6, 1])
-    with cols[0]:
-        et_keys     = list(et_options.keys())
-        pre_default = et_keys.index("Presidencia") if "Presidencia" in et_keys else 0
-        et_label    = st.selectbox("Tipo de elección", et_keys, index=pre_default, key="ts_et")
-        et          = et_options[et_label]
-    with cols[1]:
-        coalition_mode = st.radio(
-            "Votos de coalición", ["Divididos", "Como coalición"],
-            horizontal=True, key="ts_coalition",
-        )
-        split = coalition_mode == "Divididos"
-    with cols[2]:
-        metric  = st.radio("Métrica", ["% del total", "Votos abs."], index=0, horizontal=True, key="ts_metric")
-        use_pct = metric == "% del total"
-    with cols[3]:
-        show_area = st.checkbox("Área bajo curva", value=False, key="ts_area")
-
-    y_col   = ("pct_split"   if split else "pct_raw")   if use_pct else ("votes_split" if split else "votes_raw")
-    y_label = "% de votos" if use_pct else "Votos"
-    y_fmt   = ":.1f" if use_pct else ":,.0f"
-
     label_of = (
         df_state.dropna(subset=["party_label"])
         .drop_duplicates("party_key")
@@ -1008,20 +1250,48 @@ def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int, estado
     )
     coalition_keys = set(df_state.loc[df_state["is_coalition"] == True, "party_key"].unique())
     all_parties     = sorted(df_state["party_key"].unique())
-    direct_parties  = [p for p in all_parties if p not in coalition_keys]
-    selectable      = direct_parties if split else all_parties
-    default_p       = [p for p in ["MORENA", "PAN", "PRI", "MC", "PRD"] if p in selectable]
 
-    parties_to_show = st.multiselect(
-        "Partidos a mostrar", selectable, default=default_p,
-        format_func=lambda p: label_of.get(p, p), key="ts_parties",
-    )
+    # Row 1: type picker + partido multiselect
+    row1 = st.columns([1.2, 2.8])
+    with row1[0]:
+        et_keys     = list(et_options.keys())
+        pre_default = et_keys.index("Presidencia") if "Presidencia" in et_keys else 0
+        et_label    = st.selectbox("Tipo", et_keys, index=pre_default, key="ts_et")
+        et          = et_options[et_label]
+    with row1[1]:
+        direct_parties = [p for p in all_parties if p not in coalition_keys]
+        default_p      = [p for p in ["MORENA", "PAN", "PRI", "MC", "PRD"] if p in direct_parties]
+        parties_to_show = st.multiselect(
+            "Partidos", direct_parties, default=default_p,
+            format_func=lambda p: label_of.get(p, p), key="ts_parties",
+        )
+
+    # Row 2: coalition mode + metric + area
+    row2 = st.columns([1.6, 1.6, 1])
+    with row2[0]:
+        coalition_mode = st.radio(
+            "Votos de coalición", ["Divididos", "Como coalición"],
+            horizontal=True, key="ts_coalition",
+        )
+        split = coalition_mode == "Divididos"
+    with row2[1]:
+        metric  = st.radio("Métrica", ["% del total", "Votos abs."], index=0, horizontal=True, key="ts_metric")
+        use_pct = metric == "% del total"
+    with row2[2]:
+        show_area = st.checkbox("Área bajo curva", value=False, key="ts_area")
+
+    # When "Como coalición" is active, show a coalition multiselect and rebuild selectable
     if not split:
+        selectable = all_parties
         extra = st.multiselect(
             "Coaliciones", [p for p in all_parties if p in coalition_keys], default=[],
             format_func=lambda p: label_of.get(p, p), key="ts_coalitions",
         )
         parties_to_show = parties_to_show + extra
+
+    y_col   = ("pct_split"   if split else "pct_raw")   if use_pct else ("votes_split" if split else "votes_raw")
+    y_label = "% de votos" if use_pct else "Votos"
+    y_fmt   = ":.1f" if use_pct else ":,.0f"
 
     if use_pct:
         st.caption(
@@ -1045,8 +1315,15 @@ def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int, estado
 
     df_agg = ts_agg_for_plot(df_f, ["year", "election_type", "nombre_estado", "party_key"])
 
+    party_order = (
+        df_agg.groupby("party_key")[y_col].sum()
+        .sort_values(ascending=False)
+        .index.tolist()
+    )
+
     fig = go.Figure()
-    for party, grp in df_agg.groupby("party_key"):
+    for party in party_order:
+        grp = df_agg[df_agg["party_key"] == party]
         grp   = grp.sort_values("year")
         color = ts_party_color(party)
         label = label_of.get(party, party)
@@ -1064,7 +1341,11 @@ def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int, estado
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_mexico_map(df: pd.DataFrame, map_key_suffix: str = "nacional"):
+def render_mexico_map(
+    df: pd.DataFrame,
+    map_key_suffix: str = "nacional",
+    height: int = 650,
+):
     """
     Lightweight online map layout: render only one map at a time.
     The user chooses between winner, candidate vote share, or electoral metric.
@@ -1098,12 +1379,20 @@ def render_mexico_map(df: pd.DataFrame, map_key_suffix: str = "nacional"):
         key=f"map_type_{map_key_suffix}",
     )
 
-    # Keep opacity low by default because municipio polygons are dense.
-    opacity = st.slider(
-        "Transparencia",
-        min_value=0.05, max_value=1.0, value=0.25, step=0.05,
-        key=f"map_opacity_{map_key_suffix}",
-    )
+    map_cols = st.columns([1, 1])
+    with map_cols[0]:
+        zoom = st.slider(
+            "Zoom",
+            min_value=3.0, max_value=9.0, value=float(zoom), step=0.1,
+            key=f"map_zoom_{map_key_suffix}",
+        )
+    with map_cols[1]:
+        # Keep opacity low by default because municipio polygons are dense.
+        opacity = st.slider(
+            "Transparencia",
+            min_value=0.05, max_value=1.0, value=0.25, step=0.05,
+            key=f"map_opacity_{map_key_suffix}",
+        )
 
     if map_type == "Ganador":
         fig = _build_winner_fig(agg, geo, center, zoom, opacity)
@@ -1130,7 +1419,7 @@ def render_mexico_map(df: pd.DataFrame, map_key_suffix: str = "nacional"):
             agg, geo, center, zoom, _INFO_METRICS[info_sel], opacity
         )
 
-    fig.update_layout(**_MAP_BASE_LAYOUT, height=650)
+    fig.update_layout(**_MAP_BASE_LAYOUT, height=height)
     st.plotly_chart(fig, use_container_width=True)
 
     if unmatched > 0:
@@ -1138,8 +1427,74 @@ def render_mexico_map(df: pd.DataFrame, map_key_suffix: str = "nacional"):
 
 
 # ── Results tab (shared across Estado / Municipio) ──────────────────────────────
-# Order: Map → Ternary → Bar charts → Tables
+# Order: Scorecards → Map/Ternary panel → Bar charts → Tables
 # (Scorecard metrics are always rendered by the caller before this function)
+
+def render_hist_both_charts(df: pd.DataFrame, blocs: dict):
+    """Two-panel bar chart for historical PRE elections: by candidate bloc + by party."""
+    by_party  = df.groupby("party_key")["votes"].sum()
+    # Use num_votos_validos as denominator like 2024 does; fall back to sum of party votes
+    sample_pk = df["party_key"].iloc[0] if len(df) else None
+    if sample_pk and "num_votos_validos" in df.columns:
+        total_validos = int(df[df["party_key"] == sample_pk]["num_votos_validos"].sum())
+    else:
+        total_validos = int(by_party.sum())
+    total_validos = max(total_validos, int(by_party.sum()), 1)
+
+    # ── Candidate panel ──────────────────────────────────────────────────────────
+    a_keys = [k for k, v in blocs["map"].items() if v == "A"]
+    b_keys = [k for k, v in blocs["map"].items() if v == "B"]
+    c_keys = [k for k, v in blocs["map"].items() if v == "C"]
+    cand_rows = []
+    for bloc_key, keys in [("A", a_keys), ("B", b_keys), ("C", c_keys)]:
+        votes = int(by_party.reindex(keys, fill_value=0).sum())
+        if votes == 0:
+            continue
+        cand_rows.append({
+            "Candidato": blocs[bloc_key]["label"],
+            "Votos":     votes,
+            "pct":       votes / total_validos * 100,
+            "color":     blocs[bloc_key]["color"],
+        })
+    cand_rows.sort(key=lambda r: r["Votos"], reverse=True)
+
+    # ── Party panel ──────────────────────────────────────────────────────────────
+    party_rows = []
+    for pk, v in by_party.sort_values(ascending=False).items():
+        if v == 0:
+            continue
+        bloc  = blocs["map"].get(pk)
+        color = blocs[bloc]["color"] if bloc else "#666666"
+        party_rows.append({"Partido": pk, "Votos": int(v),
+                           "pct": v / total_validos * 100, "color": color})
+
+    def _hbar(rows, x_col, y_col):
+        df_p = pd.DataFrame(rows)
+        fig  = px.bar(
+            df_p, x=x_col, y=y_col, orientation="h",
+            color=y_col,
+            color_discrete_map={r[y_col]: r["color"] for r in rows},
+            text=df_p["pct"].map(lambda x: f"{x:.1f}%"),
+        )
+        fig.update_traces(textposition="outside", showlegend=False)
+        fig.update_layout(
+            **plotly_base(),
+            title=dict(text=""),
+            xaxis_range=[0, df_p[x_col].max() * 1.18],
+            height=max(300, len(df_p) * 42 + 80),
+        )
+        return fig
+
+    col_cand, col_party = st.columns(2)
+    with col_cand:
+        st.markdown('<div class="section-label">Por Candidato</div>', unsafe_allow_html=True)
+        if cand_rows:
+            st.plotly_chart(_hbar(cand_rows, "Votos", "Candidato"), use_container_width=True)
+    with col_party:
+        st.markdown('<div class="section-label">Por Partido / Coalición</div>', unsafe_allow_html=True)
+        if party_rows:
+            st.plotly_chart(_hbar(party_rows, "Votos", "Partido"), use_container_width=True)
+
 
 def render_results_tab(df_raw: pd.DataFrame, page_level: str, election_id: str,
                        candidates_df: pd.DataFrame = None, id_distrito: Optional[int] = None,
@@ -1147,48 +1502,87 @@ def render_results_tab(df_raw: pd.DataFrame, page_level: str, election_id: str,
     if candidates_df is None:
         candidates_df = pd.DataFrame()
 
+    blocs    = CYCLE_BLOCS.get(election_id)
+    is_2024  = election_id == "PRE_2024"
+
     if page_level == "Estado":
-        # 1. MAP
+        # 1. MAP + TERNARY
         st.markdown("---")
-        render_mexico_map(df_raw, map_key_suffix="estado")
+        map_col, divider_col, ternary_col = st.columns([1.15, 0.04, 0.85], gap="medium")
+        if is_2024:
+            with map_col:
+                render_mexico_map(df_raw, map_key_suffix="estado", height=560)
+            with divider_col:
+                st.markdown('<div class="panel-divider"></div>', unsafe_allow_html=True)
+            with ternary_col:
+                st.markdown('<div class="section-label">Distribucion ternaria por Municipio</div>',
+                            unsafe_allow_html=True)
+                max_muns = df_raw["municipio"].nunique()
+                st.caption(f"Mostrando todos los municipios disponibles: {max_muns:,}")
+                render_ternary_bubble(
+                    df_raw, "municipio", "municipio", "por Municipio",
+                    n_bubbles=None, height=560,
+                )
+        elif blocs is not None:
+            geo = load_municipios_geojson()
+            with map_col:
+                render_hist_winner_map(df_raw, blocs, geo,
+                                       f"Ganador por Municipio · {election_label(election_id)}",
+                                       height=560)
+            with divider_col:
+                st.markdown('<div class="panel-divider"></div>', unsafe_allow_html=True)
+            with ternary_col:
+                st.markdown('<div class="section-label">Distribución ternaria por Municipio</div>',
+                            unsafe_allow_html=True)
+                render_hist_ternary(df_raw, blocs, election_label(election_id), height=560)
+        else:
+            with map_col:
+                st.info("Visualización de mapa no disponible para este tipo de elección.")
+
+        # 2. SCORECARDS (below map so visuals are always first)
+        st.markdown("---")
         if scorecards is not None:
             render_scorecards(*scorecards)
 
-        # 2. TERNARY
-        st.markdown("---")
-        st.markdown('<div class="section-label">Distribucion ternaria por Municipio</div>',
-                    unsafe_allow_html=True)
-        max_muns = df_raw["municipio"].nunique()
-        st.caption(f"Mostrando todos los municipios disponibles: {max_muns:,}")
-        render_ternary_bubble(
-            df_raw, "municipio", "municipio", "por Municipio", n_bubbles=None,
-        )
-
         # 3. BAR CHARTS
         st.markdown("---")
-        render_both_charts(df_raw)
+        if is_2024:
+            render_both_charts(df_raw)
+        elif blocs is not None:
+            render_hist_both_charts(df_raw, blocs)
+        else:
+            render_hist_both_charts(df_raw, {"map": {}, "A": {"label": "A", "color": "#888"},
+                                             "B": {"label": "B", "color": "#555"},
+                                             "C": {"label": "C", "color": "#333"}})
 
-        # 4. TABLES
-        st.markdown("---")
-        render_results_table(df_raw, "municipio", "Municipio",
-                             election_id, candidates_df, id_distrito)
-        render_results_table(df_raw, "seccion", "Sección",
-                             election_id, candidates_df, id_distrito)
+        # 4. TABLES (2024 only — historical elections don't have dim_candidatos entries)
+        if is_2024:
+            st.markdown("---")
+            render_results_table(df_raw, "municipio", "Municipio",
+                                 election_id, candidates_df, id_distrito)
+            render_results_table(df_raw, "seccion", "Sección",
+                                 election_id, candidates_df, id_distrito)
 
     elif page_level == "Municipio":
-        # 1. MAP (single polygon — useful for geo-join validation)
+        # 1. MAP (single polygon) — 2024 only
         st.markdown("---")
-        render_mexico_map(df_raw, map_key_suffix="municipio")
+        if is_2024:
+            render_mexico_map(df_raw, map_key_suffix="municipio")
         if scorecards is not None:
             render_scorecards(*scorecards)
 
-        # 2. No ternary at municipio level (single unit)
-
-        # 3. BAR CHARTS
+        # 2. BAR CHARTS
         st.markdown("---")
-        render_both_charts(df_raw)
+        if is_2024:
+            render_both_charts(df_raw)
+        elif blocs is not None:
+            render_hist_both_charts(df_raw, blocs)
+        else:
+            render_hist_both_charts(df_raw, {"map": {}, "A": {"label": "A", "color": "#888"},
+                                             "B": {"label": "B", "color": "#555"},
+                                             "C": {"label": "C", "color": "#333"}})
 
-        # 4. TABLES
+        # 3. TABLES
         st.markdown("---")
         col1, col2 = st.columns(2)
         with col1:
@@ -1198,8 +1592,7 @@ def render_results_tab(df_raw: pd.DataFrame, page_level: str, election_id: str,
 
 # ── App shell (single panel -- no sidebar) ──────────────────────────────────────
 
-st.markdown("## INE PREP 2024")
-st.markdown("##### Explorador de resultados electorales")
+st.markdown("**INE · Explorador Electoral de México**")
 
 elections = get_available_elections()
 if not elections:
@@ -1212,20 +1605,34 @@ if not elections:
 # Load candidate names once (used by tables across all pages)
 candidates_df = load_candidates()
 
-filt_cols = st.columns([1.6, 1, 1.4])
-with filt_cols[0]:
-    default_election = "PRE_2024" if "PRE_2024" in elections else elections[0]
+TYPE_LABELS = {"PRE": "Presidencial", "DIP": "Diputados", "SEN": "Senadores"}
+
+# ── Step 1: year ─────────────────────────────────────────────────────────────
+all_years = sorted({e.split("_")[-1] for e in elections}, reverse=True)
+default_year = "2024" if "2024" in all_years else all_years[0]
+
+# ── Step 2: election type for that year ──────────────────────────────────────
+# (computed before column layout so estado list can load)
+_col_tmp = st.columns([0.8, 1.2, 1.0, 1.4])
+with _col_tmp[0]:
+    year_sel = st.selectbox("Año", all_years, index=all_years.index(default_year))
+
+year_elections = [e for e in elections if e.endswith(f"_{year_sel}")]
+year_elections_sorted = sorted(year_elections,
+    key=lambda e: list(TYPE_LABELS.keys()).index("_".join(e.split("_")[:-1]))
+    if "_".join(e.split("_")[:-1]) in TYPE_LABELS else 99)
+default_et = next((e for e in year_elections_sorted if e.startswith("PRE")), year_elections_sorted[0])
+with _col_tmp[1]:
     election_sel = st.selectbox(
-        "Elección", elections,
-        index=elections.index(default_election),
-        format_func=election_label,
+        "Tipo de elección", year_elections_sorted,
+        index=year_elections_sorted.index(default_et),
+        format_func=lambda e: TYPE_LABELS.get("_".join(e.split("_")[:-1]), election_label(e)),
     )
-with filt_cols[1]:
-    page_options = ["Estado", "Municipio"]
+with _col_tmp[2]:
+    page_options = ["Estado", "Municipio", "Nacional · Histórico"]
     page = st.selectbox("Unidad de análisis", page_options, index=page_options.index("Estado"))
 
-# Estado view always loaded first -- it's both the state picker source and,
-# on the Estado page, the scorecard/metadata source.
+# Estado view always loaded first -- state picker and scorecard/metadata source.
 df_est_full = load_view("estado", election_sel)
 if df_est_full.empty:
     st.error("Sin datos. Ejecuta `python ingestion/materialize.py views` primero.")
@@ -1238,8 +1645,12 @@ estado_options = (
 estado_names = estado_options["nombre_estado"].tolist()
 default_e    = next((e for e in estado_names if "CIUDAD" in e.upper()), estado_names[0])
 
-with filt_cols[2]:
-    estado_sel = st.selectbox("Estado", estado_names, index=estado_names.index(default_e))
+with _col_tmp[3]:
+    if page != "Nacional · Histórico":
+        estado_sel = st.selectbox("Estado", estado_names, index=estado_names.index(default_e))
+    else:
+        estado_sel = estado_names[0]
+        st.empty()
 id_estado_sel = int(estado_options.loc[estado_options["nombre_estado"] == estado_sel, "id_estado"].iloc[0])
 
 
@@ -1269,24 +1680,7 @@ if page == "Estado":
         f"{num_cas} actas",
     ])
 
-    # ── Serie de tiempo por partido (2012 · 2018 · 2024) ───────────────────────
-    st.markdown('<div class="section-label">Serie de tiempo · Votos por partido</div>',
-                unsafe_allow_html=True)
-    df_ts = load_timeseries(TIMESERIES_PATH.stat().st_mtime if TIMESERIES_PATH.exists() else 0.0)
-    if df_ts.empty:
-        st.info(
-            "No se encontró el archivo de series de tiempo. "
-            "Ejecuta `python ingestion/materialize.py timeseries` primero."
-        )
-    else:
-        render_timeseries_for_estado(df_ts, id_estado_sel, estado_sel)
-
-    # ── Resultados de la última elección ───────────────────────────────────────
-    st.markdown("---")
-    st.markdown('<div class="section-label">Resultados de la última elección</div>',
-                unsafe_allow_html=True)
-
-    # For estado-level map and ternary we use the municipio view filtered to this state
+    # ── Map + Ternary + Scorecards + Bars (always first) ──────────────────────
     df_mun_view = load_view("municipio", election_sel)
     df_mun_view = df_mun_view[df_mun_view["id_estado"] == id_estado_sel]
 
@@ -1294,6 +1688,18 @@ if page == "Estado":
         df_mun_view, "Estado", election_sel, candidates_df,
         scorecards=(total_v, lista_nom, part_pct, nulos_pct),
     )
+
+    # ── Serie de tiempo (collapsed by default) ─────────────────────────────────
+    st.markdown("---")
+    with st.expander("Serie de tiempo · votos históricos por partido", expanded=False):
+        df_ts = load_timeseries(TIMESERIES_PATH.stat().st_mtime if TIMESERIES_PATH.exists() else 0.0)
+        if df_ts.empty:
+            st.info(
+                "No se encontró el archivo de series de tiempo. "
+                "Ejecuta `python ingestion/materialize.py timeseries` primero."
+            )
+        else:
+            render_timeseries_for_estado(df_ts, id_estado_sel, estado_sel)
 
 
 # ── PAGE: MUNICIPIO ────────────────────────────────────────────────────────────
@@ -1341,3 +1747,79 @@ elif page == "Municipio":
         st.markdown("---")
         render_results_table(df_sec_view, "seccion", "Sección",
                              election_sel, candidates_df)
+
+
+# ── PAGE: NACIONAL · HISTÓRICO ─────────────────────────────────────────────────
+elif page == "Nacional · Histórico":
+    geo = load_municipios_geojson()
+    if not geo:
+        st.error("No se encontró el GeoJSON de municipios. Ejecuta `python ingestion/materialize.py views` primero.")
+        st.stop()
+
+    df_nacional = load_mun_national(election_sel)
+    if df_nacional.empty:
+        st.error("Sin datos para esta elección.")
+        st.stop()
+
+    election_type = "_".join(election_sel.split("_")[:-1])
+    blocs = CYCLE_BLOCS.get(election_sel)
+    is_pre_with_blocs = blocs is not None
+
+    header_badge([election_label(election_sel), f"{df_nacional['_join_key'].nunique():,} municipios"])
+
+    if is_pre_with_blocs:
+        # Map + ternary side by side
+        map_col, div_col, tern_col = st.columns([1.15, 0.04, 0.85], gap="medium")
+        with map_col:
+            render_hist_winner_map(df_nacional, blocs, geo,
+                                   f"Ganador por Municipio · {election_label(election_sel)}")
+        with div_col:
+            st.markdown('<div class="panel-divider"></div>', unsafe_allow_html=True)
+        with tern_col:
+            st.markdown('<div class="section-label">Distribución ternaria por Municipio</div>',
+                        unsafe_allow_html=True)
+            render_hist_ternary(df_nacional, blocs, election_label(election_sel))
+    else:
+        # Non-presidential or election without bloc mapping: winner map only
+        # Build a generic party-color winner map using TS_PARTY_COLORS
+        agg_gen = df_nacional.groupby(["nombre_estado", "municipio", "_join_key", "party_key"],
+                                       as_index=False)["votes"].sum()
+        idx_win = agg_gen.groupby("_join_key")["votes"].idxmax()
+        winners = agg_gen.loc[idx_win].copy()
+        winners["_color"] = winners["party_key"].map(
+            lambda k: TS_PARTY_COLORS.get(k, _ts_fallback_color(k))
+        )
+        winners["_label"] = winners["nombre_estado"] + " — " + winners["municipio"]
+        all_ids = {f["id"] for f in geo["features"]}
+        winners = winners[winners["_join_key"].isin(all_ids)]
+
+        party_keys_present = sorted(winners["party_key"].unique())
+        fig = go.Figure()
+        for pk in party_keys_present:
+            subset = winners[winners["party_key"] == pk]
+            color  = TS_PARTY_COLORS.get(pk, _ts_fallback_color(pk))
+            ids_set = set(subset["_join_key"])
+            geo_sub = {"type": "FeatureCollection",
+                       "features": [f for f in geo["features"] if f["id"] in ids_set]}
+            fig.add_trace(go.Choroplethmapbox(
+                geojson=geo_sub, locations=subset["_join_key"],
+                z=[1] * len(subset),
+                colorscale=[[0, color], [1, color]],
+                showscale=False, marker_opacity=0.82,
+                marker_line_width=0.25, marker_line_color="rgba(255,255,255,0.1)",
+                hovertext=subset["_label"],
+                customdata=subset["votes"].values,
+                hovertemplate="<b>%{hovertext}</b><br>Ganador: " + pk + "<br>Votos: %{customdata:,}<extra></extra>",
+                name=pk, showlegend=True,
+            ))
+        fig.update_layout(
+            mapbox=dict(style="carto-darkmatter", zoom=4.1, center={"lat": 23.6, "lon": -102.5}),
+            legend=dict(orientation="h", yanchor="top", y=-0.04, xanchor="center", x=0.5,
+                        font=dict(size=10), itemsizing="constant"),
+            title=dict(text=f"<b>Ganador por Municipio · {election_label(election_sel)}</b>",
+                       font=dict(family="IBM Plex Mono", size=14)),
+            margin=dict(l=0, r=0, t=50, b=80), height=600,
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption(f"Mapa de ganador por municipio. Elecciones sin estructura ternaria definida (DIP/SEN) muestran el partido con más votos en cada municipio.")
