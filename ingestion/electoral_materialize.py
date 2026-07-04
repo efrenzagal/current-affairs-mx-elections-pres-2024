@@ -6,7 +6,8 @@ Parquet files Streamlit reads from data/materialized/:
 
   1. Per-election views (casilla / seccion / municipio / estado), the
      winners-only dim_candidatos copy, and the pre-processed municipios
-     GeoJSON -- one election_id's worth of rows at a time.
+     GeoJSON from INEGI Marco Geoestadistico 2024 -- one election_id's worth
+     of rows at a time.
   2. The multi-year (2012/2018/2024), state-granularity timeseries parquet
      used by the "serie de tiempo por partido" section -- coalition votes
      split proportionally to member parties across the whole history.
@@ -74,75 +75,6 @@ def _mun_code(id_estado, id_municipio) -> str:
 
 def _sql_quote(name: str) -> str:
     return name.replace("'", "''")
-
-
-GEOJSON_ESTADO_ALIASES = {
-    "COAHUILA": CANONICAL_ESTADO_NOMBRES[5],
-    "DISTRITO FEDERAL": CANONICAL_ESTADO_NOMBRES[9],
-    "MICHOACAN": CANONICAL_ESTADO_NOMBRES[16],
-    "VERACRUZ": CANONICAL_ESTADO_NOMBRES[30],
-}
-
-
-GEOJSON_MUNICIPIO_ALIASES = {
-    ("CHIHUAHUA", "BATOPILAS"): "BATOPILAS DE MANUEL GOMEZ MORIN",
-    ("CHIHUAHUA", "CARICHIC"): "CARICHI",
-    ("CHIHUAHUA", "CUSIHUIRIACHIC"): "CUSIHUIRIACHI",
-    ("CHIHUAHUA", "GUACHOCHIC"): "GUACHOCHI",
-    ("CHIHUAHUA", "MAGUARICHIC"): "MAGUARICHI",
-    ("CHIHUAHUA", "MATACHIC"): "MATACHI",
-    ("CHIHUAHUA", "GENERAL TRIAS"): "SANTA ISABEL",
-    ("CHIHUAHUA", "URUACHIC"): "URUACHI",
-    ("CIUDAD DE MEXICO", "MAGDALENA CONTRERAS"): "LA MAGDALENA CONTRERAS",
-    ("COAHUILA DE ZARAGOZA", "NUEVA ROSITA"): "SAN JUAN DE SABINAS",
-    ("DURANGO", "GENERAL SIMON BOLIVAR"): "SIMON BOLIVAR",
-    ("DURANGO", "SAN LUIS DE CORDERO"): "SAN LUIS DEL CORDERO",
-    ("GUANAJUATO", "ALLENDE"): "SAN MIGUEL DE ALLENDE",
-    ("GUANAJUATO", "DOLORES HIDALGO"): "DOLORES HIDALGO CUNA DE LA INDEPENDENCIA NACIONAL",
-    ("GUANAJUATO", "SILAO"): "SILAO DE LA VICTORIA",
-    ("GUERRERO", "JOSE AZUETA"): "ZIHUATANEJO DE AZUETA",
-    ("GUERRERO", "LA UNION"): "LA UNION DE ISIDORO MONTES DE OCA",
-    ("JALISCO", "CIUDAD GUZMAN"): "ZAPOTLAN EL GRANDE",
-    ("JALISCO", "CIUDAD VENUSTIANO CARRANZA"): "SAN GABRIEL",
-    ("JALISCO", "ANTONIO ESCOBEDO"): "SAN JUANITO DE ESCOBEDO",
-    ("JALISCO", "CUQUITO"): "CUQUIO",
-    ("JALISCO", "MANUEL M. DIEGUEZ"): "SANTA MARIA DEL ORO",
-    ("JALISCO", "TLAQUEPAQUE"): "SAN PEDRO TLAQUEPAQUE",
-    ("MEXICO", "ACAMBAY"): "ACAMBAY DE RUIZ CASTANEDA",
-    ("MEXICO", "JALATLACO"): "XALATLACO",
-    ("MEXICO", "SAN MARTIN DE LAS PIRAAMIDES"): "SAN MARTIN DE LAS PIRAMIDES",
-    ("MEXICO", "TLALNEPANTLA"): "TLALNEPANTLA DE BAZ",
-    ("MEXICO", "ZINACATEPEC"): "ZINACANTEPEC",
-    ("MORELOS", "TLALTIZAPAN"): "TLALTIZAPAN DE ZAPATA",
-    ("MORELOS", "ZACATEPEC DE HIDALGO"): "ZACATEPEC",
-    ("MORELOS", "ZACUALPAN"): "ZACUALPAN DE AMILPAS",
-    ("NUEVO LEON", "DOCTOR ARROYO"): "DR. ARROYO",
-    ("NUEVO LEON", "DOCTOR COSS"): "DR. COSS",
-    ("NUEVO LEON", "DOCTOR GONZALEZ"): "DR. GONZALEZ",
-    ("NUEVO LEON", "GENERAL BRAVO"): "GRAL. BRAVO",
-    ("NUEVO LEON", "GENERAL ESCOBEDO"): "GRAL. ESCOBEDO",
-    ("NUEVO LEON", "GENERAL TERAN"): "GRAL. TERAN",
-    ("NUEVO LEON", "GENERAL TREVINO"): "GRAL. TREVINO",
-    ("NUEVO LEON", "GENERAL ZARAGOZA"): "GRAL. ZARAGOZA",
-    ("NUEVO LEON", "GENERAL ZUAZUA"): "GRAL. ZUAZUA",
-    ("SAN LUIS POTOSI", "TANCANHUITZ DE SANTOS"): "TANCANHUITZ",
-    ("CHIAPAS", "VILLA COMALTITLAN"): "VILLACOMALTITLAN",
-    ("SINALOA", "EL ROSARIO"): "ROSARIO",
-    ("TLAXCALA", "ALTZAYANCA"): "ATLTZAYANCA",
-    ("TLAXCALA", "YAUHQUEMECAN"): "YAUHQUEMEHCAN",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "AMATITLAN DE LOS REYES"): "AMATLAN DE LOS REYES",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "AMATLAN TUXPAN"): "NARANJOS AMATLAN",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "CAMARON DE TEJADA"): "CAMARON DE TEJEDA",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "CHOCOMAN"): "CHOCAMAN",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "COXQUIHI"): "COXQUIHUI",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "JALANCINGO"): "JALACINGO",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "MEDELLIN"): "MEDELLIN DE BRAVO",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "MIHUATLAN"): "MIAHUATLAN",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "TEMAPACHE"): "ALAMO TEMAPACHE",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "TLAJOCALPAN"): "TLACOJALPAN",
-    ("VERACRUZ DE IGNACIO DE LA LLAVE", "TLAQUILPAN"): "TLAQUILPA",
-}
-
 
 # SQL CASE expression so GROUP BY collapses duplicate spellings at the
 # source, instead of fragmenting one state into several rows.
@@ -295,8 +227,8 @@ def query_municipio(conn, election_id: str) -> pd.DataFrame:
     """, conn)
 
     df = votes.merge(nominal, on=["id_estado", "municipio"], how="left")
-    # Keep the legacy name key for old GeoJSONs, but also add the stable
-    # INEGI municipality code used by Marco Geoestadistico geometries.
+    # Keep the normalized-name key for quick diagnostics, while maps join on
+    # the stable INEGI municipality code from Marco Geoestadistico geometries.
     df["_join_key"] = df["nombre_estado"].map(_norm) + "||" + df["municipio"].map(_norm)
     df["_mun_code"] = df.apply(
         lambda r: _mun_code(r["id_estado"], r["id_municipio"]),
@@ -525,46 +457,9 @@ def preprocess_inegi_municipios(
     )
 
 
-def preprocess_geojson(src: str = "municipios.geojson", out_dir: Path = MATERIALIZED) -> None:
-    """
-    Normalize the raw municipios GeoJSON once at materialize time:
-      - Strip accents, uppercase, build _join_key, set feat["id"]
-      - Write to data/materialized/municipios_processed.geojson
-    Streamlit then does a plain json.load() with zero per-feature processing.
-    """
-    src_path = Path(src)
-    if not src_path.exists():
-        print(f"  ⚠️  {src} not found — GeoJSON preprocessing skipped")
-        return
-
-    with open(src_path, encoding="utf-8") as f:
-        geo = json.load(f)
-
-    for feat in geo["features"]:
-        p          = feat["properties"]
-        raw_estado = p.get("NAME_1", "")
-        raw_mun    = p.get("NAME_2", "")
-        raw_estado = GEOJSON_ESTADO_ALIASES.get(_norm(raw_estado), raw_estado)
-        estado_key = _norm(raw_estado)
-        mun_key = GEOJSON_MUNICIPIO_ALIASES.get(
-            (estado_key, _norm(raw_mun)),
-            _norm(raw_mun),
-        )
-        join_key       = estado_key + "||" + mun_key
-        p["_join_key"] = join_key
-        feat["id"]     = join_key
-
-    dst = out_dir / "municipios_processed.geojson"
-    with open(dst, "w", encoding="utf-8") as f:
-        json.dump(geo, f, ensure_ascii=False)
-    print(f"  ✓ municipios_processed.geojson  ({dst.stat().st_size/1024/1024:.1f} MB)")
-
-
 def materialize_views(
     db_path: str = DB_PATH,
     out_dir: Path = MATERIALIZED,
-    geojson: str = "municipios.geojson",
-    geo_source: str = "legacy",
     inegi_zip: Optional[str] = None,
     simplify_tolerance_m: float = 120.0,
     force: bool = False,
@@ -621,14 +516,12 @@ def materialize_views(
         geo_path = out_dir / "municipios_processed.geojson"
         if geo_path.exists() and not force:
             print(f"  ⏭  municipios_processed.geojson already exists, skipping")
-        elif geo_source == "inegi2024":
+        else:
             preprocess_inegi_municipios(
                 src_zip=inegi_zip,
                 out_dir=out_dir,
                 simplify_tolerance_m=simplify_tolerance_m,
             )
-        else:
-            preprocess_geojson(src=geojson, out_dir=out_dir)
 
         print(f"\nAll files in {out_dir.resolve()}\n")
         for f in sorted(out_dir.glob("*.parquet")):
@@ -1030,19 +923,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--db",      default=DB_PATH,              help="SQLite path")
     parser.add_argument("--mat-dir", default=str(MATERIALIZED),    help="Output parquet dir (data/materialized)")
-    parser.add_argument("--geojson", default="municipios.geojson", help="Raw GeoJSON path to pre-process (legacy geo source only)")
-    parser.add_argument(
-        "--geo-source",
-        choices=["legacy", "inegi2024"],
-        default="legacy",
-        help="Municipio geometry source for municipios_processed.geojson",
-    )
     parser.add_argument(
         "--inegi-zip",
         default=None,
         help=(
             "Optional local path or URL for INEGI mg_2024_integrado.zip. "
-            "If omitted with --geo-source inegi2024, the official INEGI URL is downloaded."
+            "If omitted, the official INEGI URL is downloaded."
         ),
     )
     parser.add_argument(
@@ -1060,8 +946,6 @@ if __name__ == "__main__":
         materialize_views(
             db_path=args.db,
             out_dir=mat,
-            geojson=args.geojson,
-            geo_source=args.geo_source,
             inegi_zip=args.inegi_zip,
             simplify_tolerance_m=args.simplify_tolerance_m,
             force=args.force,

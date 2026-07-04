@@ -113,8 +113,8 @@ Important responsibilities:
   `casilla`, `seccion`, `municipio`, `estado`, and `nacional`.
 - Writes `data/materialized/dim_candidatos.parquet`.
 - Writes `data/materialized/timeseries_estados.parquet`.
-- Builds `data/materialized/municipios_processed.geojson`, preferably from
-  INEGI Marco Geoestadístico 2024, with a legacy `municipios.geojson` fallback.
+- Builds `data/materialized/municipios_processed.geojson` from INEGI Marco
+  Geoestadístico 2024.
 - Canonicalizes state names and municipio join keys, including INEGI `CVEGEO`
   municipality codes for map joins.
 - Splits coalition votes for historical party time series.
@@ -249,10 +249,10 @@ Important patterns:
 - `dim_candidatos.parquet`
 - `municipios_processed.geojson`
 
-`municipios_processed.geojson` is preferably generated from INEGI Marco
-Geoestadístico 2024 and contains feature `id` values keyed by 5-digit
-municipality `CVEGEO` codes. The municipio parquet views carry `_mun_code`
-for these joins, plus the legacy normalized-name `_join_key` fallback.
+`municipios_processed.geojson` is generated from INEGI Marco Geoestadístico
+2024 and contains feature `id` values keyed by 5-digit municipality `CVEGEO`
+codes. The municipio parquet views carry `_mun_code` for these joins, plus
+`_join_key` as a normalized-name diagnostic field.
 
 ## Election IDs
 
@@ -323,12 +323,11 @@ streamlit run ine_explorer_streamlit_online.py
 Usually open:
 
 - `ingestion/electoral_materialize.py`
-- `municipios.geojson` only when debugging the legacy fallback source
 
 Then run:
 
 ```bash
-python ingestion/electoral_materialize.py views --geo-source inegi2024 --force
+python ingestion/electoral_materialize.py views --force
 streamlit run ine_explorer_streamlit_online.py
 ```
 

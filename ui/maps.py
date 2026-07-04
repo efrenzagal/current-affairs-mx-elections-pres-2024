@@ -42,22 +42,13 @@ _MAP_BASE_LAYOUT = dict(
 
 @st.cache_data(show_spinner="Cargando GeoJSON...")
 def load_municipios_geojson(geojson_path: str = None) -> dict:
-    """Load pre-processed GeoJSON; fall back to raw file with a warning."""
-    processed = MATERIALIZED_DIR / "municipios_processed.geojson"
-    raw       = (
+    """Load the INEGI-backed pre-processed municipios GeoJSON."""
+    path = (
         __import__("pathlib").Path(geojson_path)
         if geojson_path
-        else __import__("pathlib").Path("municipios.geojson")
+        else MATERIALIZED_DIR / "municipios_processed.geojson"
     )
-    if processed.exists():
-        path = processed
-    elif raw.exists():
-        st.warning(
-            "Usando GeoJSON sin procesar. Ejecuta `python ingestion/electoral_materialize.py views` "
-            "para generar la version optimizada."
-        )
-        path = raw
-    else:
+    if not path.exists():
         return {}
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -88,11 +79,11 @@ def _bbox_to_zoom_center(features: list) -> tuple[dict, float]:
 
 
 def _map_location_col(agg: pd.DataFrame, geo: dict) -> str:
-    """Prefer INEGI CVEGEO municipality codes, fall back to legacy name keys."""
+    """Use INEGI CVEGEO municipality codes; keep name keys for older parquets."""
     geo_keys = {f["id"] for f in geo["features"]}
     if "_mun_code" in agg.columns:
         codes = agg["_mun_code"].dropna().astype(str)
-        if not codes.empty and codes.isin(geo_keys).sum() >= agg["_join_key"].isin(geo_keys).sum():
+        if not codes.empty and codes.isin(geo_keys).any():
             return "_mun_code"
     return "_join_key"
 
@@ -242,10 +233,9 @@ def render_mexico_map(df: pd.DataFrame, map_key_suffix: str = "nacional",
     geo = load_municipios_geojson()
     if not geo:
         st.warning(
-            "No se encontro el GeoJSON de municipios. Descargalo con:\n\n"
-            "`curl -L -o municipios.geojson "
-            "https://raw.githubusercontent.com/angelnmara/geojson/master/MunicipiosMexico.json`\n\n"
-            "Luego ejecuta `python ingestion/electoral_materialize.py views` para pre-procesarlo."
+            "No se encontro el GeoJSON procesado de municipios. "
+            "Ejecuta `python ingestion/electoral_materialize.py views --force` "
+            "para generarlo desde INEGI Marco Geoestadistico 2024."
         )
         return
 
