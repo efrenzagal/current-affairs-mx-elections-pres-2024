@@ -41,28 +41,28 @@ PARTY_META = {
 # Modeling DIP_RP_2024/SEN_RP_2024 as separate elections double-counted ~170K
 # casillas of real votes. Only the extra SRP rows get folded into MR below.
 ELECTION_META = {
-    "data/raw_2024/PRESIDENCIA_2024":         {"election_id": "PRE_2024",     "year": 2024, "election_type": "PRE", "chamber": None,       "seat_method": "direct", "total_seats": 1,   "term_years": 6},
-    "data/raw_2024/DIPUTACIONES_FED_MR_2024": {"election_id": "DIP_MR_2024",  "year": 2024, "election_type": "DIP", "chamber": "deputies", "seat_method": "fptp",   "total_seats": 300, "term_years": 3},
-    "data/raw_2024/SENADURIAS_MR_2024":       {"election_id": "SEN_MR_2024",  "year": 2024, "election_type": "SEN", "chamber": "senate",   "seat_method": "fptp",   "total_seats": 96,  "term_years": 6},
+    "data/electoral_data_raw/raw_2024/PRESIDENCIA_2024":         {"election_id": "PRE_2024",     "year": 2024, "election_type": "PRE", "chamber": None,       "seat_method": "direct", "total_seats": 1,   "term_years": 6},
+    "data/electoral_data_raw/raw_2024/DIPUTACIONES_FED_MR_2024": {"election_id": "DIP_MR_2024",  "year": 2024, "election_type": "DIP", "chamber": "deputies", "seat_method": "fptp",   "total_seats": 300, "term_years": 3},
+    "data/electoral_data_raw/raw_2024/SENADURIAS_MR_2024":       {"election_id": "SEN_MR_2024",  "year": 2024, "election_type": "SEN", "chamber": "senate",   "seat_method": "fptp",   "total_seats": 96,  "term_years": 6},
 }
 
 # MR folder → sibling RP folder, used only to pull the extra SRP-only
 # (transit-voter) rows that don't already exist in the MR file.
 RP_SUPPLEMENT_FOLDER = {
-    "data/raw_2024/DIPUTACIONES_FED_MR_2024": "data/raw_2024/DIPUTACIONES_FED_RP_2024",
-    "data/raw_2024/SENADURIAS_MR_2024":       "data/raw_2024/SENADURIAS_RP_2024",
+    "data/electoral_data_raw/raw_2024/DIPUTACIONES_FED_MR_2024": "data/electoral_data_raw/raw_2024/DIPUTACIONES_FED_RP_2024",
+    "data/electoral_data_raw/raw_2024/SENADURIAS_MR_2024":       "data/electoral_data_raw/raw_2024/SENADURIAS_RP_2024",
 }
 
 # Folder name → INTEGRACION CSV path
 # Same physical file is referenced for every election folder — read once per
 # folder for loop symmetry, drop_duplicates() at concat time collapses the repeats.
 CANDIDATES_CSV = {
-    "data/raw_2024/PRESIDENCIA_2024":         "data/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
-    "data/raw_2024/DIPUTACIONES_FED_MR_2024": "data/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
-    "data/raw_2024/SENADURIAS_MR_2024":       "data/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
+    "data/electoral_data_raw/raw_2024/PRESIDENCIA_2024":         "data/electoral_data_raw/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
+    "data/electoral_data_raw/raw_2024/DIPUTACIONES_FED_MR_2024": "data/electoral_data_raw/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
+    "data/electoral_data_raw/raw_2024/SENADURIAS_MR_2024":       "data/electoral_data_raw/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
 }
 
-OUT = Path("data/clean_2024")
+OUT = Path("data/electoral_data_clean/clean_2024")
 OUT.mkdir(parents=True, exist_ok=True)
 ## Helper functions
 def find_cas_csv(folder: str) -> Path:

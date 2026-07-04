@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pandas as pd
 
-RAW_DIR = Path("data/raw_2015")
+RAW_DIR = Path("data/electoral_data_raw/raw_2015")
 RAW_CSV = RAW_DIR / "diputados.csv"
 CANDIDATES_CSV = RAW_DIR / "Cat_Candidatos_Diputado.csv"
-OUT = Path("data/clean_2015")
+OUT = Path("data/electoral_data_clean/clean_2015")
 OUT.mkdir(parents=True, exist_ok=True)
 
 ELECTION_META_2015 = {

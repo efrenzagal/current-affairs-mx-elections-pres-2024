@@ -9,8 +9,8 @@ import pandas as pd
 import requests
 
 BASE_URL = "https://portalanterior.ine.mx/documentos/Estadisticas2006"
-CACHE_DIR = Path("data/raw_2006")
-OUT = Path("data/clean_2006")
+CACHE_DIR = Path("data/electoral_data_raw/raw_2006")
+OUT = Path("data/electoral_data_clean/clean_2006")
 OUT.mkdir(parents=True, exist_ok=True)
 
 REQUEST_DELAY_SECONDS = 1.5

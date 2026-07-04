@@ -20,7 +20,7 @@ Usage:
     python3 aux_scripts/hemicycle_explorer.py
 
 The warehouse (election_data.db) must already be built:
-    python3 ingestion/pipeline.py
+    python3 ingestion/electoral_ingest.py
 """
 
 from __future__ import annotations
@@ -41,21 +41,21 @@ from aux_scripts.seat_allocations import senadores as sen_mod
 DB_PATH  = "election_data.db"
 OUT_PATH = "aux_scripts/seat_allocations/hemicycle_explorer.html"
 
-# ── Diputados constants ────────────────────────────────────────────────────────
-RP_SEATS_PER_CIRC   = 40
-N_CIRCUNSCRIPCIONES = 5
-TOTAL_SEATS         = 500
-MR_SEATS            = 300
-RP_SEATS_TOTAL      = 200
-THRESHOLD_PCT       = 0.03
-MAX_SEATS_ABSOLUTE  = 300
-SOBREREPR_CAP_PTS   = 8.0
+# ── Diputados constants (authoritative values live in diputados.py) ────────────
+RP_SEATS_PER_CIRC   = dip_mod.RP_SEATS_PER_CIRC
+N_CIRCUNSCRIPCIONES = dip_mod.N_CIRCUNSCRIPCIONES
+TOTAL_SEATS         = dip_mod.TOTAL_SEATS
+MR_SEATS            = dip_mod.TOTAL_SEATS - dip_mod.RP_SEATS_PER_CIRC * dip_mod.N_CIRCUNSCRIPCIONES
+RP_SEATS_TOTAL      = dip_mod.RP_SEATS_PER_CIRC * dip_mod.N_CIRCUNSCRIPCIONES
+THRESHOLD_PCT       = dip_mod.THRESHOLD_PCT
+MAX_SEATS_ABSOLUTE  = dip_mod.MAX_SEATS_ABSOLUTE
+SOBREREPR_CAP_PTS   = dip_mod.SOBREREPR_CAP_PTS
 
-# ── Senate constants ───────────────────────────────────────────────────────────
+# ── Senate constants (authoritative values live in senadores.py) ───────────────
 SEN_TOTAL_SEATS = 128   # 64 MR winner + 32 first-minority + 32 RP
 SEN_MR_SEATS    = 64    # 2 per state × 32 states
 SEN_FM_SEATS    = 32    # 1 first-minority per state
-SEN_RP_SEATS    = 32
+SEN_RP_SEATS    = sen_mod.SEN_RP_SEATS
 
 # ── Colors ─────────────────────────────────────────────────────────────────────
 
@@ -144,7 +144,7 @@ def party_color(key: str) -> str:
 # Official INTEGRACION_CARGOS files — if present, use these as ground truth
 # instead of computing D'Hondt (they reflect INE's final seat assignment).
 INTEGRACION_PATHS: dict[str, str] = {
-    "DIP_MR_2024": "data/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
+    "DIP_MR_2024": "data/electoral_data_raw/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
 }
 
 COMPOSICION_DIP = "data/composicion/diputados.csv"

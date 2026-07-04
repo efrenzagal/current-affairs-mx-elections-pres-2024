@@ -35,9 +35,9 @@ ELECTION_META_2012 = {
 }
 
 RAW_CSV_PATHS = {
-    "PRESIDENCIA_2012":  "data/raw_2012/presidente.txt",
-    "DIPUTACIONES_2012": "data/raw_2012/diputados.txt",
-    "SENADURIAS_2012":   "data/raw_2012/senadores.txt",
+    "PRESIDENCIA_2012":  "data/electoral_data_raw/raw_2012/presidente.txt",
+    "DIPUTACIONES_2012": "data/electoral_data_raw/raw_2012/diputados.txt",
+    "SENADURIAS_2012":   "data/electoral_data_raw/raw_2012/senadores.txt",
 }
 
 CANDIDATES_CSV_2012 = {
@@ -66,7 +66,7 @@ ESTADO_NOMBRES = {
     31: "YUCATAN",                    32: "ZACATECAS",
 }
 
-OUT = Path("data/clean_2012")
+OUT = Path("data/electoral_data_clean/clean_2012")
 OUT.mkdir(parents=True, exist_ok=True)
 
 
@@ -281,7 +281,7 @@ def build_dim_candidatos(election_type: str) -> pd.DataFrame:
 
 def build_fact(df: pd.DataFrame, party_keys: list, election_id: str) -> pd.DataFrame:
     """
-    Vote metadata mapping (2012 → canonical names for ingestion/pipeline.py SCHEMA_MAP):
+    Vote metadata mapping (2012 → canonical names for ingestion/electoral_ingest.py SCHEMA_MAP):
       NO_REGISTRADOS → CNR        (NUM_VOTOS_CAN_NREG in 2024, CNR in 2018)
       NULOS          → VN         (NUM_VOTOS_NULOS in 2024, VN in 2018)
       TOTAL_VOTOS    → TOTAL_VOTOS (same as 2024; TOTAL_VOTOS_CALCULADOS in 2018)

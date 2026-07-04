@@ -11,19 +11,19 @@ Parquet files Streamlit reads from data/materialized/:
      used by the "serie de tiempo por partido" section -- coalition votes
      split proportionally to member parties across the whole history.
 
-Both halves used to live in separate scripts (ingestion/pipeline.py's
+Both halves used to live in separate scripts (ingestion/electoral_ingest.py's
 `materialize` command and root build_timeseries.py); they're merged here
 because they're really one step -- "SQLite is ready, now build everything
 Streamlit needs" -- and shared the same state-name canonicalization logic
 that's easy to let drift out of sync when duplicated across files.
 
-ingestion/pipeline.py keeps only `ingest` (clean parquets -> SQLite).
+ingestion/electoral_ingest.py keeps only `ingest` (clean parquets -> SQLite).
 
 Usage:
-    python ingestion/materialize.py              # views + timeseries
-    python ingestion/materialize.py views         # per-election views only
-    python ingestion/materialize.py timeseries    # timeseries parquet only
-    python ingestion/materialize.py --force       # overwrite existing files
+    python ingestion/electoral_materialize.py              # views + timeseries
+    python ingestion/electoral_materialize.py views         # per-election views only
+    python ingestion/electoral_materialize.py timeseries    # timeseries parquet only
+    python ingestion/electoral_materialize.py --force       # overwrite existing files
 """
 
 import argparse
@@ -38,9 +38,9 @@ from typing import Optional
 
 import pandas as pd
 
-# ── Shared config ──────────────────────────────────────────────────────────────
+from ingestion.shared import CANONICAL_ESTADO_NOMBRES, DB_PATH
 
-DB_PATH           = "election_data.db"
+# ── Shared config ──────────────────────────────────────────────────────────────
 MATERIALIZED      = Path("data/materialized")  # output: Streamlit reads these
 TIMESERIES_FILE   = "timeseries_estados.parquet"
 INEGI_MG_2024_URL = (
@@ -70,32 +70,6 @@ def _mun_code(id_estado, id_municipio) -> str:
     mun = int(id_municipio)
     return INE_TO_INEGI_MUNICIPIO_CODES.get((ent, mun), f"{ent:02d}{mun:03d}")
 
-
-# Canonical id_estado -> state name. Each cycle's source data spells/accents
-# state names differently (e.g. "COAHUILA" vs "COAHUILA DE ZARAGOZA",
-# "CIUDAD DE MEXICO" vs "CIUDAD DE MÉXICO") even though id_estado (1-32) is
-# already consistent everywhere -- grouping by the raw column directly
-# silently fragments a single state into multiple rows/dropdown entries
-# downstream. Both the per-election views and the timeseries builder key
-# off this single mapping so they always agree on state identity.
-CANONICAL_ESTADO_NOMBRES = {
-     1: "AGUASCALIENTES",                  2: "BAJA CALIFORNIA",
-     3: "BAJA CALIFORNIA SUR",             4: "CAMPECHE",
-     5: "COAHUILA DE ZARAGOZA",            6: "COLIMA",
-     7: "CHIAPAS",                         8: "CHIHUAHUA",
-     9: "CIUDAD DE MÉXICO",               10: "DURANGO",
-    11: "GUANAJUATO",                     12: "GUERRERO",
-    13: "HIDALGO",                        14: "JALISCO",
-    15: "MÉXICO",                         16: "MICHOACÁN DE OCAMPO",
-    17: "MORELOS",                        18: "NAYARIT",
-    19: "NUEVO LEÓN",                     20: "OAXACA",
-    21: "PUEBLA",                         22: "QUERÉTARO",
-    23: "QUINTANA ROO",                   24: "SAN LUIS POTOSÍ",
-    25: "SINALOA",                        26: "SONORA",
-    27: "TABASCO",                        28: "TAMAULIPAS",
-    29: "TLAXCALA",                       30: "VERACRUZ DE IGNACIO DE LA LLAVE",
-    31: "YUCATÁN",                        32: "ZACATECAS",
-}
 
 
 def _sql_quote(name: str) -> str:

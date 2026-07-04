@@ -56,9 +56,9 @@ ELECTION_META_2018 = {
 # Election type -> raw CSV path (hardcoded; 2018 has exactly one file per type,
 # unlike 2024 which searches a folder for a "CAS"-named file)
 RAW_CSV_PATHS = {
-    "PRESIDENCIA_2018":  "data/raw_2018/20180708_2130_CW_presidencia/presidencia.csv",
-    "DIPUTACIONES_2018": "data/raw_2018/20180708_2130_CW_diputaciones/diputaciones.csv",
-    "SENADURIAS_2018":   "data/raw_2018/20180708_2130_CW_senadurias/senadurias.csv",
+    "PRESIDENCIA_2018":  "data/electoral_data_raw/raw_2018/20180708_2130_CW_presidencia/presidencia.csv",
+    "DIPUTACIONES_2018": "data/electoral_data_raw/raw_2018/20180708_2130_CW_diputaciones/diputaciones.csv",
+    "SENADURIAS_2018":   "data/electoral_data_raw/raw_2018/20180708_2130_CW_senadurias/senadurias.csv",
 }
 
 # Election type -> candidates/winners CSV path.
@@ -70,7 +70,7 @@ CANDIDATES_CSV_2018 = {
     "SENADURIAS_2018":   None,
 }
 
-OUT = Path("data/clean_2018")
+OUT = Path("data/electoral_data_clean/clean_2018")
 OUT.mkdir(parents=True, exist_ok=True)
 
 ## Helper functions
@@ -260,14 +260,14 @@ def build_fact(df: pd.DataFrame, party_keys: list, election_id: str) -> pd.DataF
     # later violate fact_casilla_vote's UNIQUE constraint in SQLite. Confirmed
     # this can happen when CLAVE_ACTA itself isn't unique (shouldn't occur,
     # but checking explicitly is cheap and fails loudly here instead of in
-    # ingestion/pipeline.py's executemany).
+    # ingestion/electoral_ingest.py's executemany).
     dupe_count = df["casilla_id"].duplicated().sum()
     if dupe_count > 0:
         raise ValueError(
             f"[{election_id}] casilla_id is not unique: {dupe_count:,} duplicate "
             f"rows found in df_raw after make_casilla_id(). Fix the key before "
             f"building fact_casilla_vote, or duplicate-key inserts will fail "
-            f"downstream in ingestion/pipeline.py."
+            f"downstream in ingestion/electoral_ingest.py."
         )
 
     VOTE_META = ["CNR", "VN", "TOTAL_VOTOS_CALCULADOS"]

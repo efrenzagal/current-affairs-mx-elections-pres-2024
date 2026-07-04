@@ -1,17 +1,17 @@
 """
-Election Data Pipeline — Ingest
-================================
-Loads clean per-cycle parquets into SQLite (election_data.db).
+Electoral Ingest — clean parquets → SQLite
+==========================================
+Loads clean per-cycle parquets into election_data.db.
 
 This file never touches raw CSVs. Per-cycle CSV → Parquet extraction lives in
-the cycle's own notebook (e.g. notebook_2024.py), which writes to data/clean/.
-This pipeline only reads from data/clean/*.parquet from here on.
+raw_electoral_data_converters/. This script only reads from
+data/electoral_data_clean/ from here on.
 
-Once SQLite is populated, run ingestion/materialize.py to build the Parquet
+Once SQLite is populated, run ingestion/electoral_materialize.py to build the Parquet
 files Streamlit reads (per-election views + the multi-year timeseries).
 
 Usage:
-    python ingestion/pipeline.py               # clean parquets → SQLite
+    python ingestion/electoral_ingest.py       # clean parquets → SQLite
 """
 
 import argparse
@@ -19,227 +19,108 @@ import sqlite3
 import pandas as pd
 from pathlib import Path
 
-
-# ── Canonical state names (keyed by id_estado integer) ────────────────────────
-# Source parquets from different cycles spell the same state differently
-# (e.g. "MEXICO" vs "MÉXICO", "MICHOACAN" vs "MICHOACÁN DE OCAMPO").
-# Normalizing at insert time keeps dim_geography consistent across all cycles.
-CANONICAL_ESTADO_NOMBRES: dict[int, str] = {
-     1: "AGUASCALIENTES",            2: "BAJA CALIFORNIA",
-     3: "BAJA CALIFORNIA SUR",       4: "CAMPECHE",
-     5: "COAHUILA DE ZARAGOZA",      6: "COLIMA",
-     7: "CHIAPAS",                   8: "CHIHUAHUA",
-     9: "CIUDAD DE MÉXICO",         10: "DURANGO",
-    11: "GUANAJUATO",               12: "GUERRERO",
-    13: "HIDALGO",                  14: "JALISCO",
-    15: "MÉXICO",                   16: "MICHOACÁN DE OCAMPO",
-    17: "MORELOS",                  18: "NAYARIT",
-    19: "NUEVO LEÓN",               20: "OAXACA",
-    21: "PUEBLA",                   22: "QUERÉTARO",
-    23: "QUINTANA ROO",             24: "SAN LUIS POTOSÍ",
-    25: "SINALOA",                  26: "SONORA",
-    27: "TABASCO",                  28: "TAMAULIPAS",
-    29: "TLAXCALA",                 30: "VERACRUZ DE IGNACIO DE LA LLAVE",
-    31: "YUCATÁN",                  32: "ZACATECAS",
-}
+from ingestion.shared import CANONICAL_ESTADO_NOMBRES, DB_PATH, canonical_estado
 
 
-def canonical_estado(id_estado: int, fallback: str) -> str:
-    return CANONICAL_ESTADO_NOMBRES.get(int(id_estado), fallback)
-
-
-# ── Shared config ──────────────────────────────────────────────────────────────
-
-DB_PATH = "election_data.db"
+# ── Election registry ──────────────────────────────────────────────────────────
 
 # Each entry now carries its own clean_dir, since each cycle's notebook writes
 # to a separate folder (data/clean_2024, data/clean_2018, ...) and the column
 # layouts differ across cycles -- see SCHEMA_MAP below for how ingest_election
 # adapts to that per election_id.
+# Keyed by election_id so any lookup by ID is unambiguous.
+# 2015 and 2021 are midterm cycles — diputados only, no presidente/senadores.
+# 2018 MR/RP split is unconfirmed (single combined file, no separate RP source).
 ELECTION_META = {
-    "PRESIDENCIA_1994": {
-        "election_id":   "PRE_1994",
-        "year":          1994,
-        "election_type": "PRE",
-        "chamber":       None,
-        "seat_method":   "direct",
-        "total_seats":   1,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_1994"),
+    "PRE_1994": {
+        "year": 1994, "election_type": "PRE", "chamber": None,
+        "seat_method": "direct", "total_seats": 1, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_1994"),
     },
-    "PRESIDENCIA_2024": {
-        "election_id":   "PRE_2024",
-        "year":          2024,
-        "election_type": "PRE",
-        "chamber":       None,
-        "seat_method":   "direct",
-        "total_seats":   1,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2024"),
+    "PRE_2000": {
+        "year": 2000, "election_type": "PRE", "chamber": None,
+        "seat_method": "direct", "total_seats": 1, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2000"),
     },
-    "DIPUTACIONES_FED_MR_2024": {
-        "election_id":   "DIP_MR_2024",
-        "year":          2024,
-        "election_type": "DIP",
-        "chamber":       "deputies",
-        "seat_method":   "fptp",
-        "total_seats":   300,
-        "term_years":    3,
-        "clean_dir":     Path("data/clean_2024"),
+    "DIP_MR_2000": {
+        "year": 2000, "election_type": "DIP", "chamber": "deputies",
+        "seat_method": "fptp", "total_seats": 300, "term_years": 3,
+        "clean_dir": Path("data/electoral_data_clean/clean_2000"),
     },
-    "SENADURIAS_MR_2024": {
-        "election_id":   "SEN_MR_2024",
-        "year":          2024,
-        "election_type": "SEN",
-        "chamber":       "senate",
-        "seat_method":   "fptp",
-        "total_seats":   96,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2024"),
+    "SEN_MR_2000": {
+        "year": 2000, "election_type": "SEN", "chamber": "senate",
+        "seat_method": "fptp", "total_seats": 96, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2000"),
     },
-    # 2018 -- seat_method/chamber labels carried over from the 2024 convention;
-    # MR vs RP split for DIP/SEN is still unconfirmed for 2018 (single combined
-    # file was provided, no separate RP source found yet -- see prior discussion).
-    "PRESIDENCIA_2018": {
-        "election_id":   "PRE_2018",
-        "year":          2018,
-        "election_type": "PRE",
-        "chamber":       None,
-        "seat_method":   "direct",
-        "total_seats":   1,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2018"),
+    "PRE_2006": {
+        "year": 2006, "election_type": "PRE", "chamber": None,
+        "seat_method": "direct", "total_seats": 1, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2006"),
     },
-    "DIPUTACIONES_2018": {
-        "election_id":   "DIP_MR_2018",
-        "year":          2018,
-        "election_type": "DIP",
-        "chamber":       "deputies",
-        "seat_method":   "fptp",
-        "total_seats":   300,
-        "term_years":    3,
-        "clean_dir":     Path("data/clean_2018"),
+    "DIP_MR_2006": {
+        "year": 2006, "election_type": "DIP", "chamber": "deputies",
+        "seat_method": "fptp", "total_seats": 300, "term_years": 3,
+        "clean_dir": Path("data/electoral_data_clean/clean_2006"),
     },
-    "SENADURIAS_2018": {
-        "election_id":   "SEN_MR_2018",
-        "year":          2018,
-        "election_type": "SEN",
-        "chamber":       "senate",
-        "seat_method":   "fptp",
-        "total_seats":   96,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2018"),
+    "SEN_MR_2006": {
+        "year": 2006, "election_type": "SEN", "chamber": "senate",
+        "seat_method": "fptp", "total_seats": 96, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2006"),
     },
-    "PRESIDENCIA_2000": {
-        "election_id":   "PRE_2000",
-        "year":          2000,
-        "election_type": "PRE",
-        "chamber":       None,
-        "seat_method":   "direct",
-        "total_seats":   1,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2000"),
+    "PRE_2012": {
+        "year": 2012, "election_type": "PRE", "chamber": None,
+        "seat_method": "direct", "total_seats": 1, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2012"),
     },
-    "DIPUTACIONES_2000": {
-        "election_id":   "DIP_MR_2000",
-        "year":          2000,
-        "election_type": "DIP",
-        "chamber":       "deputies",
-        "seat_method":   "fptp",
-        "total_seats":   300,
-        "term_years":    3,
-        "clean_dir":     Path("data/clean_2000"),
+    "DIP_MR_2012": {
+        "year": 2012, "election_type": "DIP", "chamber": "deputies",
+        "seat_method": "fptp", "total_seats": 300, "term_years": 3,
+        "clean_dir": Path("data/electoral_data_clean/clean_2012"),
     },
-    "SENADURIAS_2000": {
-        "election_id":   "SEN_MR_2000",
-        "year":          2000,
-        "election_type": "SEN",
-        "chamber":       "senate",
-        "seat_method":   "fptp",
-        "total_seats":   96,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2000"),
+    "SEN_MR_2012": {
+        "year": 2012, "election_type": "SEN", "chamber": "senate",
+        "seat_method": "fptp", "total_seats": 96, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2012"),
     },
-    "PRESIDENCIA_2006": {
-        "election_id":   "PRE_2006",
-        "year":          2006,
-        "election_type": "PRE",
-        "chamber":       None,
-        "seat_method":   "direct",
-        "total_seats":   1,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2006"),
+    "DIP_MR_2015": {
+        "year": 2015, "election_type": "DIP", "chamber": "deputies",
+        "seat_method": "fptp", "total_seats": 300, "term_years": 3,
+        "clean_dir": Path("data/electoral_data_clean/clean_2015"),
     },
-    "DIPUTACIONES_2006": {
-        "election_id":   "DIP_MR_2006",
-        "year":          2006,
-        "election_type": "DIP",
-        "chamber":       "deputies",
-        "seat_method":   "fptp",
-        "total_seats":   300,
-        "term_years":    3,
-        "clean_dir":     Path("data/clean_2006"),
+    "PRE_2018": {
+        "year": 2018, "election_type": "PRE", "chamber": None,
+        "seat_method": "direct", "total_seats": 1, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2018"),
     },
-    "SENADURIAS_2006": {
-        "election_id":   "SEN_MR_2006",
-        "year":          2006,
-        "election_type": "SEN",
-        "chamber":       "senate",
-        "seat_method":   "fptp",
-        "total_seats":   96,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2006"),
+    "DIP_MR_2018": {
+        "year": 2018, "election_type": "DIP", "chamber": "deputies",
+        "seat_method": "fptp", "total_seats": 300, "term_years": 3,
+        "clean_dir": Path("data/electoral_data_clean/clean_2018"),
     },
-    "PRESIDENCIA_2012": {
-        "election_id":   "PRE_2012",
-        "year":          2012,
-        "election_type": "PRE",
-        "chamber":       None,
-        "seat_method":   "direct",
-        "total_seats":   1,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2012"),
+    "SEN_MR_2018": {
+        "year": 2018, "election_type": "SEN", "chamber": "senate",
+        "seat_method": "fptp", "total_seats": 96, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2018"),
     },
-    "DIPUTACIONES_2012": {
-        "election_id":   "DIP_MR_2012",
-        "year":          2012,
-        "election_type": "DIP",
-        "chamber":       "deputies",
-        "seat_method":   "fptp",
-        "total_seats":   300,
-        "term_years":    3,
-        "clean_dir":     Path("data/clean_2012"),
+    "DIP_MR_2021": {
+        "year": 2021, "election_type": "DIP", "chamber": "deputies",
+        "seat_method": "fptp", "total_seats": 300, "term_years": 3,
+        "clean_dir": Path("data/electoral_data_clean/clean_2021"),
     },
-    "SENADURIAS_2012": {
-        "election_id":   "SEN_MR_2012",
-        "year":          2012,
-        "election_type": "SEN",
-        "chamber":       "senate",
-        "seat_method":   "fptp",
-        "total_seats":   96,
-        "term_years":    6,
-        "clean_dir":     Path("data/clean_2012"),
+    "PRE_2024": {
+        "year": 2024, "election_type": "PRE", "chamber": None,
+        "seat_method": "direct", "total_seats": 1, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2024"),
     },
-    # 2015 and 2021 are midterm cycles -- diputados only, no presidente/senadores.
-    "DIPUTACIONES_2015": {
-        "election_id":   "DIP_MR_2015",
-        "year":          2015,
-        "election_type": "DIP",
-        "chamber":       "deputies",
-        "seat_method":   "fptp",
-        "total_seats":   300,
-        "term_years":    3,
-        "clean_dir":     Path("data/clean_2015"),
+    "DIP_MR_2024": {
+        "year": 2024, "election_type": "DIP", "chamber": "deputies",
+        "seat_method": "fptp", "total_seats": 300, "term_years": 3,
+        "clean_dir": Path("data/electoral_data_clean/clean_2024"),
     },
-    "DIPUTACIONES_2021": {
-        "election_id":   "DIP_MR_2021",
-        "year":          2021,
-        "election_type": "DIP",
-        "chamber":       "deputies",
-        "seat_method":   "fptp",
-        "total_seats":   300,
-        "term_years":    3,
-        "clean_dir":     Path("data/clean_2021"),
+    "SEN_MR_2024": {
+        "year": 2024, "election_type": "SEN", "chamber": "senate",
+        "seat_method": "fptp", "total_seats": 96, "term_years": 6,
+        "clean_dir": Path("data/electoral_data_clean/clean_2024"),
     },
 }
 
@@ -840,8 +721,8 @@ def run_ingest(db_path: str = DB_PATH, parquet_dir: Path = None):
 
     with ElectionWarehouse(db_path=db_path) as wh:
         wh.create_schema()
-        for folder, meta in ELECTION_META.items():
-            wh.ingest_election(meta["election_id"], meta, parquet_dir)
+        for election_id, meta in ELECTION_META.items():
+            wh.ingest_election(election_id, meta, parquet_dir)
 
 
         # Collect every distinct clean_dir referenced by ELECTION_META (or just

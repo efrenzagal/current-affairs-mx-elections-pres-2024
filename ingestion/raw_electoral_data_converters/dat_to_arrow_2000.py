@@ -10,7 +10,7 @@ import pandas as pd
 import requests
 
 BASE_URL = "https://portalanterior.ine.mx/documentos/RESELEC/esta2000/comp_test/reportes/distritales"
-CACHE_DIR = Path("data/raw_2000")
+CACHE_DIR = Path("data/electoral_data_raw/raw_2000")
 MAX_DISTRICT_PROBE = 40  # safety cap; CDMX/Distrito Federal has the most districts (~30)
 
 # 2000 only carries casilla-level MR votes for these three races. RP for diputados/
@@ -78,7 +78,7 @@ ESTADO_NOMBRES = {
     31: "YUCATAN",                    32: "ZACATECAS",
 }
 
-OUT = Path("data/clean_2000")
+OUT = Path("data/electoral_data_clean/clean_2000")
 OUT.mkdir(parents=True, exist_ok=True)
 
 

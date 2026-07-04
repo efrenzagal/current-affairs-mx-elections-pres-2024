@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "election_data.db"
 
 INTEGRACION_2024 = (
-    ROOT / "data" / "raw_2024" / "PRESIDENCIA_2024"
+    ROOT / "data" / "electoral_data_raw" / "raw_2024" / "PRESIDENCIA_2024"
     / "CSV" / "INTEGRACION_CARGOS_PEF_2024.csv"
 )
 
