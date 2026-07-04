@@ -16,6 +16,10 @@ These files describe the SQLite/parquet schema after ingestion:
 - `dim_party.csv`
 - `dim_candidatos.csv`
 - `fact_casilla_vote.csv`
+- `dim_gaceta_vote.csv`
+- `dim_gaceta_deputy.csv`
+- `fact_gaceta_vote_summary.csv`
+- `fact_gaceta_deputy_vote.csv`
 
 They define column names, data types, key roles, Spanish and English
 descriptions, value domains, and cycle-specific notes.

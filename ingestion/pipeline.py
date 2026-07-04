@@ -20,6 +20,34 @@ import pandas as pd
 from pathlib import Path
 
 
+# ── Canonical state names (keyed by id_estado integer) ────────────────────────
+# Source parquets from different cycles spell the same state differently
+# (e.g. "MEXICO" vs "MÉXICO", "MICHOACAN" vs "MICHOACÁN DE OCAMPO").
+# Normalizing at insert time keeps dim_geography consistent across all cycles.
+CANONICAL_ESTADO_NOMBRES: dict[int, str] = {
+     1: "AGUASCALIENTES",            2: "BAJA CALIFORNIA",
+     3: "BAJA CALIFORNIA SUR",       4: "CAMPECHE",
+     5: "COAHUILA DE ZARAGOZA",      6: "COLIMA",
+     7: "CHIAPAS",                   8: "CHIHUAHUA",
+     9: "CIUDAD DE MÉXICO",         10: "DURANGO",
+    11: "GUANAJUATO",               12: "GUERRERO",
+    13: "HIDALGO",                  14: "JALISCO",
+    15: "MÉXICO",                   16: "MICHOACÁN DE OCAMPO",
+    17: "MORELOS",                  18: "NAYARIT",
+    19: "NUEVO LEÓN",               20: "OAXACA",
+    21: "PUEBLA",                   22: "QUERÉTARO",
+    23: "QUINTANA ROO",             24: "SAN LUIS POTOSÍ",
+    25: "SINALOA",                  26: "SONORA",
+    27: "TABASCO",                  28: "TAMAULIPAS",
+    29: "TLAXCALA",                 30: "VERACRUZ DE IGNACIO DE LA LLAVE",
+    31: "YUCATÁN",                  32: "ZACATECAS",
+}
+
+
+def canonical_estado(id_estado: int, fallback: str) -> str:
+    return CANONICAL_ESTADO_NOMBRES.get(int(id_estado), fallback)
+
+
 # ── Shared config ──────────────────────────────────────────────────────────────
 
 DB_PATH = "election_data.db"
@@ -442,7 +470,8 @@ class ElectionWarehouse:
             );
 
             CREATE TABLE IF NOT EXISTS dim_geography (
-                geo_id                    TEXT PRIMARY KEY,
+                geo_id                    TEXT NOT NULL,
+                election_id               TEXT NOT NULL,
                 id_estado                 INTEGER NOT NULL,
                 nombre_estado             TEXT NOT NULL,
                 seccion                   INTEGER NOT NULL,
@@ -451,7 +480,9 @@ class ElectionWarehouse:
                 id_distrito_federal       INTEGER,
                 cabecera_distrital_federal TEXT,
                 circunscripcion           INTEGER,
-                created_at                TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at                TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (geo_id, election_id),
+                FOREIGN KEY (election_id) REFERENCES dim_election(election_id)
             );
 
             CREATE TABLE IF NOT EXISTS dim_casilla (
@@ -470,8 +501,8 @@ class ElectionWarehouse:
                 ruta_acta        TEXT,
                 created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (election_id, casilla_id),
-                FOREIGN KEY (election_id) REFERENCES dim_election(election_id),
-                FOREIGN KEY (geo_id)      REFERENCES dim_geography(geo_id)
+                FOREIGN KEY (election_id)          REFERENCES dim_election(election_id),
+                FOREIGN KEY (geo_id, election_id)  REFERENCES dim_geography(geo_id, election_id)
             );
 
             CREATE TABLE IF NOT EXISTS dim_party (
@@ -596,13 +627,17 @@ class ElectionWarehouse:
         )
         print("  ✓ Election metadata")
 
-        # 2. dim_geography — bulk insert with executemany (INSERT OR IGNORE for dedup)
+        # 2. dim_geography — one row per (geo_id, election_id).
+        # Some converters emit multiple rows for geo_id XX_0000 (seccion=0 state
+        # placeholder, one per district). Keep the first occurrence.
         df_geo = pd.read_parquet(parquet_dir / "dim_geography.parquet")
+        df_geo = df_geo.drop_duplicates(subset=["geo_id"])
         geo_rows = [
             (
                 row["geo_id"],
+                election_id,
                 int(row["ID_ESTADO"]),
-                row["NOMBRE_ESTADO"],
+                canonical_estado(row["ID_ESTADO"], row["NOMBRE_ESTADO"]),
                 int(row["SECCION"]),
                 get_mapped(row, "id_municipio", geo_map, int),
                 get_mapped(row, "municipio", geo_map),
@@ -613,10 +648,10 @@ class ElectionWarehouse:
             for _, row in df_geo.iterrows()
         ]
         self.cursor.executemany(
-            """INSERT OR IGNORE INTO dim_geography
-               (geo_id, id_estado, nombre_estado, seccion, id_municipio, municipio,
-                id_distrito_federal, cabecera_distrital_federal, circunscripcion)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO dim_geography
+               (geo_id, election_id, id_estado, nombre_estado, seccion, id_municipio,
+                municipio, id_distrito_federal, cabecera_distrital_federal, circunscripcion)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             geo_rows,
         )
         print(f"  ✓ Geography ({len(df_geo):,} sections)")
@@ -787,16 +822,27 @@ class ElectionWarehouse:
 
 
 def run_ingest(db_path: str = DB_PATH, parquet_dir: Path = None):
+    import os
     print("=" * 55)
     print("STEP 1 — INGEST: parquets → SQLite")
     print("=" * 55)
     if parquet_dir is not None:
         print(f"  (--clean-dir override: {parquet_dir} used for ALL elections)\n")
 
+    # Always start from a clean slate so per-cycle name normalization is
+    # applied consistently and stale rows from previous runs don't persist.
+    # Remove the DB and any WAL/SHM sidecar files to avoid SQLite I/O errors.
+    for suffix in ("", "-wal", "-shm"):
+        p = db_path + suffix
+        if os.path.exists(p):
+            os.remove(p)
+            print(f"  Removed existing {p}")
+
     with ElectionWarehouse(db_path=db_path) as wh:
         wh.create_schema()
         for folder, meta in ELECTION_META.items():
             wh.ingest_election(meta["election_id"], meta, parquet_dir)
+
 
         # Collect every distinct clean_dir referenced by ELECTION_META (or just
         # the override, if one was passed) so candidatos get a chance to load

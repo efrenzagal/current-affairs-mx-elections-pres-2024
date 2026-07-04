@@ -1,0 +1,3 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+deputy_id,TEXT,Primary key,"Identificador deterministicamente generado para un nombre de diputada o diputado observado en Gaceta.","Deterministically generated identifier for a deputy name observed in Gaceta.","DEP_<12 hex chars>.","Generated from normalized deputy_name; can be replaced or bridged later with official composition identifiers."
+deputy_name,TEXT,Required attribute,"Nombre de la diputada o diputado como aparece en la lista de Gaceta, despues de limpieza basica de espacios.","Deputy name as it appears in the Gaceta detail list after basic whitespace cleanup.","Text.","Name spelling can vary across years; use with care for longitudinal identity matching."

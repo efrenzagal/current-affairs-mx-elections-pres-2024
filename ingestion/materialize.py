@@ -224,7 +224,7 @@ def query_casilla(conn, election_id: str) -> pd.DataFrame:
         FROM fact_casilla_vote f
         JOIN dim_casilla  c ON f.casilla_id  = c.casilla_id
                             AND f.election_id = c.election_id
-        JOIN dim_geography g ON c.geo_id      = g.geo_id
+        JOIN dim_geography g ON c.geo_id = g.geo_id AND c.election_id = g.election_id AND c.election_id = g.election_id
         WHERE f.election_id = '{election_id}'
         ORDER BY g.id_estado, g.seccion, c.casilla_id, f.party_key
     """, conn)
@@ -251,7 +251,7 @@ def query_seccion(conn, election_id: str) -> pd.DataFrame:
         FROM fact_casilla_vote f
         JOIN dim_casilla   c ON f.casilla_id  = c.casilla_id
                              AND f.election_id = c.election_id
-        JOIN dim_geography g ON c.geo_id       = g.geo_id
+        JOIN dim_geography g ON c.geo_id = g.geo_id AND c.election_id = g.election_id AND c.election_id = g.election_id
         WHERE f.election_id = '{election_id}'
         GROUP BY f.election_id,
                  g.id_estado, {_ESTADO_CASE_SQL},
@@ -267,7 +267,7 @@ def query_seccion(conn, election_id: str) -> pd.DataFrame:
             g.seccion,
             SUM(c.lista_nominal) AS lista_nominal_part
         FROM dim_casilla   c
-        JOIN dim_geography g ON c.geo_id = g.geo_id
+        JOIN dim_geography g ON c.geo_id = g.geo_id AND c.election_id = g.election_id
         WHERE c.election_id  = '{election_id}'
           AND c.tipo_casilla != 'S'
           AND g.seccion       > 0
@@ -298,7 +298,7 @@ def query_municipio(conn, election_id: str) -> pd.DataFrame:
         FROM fact_casilla_vote f
         JOIN dim_casilla   c ON f.casilla_id  = c.casilla_id
                              AND f.election_id = c.election_id
-        JOIN dim_geography g ON c.geo_id       = g.geo_id
+        JOIN dim_geography g ON c.geo_id = g.geo_id AND c.election_id = g.election_id AND c.election_id = g.election_id
         WHERE f.election_id = '{election_id}'
         GROUP BY f.election_id,
                  g.id_estado, {_ESTADO_CASE_SQL},
@@ -313,7 +313,7 @@ def query_municipio(conn, election_id: str) -> pd.DataFrame:
             g.municipio,
             SUM(c.lista_nominal) AS lista_nominal_part
         FROM dim_casilla   c
-        JOIN dim_geography g ON c.geo_id = g.geo_id
+        JOIN dim_geography g ON c.geo_id = g.geo_id AND c.election_id = g.election_id
         WHERE c.election_id  = '{election_id}'
           AND c.tipo_casilla != 'S'
           AND g.seccion       > 0
@@ -352,7 +352,7 @@ def query_estado(conn, election_id: str) -> pd.DataFrame:
         FROM fact_casilla_vote f
         JOIN dim_casilla   c ON f.casilla_id  = c.casilla_id
                              AND f.election_id = c.election_id
-        JOIN dim_geography g ON c.geo_id       = g.geo_id
+        JOIN dim_geography g ON c.geo_id = g.geo_id AND c.election_id = g.election_id AND c.election_id = g.election_id
         WHERE f.election_id = '{election_id}'
         GROUP BY f.election_id, g.id_estado, {_ESTADO_CASE_SQL}, f.party_key
         ORDER BY g.id_estado, f.party_key
@@ -363,7 +363,7 @@ def query_estado(conn, election_id: str) -> pd.DataFrame:
             g.id_estado,
             SUM(c.lista_nominal) AS lista_nominal_part
         FROM dim_casilla   c
-        JOIN dim_geography g ON c.geo_id = g.geo_id
+        JOIN dim_geography g ON c.geo_id = g.geo_id AND c.election_id = g.election_id
         WHERE c.election_id  = '{election_id}'
           AND c.tipo_casilla != 'S'
           AND g.seccion       > 0
@@ -789,7 +789,7 @@ def load_raw_votes(conn: sqlite3.Connection) -> pd.DataFrame:
         FROM fact_casilla_vote f
         JOIN dim_casilla   c ON  f.casilla_id  = c.casilla_id
                              AND f.election_id  = c.election_id
-        JOIN dim_geography g ON  c.geo_id       = g.geo_id
+        JOIN dim_geography g ON c.geo_id = g.geo_id AND c.election_id = g.election_id
         JOIN dim_election  e ON  f.election_id  = e.election_id
         WHERE c.tipo_casilla != 'S'
           AND g.seccion        > 0
@@ -809,7 +809,7 @@ def load_lista_nominal(conn: sqlite3.Connection) -> pd.DataFrame:
             g.id_estado,
             SUM(c.lista_nominal) AS lista_nominal
         FROM dim_casilla   c
-        JOIN dim_geography g ON c.geo_id = g.geo_id
+        JOIN dim_geography g ON c.geo_id = g.geo_id AND c.election_id = g.election_id
         WHERE c.tipo_casilla != 'S'
           AND g.seccion        > 0
         GROUP BY c.election_id, g.id_estado

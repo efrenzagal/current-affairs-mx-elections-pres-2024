@@ -1,0 +1,6 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+gaceta_vote_id,TEXT,Foreign key; unique-key component,"Votacion de Gaceta en la que se observo el voto individual.","Gaceta vote in which the individual vote was observed.","Values from dim_gaceta_vote.gaceta_vote_id.","Join to dim_gaceta_vote for source metadata."
+deputy_id,TEXT,Foreign key; unique-key component,"Diputada o diputado observado en la lista de detalle.","Deputy observed in the detail list.","Values from dim_gaceta_deputy.deputy_id.","Generated from name until a stronger official person identifier is integrated."
+vote_choice,TEXT,Required attribute,"Sentido o estado del voto individual.","Individual vote choice or status.","Favor, Contra, Abstencion, Quorum *, Ausente.","Preserves source labels."
+party_key,TEXT,Required attribute,"Grupo parlamentario reportado para la diputada o diputado en esta votacion.","Parliamentary group reported for the deputy in this vote.","Examples: MRN, PAN, PRI, PRD, PVEM, PT, MC, IND.","Stored on the fact because affiliation can change over time."
+ordinal,INTEGER,Source attribute,"Orden dentro de la lista de detalle por partido y opcion de voto.","Order within the detail list for that party and vote choice.","Positive integer.","Useful for source audit only; not an analytical rank."

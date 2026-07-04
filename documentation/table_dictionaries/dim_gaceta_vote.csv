@@ -1,0 +1,10 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+gaceta_vote_id,TEXT,Primary key,"Identificador canonico de una pagina de votacion nominal de Gaceta Parlamentaria.","Canonical identifier for one Gaceta Parlamentaria roll-call vote page.","Example: GACETA_L66_TABLA2EX1_1.","Generated from legislature number and source table slug."
+source_url,TEXT,Source reference,"URL completa de la pagina de resumen de votacion en Gaceta.","Full URL of the Gaceta vote summary page.","https URL.","Stored once here instead of repeating on fact rows."
+source_path,TEXT,Source reference,"Ruta del URL de la pagina de votacion.","URL path for the vote page.","Example: /Gaceta/Votaciones/66/tabla2ex1-1.php3.","Useful for deduping and crawl audits."
+table_slug,TEXT,Source attribute,"Nombre base de la tabla fuente.","Source table basename.","Example: tabla2ex1-1.","Derived from the PHP filename."
+legislature,INTEGER,Source attribute,"Numero de legislatura federal reportado en la ruta de Gaceta.","Federal legislature number reported in the Gaceta path.","58, 59, ..., 66.","Parsed from /Gaceta/Votaciones/<legislature>/."
+chamber,TEXT,Required attribute,"Camara legislativa asociada a la votacion.","Legislative chamber associated with the vote.","DIP.","Current parser targets Camara de Diputados Gaceta pages."
+title,TEXT,Source attribute,"Titulo o descripcion de la votacion enviado por el formulario fuente.","Vote title or description submitted by the source form.","Text.","Stored once here to avoid repetition in deputy facts."
+source_event,TEXT,Source attribute,"Valor hidden evento del formulario de Gaceta.","Hidden evento value from the Gaceta form.","Text or NULL.","Needed for detail-list POST requests on some pages."
+detail_action_url,TEXT,Source reference,"Endpoint del formulario que devuelve listas de diputadas y diputados por opcion de voto.","Form endpoint returning deputy lists by vote choice.","https URL.","Varies by legislature and period."
