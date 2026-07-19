@@ -168,17 +168,25 @@ def render_vote_browser(votes_df: pd.DataFrame, leg_sel: int):
     v1, v2, v3 = st.columns(3)
     v1.metric("Total votaciones", f"{len(df):,}")
     v2.metric("Con fecha", f"{df['vote_date'].notna().sum():,}")
-    aprobadas = df["status_text"].str.contains("Aprobad", na=False).sum()
-    v3.metric("Aprobadas", f"{aprobadas:,}")
+    v3.metric("Con quórum", f"{df['quorum_ok'].sum():,}" if "quorum_ok" in df.columns else "n/d")
 
     df_dated = df[df["vote_date"].notna()].copy()
     if not df_dated.empty:
         df_dated["month"] = df_dated["vote_date"].dt.to_period("M").astype(str)
-        monthly = df_dated.groupby(["month", "status_text"]).size().reset_index(name="n")
+        monthly = (
+            df_dated.groupby("month")
+            .agg(
+                mayoria_simple=("mayoria_simple_ok", "sum"),
+                mayoria_absoluta=("mayoria_absoluta_ok", "sum"),
+                mayoria_calificada=("mayoria_calificada_ok", "sum"),
+            )
+            .reset_index()
+            .melt("month", var_name="umbral", value_name="n")
+        )
         fig_time = px.bar(
-            monthly, x="month", y="n", color="status_text",
-            labels={"month": "Mes", "n": "Votaciones", "status_text": "Resultado"},
-            title=f"Votaciones por mes · Legislatura {leg_sel}",
+            monthly, x="month", y="n", color="umbral",
+            labels={"month": "Mes", "n": "Votaciones", "umbral": "Umbral"},
+            title=f"Umbrales alcanzados por mes · Legislatura {leg_sel}",
         )
         fig_time.update_layout(
             height=320, xaxis_tickangle=-45,
@@ -192,17 +200,34 @@ def render_vote_browser(votes_df: pd.DataFrame, leg_sel: int):
     df_show  = df_dated if not df_dated.empty else df
     if search:
         df_show = df_show[df_show["title"].str.contains(search, case=False, na=False)]
+
+    display_cols = [
+        "vote_date", "title", "favor", "contra", "abstencion", "quorum",
+        "ausente", "presentes", "total", "quorum_ok", "mayoria_simple_ok",
+        "mayoria_absoluta_ok", "mayoria_calificada_ok",
+        "mayoria_absoluta_requerida", "mayoria_calificada_requerida",
+    ]
+    display_cols = [c for c in display_cols if c in df_show.columns]
+
     st.dataframe(
-        df_show[["vote_date","status_text","title","favor","contra","abstencion","ausente"]]
+        df_show[display_cols]
         .sort_values("vote_date", ascending=False)
         .rename(columns={
-            "vote_date":   "Fecha",
-            "status_text": "Resultado",
-            "title":       "Título",
-            "favor":       "Favor",
-            "contra":      "Contra",
-            "abstencion":  "Abstención",
-            "ausente":     "Ausente",
+            "vote_date": "Fecha",
+            "title": "Título",
+            "favor": "Favor",
+            "contra": "Contra",
+            "abstencion": "Abstención",
+            "quorum": "Quórum *",
+            "ausente": "Ausente",
+            "presentes": "Presentes",
+            "total": "Total",
+            "quorum_ok": "Quórum",
+            "mayoria_simple_ok": "Mayoría simple",
+            "mayoria_absoluta_ok": "Mayoría absoluta",
+            "mayoria_calificada_ok": "Mayoría calificada",
+            "mayoria_absoluta_requerida": "Req. absoluta",
+            "mayoria_calificada_requerida": "Req. calificada",
         }),
         use_container_width=True, hide_index=True,
     )

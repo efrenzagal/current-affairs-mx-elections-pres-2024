@@ -11,13 +11,15 @@ Once SQLite is populated, run ingestion/electoral_materialize.py to build the Pa
 files Streamlit reads (per-election views + the multi-year timeseries).
 
 Usage:
-    python ingestion/electoral_ingest.py       # clean parquets → SQLite
+    python -m ingestion.electoral_ingest              # full clean rebuild
+    python -m ingestion.electoral_ingest --year 2000  # replace one cycle only
 """
 
 import argparse
 import sqlite3
 import pandas as pd
 from pathlib import Path
+from typing import Optional
 
 from ingestion.shared import CANONICAL_ESTADO_NOMBRES, DB_PATH, canonical_estado
 
@@ -192,10 +194,10 @@ SCHEMA_MAP = {
     },
     2000: {
         "geography": {
-            # No municipio/circunscripcion in the 2000 .dat files (state + section
-            # + district only, same shape as 2012/2018)
-            "id_municipio":               None,
-            "municipio":                  None,
+            # Municipio is reconstructed by build_2000_municipio_crosswalk.py
+            # from the 1994/2006 dimensions, with 2024 IDs where names match.
+            "id_municipio":               "ID_MUNICIPIO",
+            "municipio":                  "MUNICIPIO",
             "id_distrito_federal":        "ID_DISTRITO",
             "cabecera_distrital_federal": None,
             "circunscripcion":            None,
@@ -254,9 +256,9 @@ SCHEMA_MAP = {
     },
     2018: {
         "geography": {
-            # 2018 has no municipio/circunscripcion data at all -- all None
-            "id_municipio":               None,
-            "municipio":                  None,
+            # municipio derived from 2024 SEC lookup in csv_to_arrow_2018.py
+            "id_municipio":               "ID_MUNICIPIO",
+            "municipio":                  "MUNICIPIO",
             "id_distrito_federal":        "ID_DISTRITO",
             "cabecera_distrital_federal": "NOMBRE_DISTRITO",
             "circunscripcion":            None,
@@ -278,8 +280,9 @@ SCHEMA_MAP = {
     },
     2012: {
         "geography": {
-            "id_municipio":               None,  # not in 2012 raw files
-            "municipio":                  None,
+            # municipio derived from 2024 SEC lookup in csv_to_arrow_2012.py
+            "id_municipio":               "ID_MUNICIPIO",
+            "municipio":                  "MUNICIPIO",
             "id_distrito_federal":        "ID_DISTRITO",
             "cabecera_distrital_federal": None,  # no NOMBRE_DISTRITO in 2012
             "circunscripcion":            None,
@@ -438,6 +441,26 @@ class ElectionWarehouse:
 
     # ── Ingestion ──────────────────────────────────────────────────────────────
 
+    def delete_elections(self, election_ids: list[str]) -> None:
+        """Delete selected elections without touching any other cycle."""
+        for election_id in election_ids:
+            print(f"  ♻️  Removing existing {election_id} rows...")
+            # Delete children before parents; the schema intentionally does
+            # not rely on ON DELETE CASCADE.
+            self.cursor.execute(
+                "DELETE FROM fact_casilla_vote WHERE election_id = ?", (election_id,)
+            )
+            self.cursor.execute(
+                "DELETE FROM dim_casilla WHERE election_id = ?", (election_id,)
+            )
+            self.cursor.execute(
+                "DELETE FROM dim_geography WHERE election_id = ?", (election_id,)
+            )
+            self.cursor.execute(
+                "DELETE FROM dim_election WHERE election_id = ?", (election_id,)
+            )
+        self.conn.commit()
+
     def ingest_election(self, election_id: str, election_meta: dict, parquet_dir: Path = None):
         print(f"\n🗳️  Ingesting {election_id}...")
 
@@ -589,6 +612,7 @@ class ElectionWarehouse:
                 return
             df_fact = pd.read_parquet(election_fact_path)
             df_fact["election_id"] = election_id
+            df_fact = df_fact.drop_duplicates(subset=["casilla_id", "party_key"])
         else:
             df_fact = pd.read_parquet(fact_path)
             df_fact = df_fact[df_fact["election_id"] == election_id]
@@ -702,7 +726,11 @@ class ElectionWarehouse:
             print(f"    {row['election_id']:<15} {row['votes']:>15,}")
 
 
-def run_ingest(db_path: str = DB_PATH, parquet_dir: Path = None):
+def run_ingest(
+    db_path: str = DB_PATH,
+    parquet_dir: Path = None,
+    year: Optional[int] = None,
+):
     import os
     print("=" * 55)
     print("STEP 1 — INGEST: parquets → SQLite")
@@ -710,18 +738,31 @@ def run_ingest(db_path: str = DB_PATH, parquet_dir: Path = None):
     if parquet_dir is not None:
         print(f"  (--clean-dir override: {parquet_dir} used for ALL elections)\n")
 
-    # Always start from a clean slate so per-cycle name normalization is
-    # applied consistently and stale rows from previous runs don't persist.
-    # Remove the DB and any WAL/SHM sidecar files to avoid SQLite I/O errors.
-    for suffix in ("", "-wal", "-shm"):
-        p = db_path + suffix
-        if os.path.exists(p):
-            os.remove(p)
-            print(f"  Removed existing {p}")
+    selected = {
+        election_id: meta
+        for election_id, meta in ELECTION_META.items()
+        if year is None or meta["year"] == year
+    }
+    if not selected:
+        valid_years = sorted({meta["year"] for meta in ELECTION_META.values()})
+        raise ValueError(f"No elections registered for year {year}; choose from {valid_years}")
+
+    if year is None:
+        # Full mode starts from a clean slate so normalization changes cannot
+        # leave stale rows in other cycles.
+        for suffix in ("", "-wal", "-shm"):
+            p = db_path + suffix
+            if os.path.exists(p):
+                os.remove(p)
+                print(f"  Removed existing {p}")
+    else:
+        print(f"  Targeted cycle refresh: {year} ({', '.join(selected)})")
 
     with ElectionWarehouse(db_path=db_path) as wh:
         wh.create_schema()
-        for election_id, meta in ELECTION_META.items():
+        if year is not None:
+            wh.delete_elections(list(selected))
+        for election_id, meta in selected.items():
             wh.ingest_election(election_id, meta, parquet_dir)
 
 
@@ -733,7 +774,7 @@ def run_ingest(db_path: str = DB_PATH, parquet_dir: Path = None):
         else:
             seen = set()
             clean_dirs = []
-            for meta in ELECTION_META.values():
+            for meta in selected.values():
                 d = meta["clean_dir"]
                 if d not in seen:
                     seen.add(d)
@@ -760,6 +801,17 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument("--db", default=DB_PATH, help="SQLite path")
+    parser.add_argument(
+        "--year",
+        type=int,
+        default=None,
+        choices=sorted({meta["year"] for meta in ELECTION_META.values()}),
+        help="Replace only elections in this cycle; omit for a full clean rebuild",
+    )
     args = parser.parse_args()
 
-    run_ingest(db_path=args.db, parquet_dir=Path(args.clean_dir) if args.clean_dir else None)
+    run_ingest(
+        db_path=args.db,
+        parquet_dir=Path(args.clean_dir) if args.clean_dir else None,
+        year=args.year,
+    )

@@ -119,6 +119,40 @@ CYCLE_BLOCS: dict[str, dict] = {
     },
 }
 
+# ── Ideology blocs (fixed across all PRE elections) ───────────────────────────
+# L = Left (PRD/Morena tradition), R = Right (PAN tradition), C = Center (PRI/MC)
+# Used by the municipio trajectory view to make ternaries comparable across years.
+IDEOLOGY_MAP: dict[str, str] = {
+    # 1994
+    "PRD": "L", "PT": "L", "PFCRN": "L", "PPS": "L", "PARM": "L",
+    "PAN": "R", "UNO_PDM": "R",
+    "PRI": "C", "PVEM": "C",
+    # 2000
+    "A. MEX.": "L",    # Alianza por México = PRD+PT+Convergencia+PSN+PAS
+    "A. CAM.": "R",    # Alianza por el Cambio = PAN+PVEM
+    "PCD": "C", "DSPPN": "C",
+    # 2006
+    "PBT": "L",        # Por el Bien de Todos = PRD+PT+Convergencia
+    "APM": "C",        # Alianza por México = PRI+PVEM+PANAL
+    "ASDC": "L",
+    "NVA_A": "C",
+    # 2012
+    "C_PRD_PT_MC": "L", "C_PRD_PT": "L", "C_PRD_MC": "L", "C_PT_MC": "L",
+    "C_PRI_PVEM": "C", "MC": "C", "PANAL": "C",
+    # 2018
+    "MORENA": "L", "PT_MORENA": "L", "PT_MORENA_PES": "L", "MORENA_PES": "L",
+    "PT_PES": "L",
+    "ENCUENTRO SOCIAL": "R",
+    "PAN_PRD_MC": "R", "PAN_PRD": "R", "PAN_MC": "R",
+    "MOVIMIENTO CIUDADANO": "C", "PRD_MC": "C",
+    "PRI_PVEM": "C", "PRI_NA": "C", "PRI_PVEM_NA": "C", "PVEM_NA": "C",
+    "NUEVA ALIANZA": "C",
+    "CAND_IND_01": "C", "CAND_IND_02": "C",
+    # 2024
+    "PVEM_MORENA": "L", "PVEM_PT": "L", "PVEM_PT_MORENA": "L",
+    "PAN_PRI_PRD": "R", "PAN_PRI": "R", "PRI_PRD": "R",
+}
+
 MAP_METRICS = {
     "Ganador":       {"label": "Ganador (por municipio)",        "kind": "winner"},
     "% SHH":         {"label": "% Sheinbaum (SHH)",             "kind": "continuous", "col": "pct_shh",       "scale": [[0,"#fff0f0"],[0.5,"#8B0000"],[1,"#4a0000"]], "range": [20,90],  "cb_title": "SHH %",          "fmt": ":.1f"},
@@ -287,7 +321,17 @@ def agg_blocs(df: pd.DataFrame, group_cols, blocs: dict) -> pd.DataFrame:
         return pd.Series({"bloc_A": a, "bloc_B": b, "bloc_C": c,
                           "total_votos": tv, "_join_key": jk, "_mun_code": mc})
 
-    agg   = df.groupby(grp).apply(_row).reset_index()
+    rows = []
+    for keys, g in df.dropna(subset=grp).groupby(grp):
+        row = _row(g).to_dict()
+        key_vals = keys if isinstance(keys, tuple) else (keys,)
+        row.update(dict(zip(grp, key_vals)))
+        rows.append(row)
+    if not rows:
+        return pd.DataFrame(columns=grp + ["bloc_A", "bloc_B", "bloc_C",
+                                            "total_votos", "_join_key", "_mun_code",
+                                            "pct_A", "pct_B", "pct_C", "winner"])
+    agg = pd.DataFrame(rows)
     total = (agg["bloc_A"] + agg["bloc_B"] + agg["bloc_C"]).replace(0, float("nan"))
     agg["pct_A"]  = (agg["bloc_A"] / total * 100).round(1)
     agg["pct_B"]  = (agg["bloc_B"] / total * 100).round(1)

@@ -33,6 +33,7 @@ OUT_DIR = Path("aux_scripts/gaceta_votes")
 
 PARTY_ALIASES = {
     "Morena": "MRN",
+    "Movimiento de Regeneración Nacional": "MRN",
     "Partido Accion Nacional": "PAN",
     "Partido Acción Nacional": "PAN",
     "Partido Revolucionario Institucional": "PRI",
@@ -44,10 +45,14 @@ PARTY_ALIASES = {
     "Partido Alianza Social": "PAS",
     "Partido Sociedad Nacionalista": "PSN",
     "Convergencia por la Democracia": "CONV",
+    "Convergencia": "CONV",
     "Movimiento Ciudadano": "MC",
+    "Partido Nueva Alianza": "PNA",
+    "Partido Encuentro Social": "PES",
+    "Partido Alternativa": "PASC",
     "independientes": "IND",
     "Independientes": "IND",
-    "sin partido": "IND",
+    "sin partido": "SP",
 }
 
 

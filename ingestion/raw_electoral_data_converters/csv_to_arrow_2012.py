@@ -225,7 +225,9 @@ def build_dim_election(meta: dict) -> pd.DataFrame:
 
 def build_dim_geography(df: pd.DataFrame) -> pd.DataFrame:
     # 2012 has no MUNICIPIO / CIRCUNSCRIPCION; NOMBRE_ESTADO injected in load_raw()
-    # SECCION=0 rows produce geo_id like "01_0000" representing abroad votes per state
+    # SECCION=0 rows produce geo_id like "01_0000" representing abroad votes per state.
+    # Derive (ID_MUNICIPIO, MUNICIPIO) from the 2024 SEC lookup — sections are
+    # stable enough that coverage is ~98%.
     GEO_COLS = ["ID_ESTADO", "NOMBRE_ESTADO", "SECCION", "ID_DISTRITO"]
     out = (
         df[GEO_COLS]
@@ -234,6 +236,20 @@ def build_dim_geography(df: pd.DataFrame) -> pd.DataFrame:
         .sort_values(["ID_ESTADO", "SECCION"])
         .reset_index(drop=True)
     )
+    from pathlib import Path
+    sec_path = Path("data/electoral_data_raw/raw_2024/PRESIDENCIA_2024/CSV/2024_SEE_PRE_NAL_SEC.csv")
+    if sec_path.exists():
+        import pandas as _pd
+        sec = _pd.read_csv(sec_path, encoding="latin-1")
+        sec.columns = [c.replace("﻿", "").strip() for c in sec.columns]
+        lookup = (
+            sec[["ID_ESTADO", "SECCION", "ID_MUNICIPIO", "MUNICIPIO"]]
+            .drop_duplicates(subset=["ID_ESTADO", "SECCION"])
+        )
+        out = out.merge(lookup, on=["ID_ESTADO", "SECCION"], how="left")
+    else:
+        out["ID_MUNICIPIO"] = None
+        out["MUNICIPIO"]    = None
     out["geo_id"] = make_geo_id(out)
     return out[["geo_id"] + [c for c in out.columns if c != "geo_id"]]
 

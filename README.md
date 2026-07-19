@@ -11,7 +11,7 @@ official INE/raw files
   -> clean per-cycle parquet folders in data/electoral_data_clean/clean_<year>/
   -> ingestion/electoral_ingest.py builds SQLite warehouse
   -> ingestion/electoral_materialize.py builds Streamlit parquet/GeoJSON artifacts
-  -> ine_explorer_streamlit_online.py renders the app
+  -> ine_explorer_v2.py renders the app
 ```
 
 ## Quick Start
@@ -25,34 +25,40 @@ pip install -r requirements.txt
 Rebuild the SQLite warehouse from the clean parquet folders:
 
 ```bash
-python ingestion/electoral_ingest.py
+python -m ingestion.electoral_ingest
+```
+
+Refresh only one election cycle while preserving all other cycles:
+
+```bash
+python -m ingestion.electoral_ingest --year 2000
 ```
 
 Materialize the files used by Streamlit:
 
 ```bash
-python ingestion/electoral_materialize.py
+python -m ingestion.electoral_materialize
 ```
 
 Run the app:
 
 ```bash
-streamlit run ine_explorer_streamlit_online.py
+streamlit run ine_explorer_v2.py
 ```
 
 Useful partial materialization commands:
 
 ```bash
-python ingestion/electoral_materialize.py views
-python ingestion/electoral_materialize.py timeseries
-python ingestion/electoral_materialize.py --force
+python -m ingestion.electoral_materialize views
+python -m ingestion.electoral_materialize timeseries
+python -m ingestion.electoral_materialize --force
 ```
 
 ## What To Open First
 
 Open only the files needed for the task:
 
-- Page flow, data loading, controls: `ine_explorer_streamlit_online.py`
+- Page flow, data loading, controls: `ine_explorer_v2.py`
 - Maps and choropleth rendering: `ui/maps.py`
 - Bar charts, ternary plots, timeseries: `ui/charts.py`
 - Scorecards, result tables, badges: `ui/tables.py`
@@ -70,7 +76,7 @@ debugging data values, joins, row counts, or generated output.
 
 ## Main Files
 
-### `ine_explorer_streamlit_online.py`
+### `ine_explorer_v2.py`
 
 Streamlit app entry point — page config, CSS, data loaders, and page routing.
 
@@ -305,7 +311,7 @@ primary keys, joins, and purpose. Use the other CSVs in
 
 Usually open:
 
-- `ine_explorer_streamlit_online.py` — for page flow, selectors, or caching
+- `ine_explorer_v2.py` — for page flow, selectors, or caching
 - `ui/maps.py` — for map or choropleth changes
 - `ui/charts.py` — for bar chart, ternary, or timeseries changes
 - `ui/tables.py` — for scorecards or results table changes
@@ -315,7 +321,7 @@ Usually open:
 Then run:
 
 ```bash
-streamlit run ine_explorer_streamlit_online.py
+streamlit run ine_explorer_v2.py
 ```
 
 ### Fix map joins or missing municipios
@@ -327,8 +333,8 @@ Usually open:
 Then run:
 
 ```bash
-python ingestion/electoral_materialize.py views --force
-streamlit run ine_explorer_streamlit_online.py
+python -m ingestion.electoral_materialize views --force
+streamlit run ine_explorer_v2.py
 ```
 
 ### Fix historical party time series
@@ -342,7 +348,7 @@ Usually open:
 Then run:
 
 ```bash
-python ingestion/electoral_materialize.py timeseries
+python -m ingestion.electoral_materialize timeseries
 ```
 
 ### Add or fix a raw election converter
@@ -356,8 +362,8 @@ Usually open:
 Then run the converter, followed by:
 
 ```bash
-python ingestion/electoral_ingest.py
-python ingestion/electoral_materialize.py --force
+python -m ingestion.electoral_ingest
+python -m ingestion.electoral_materialize --force
 ```
 
 
@@ -392,6 +398,10 @@ python3 aux_scripts/gaceta_votes/crawl_gaceta_metadata.py --fetch-vote-pages
 
 # Parse cached pages into parquet
 python3 aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py
+
+# Load parsed roll calls into the local SQLite warehouse, then refresh the app data
+python3 ingestion/gaceta_ingest.py
+python3 ingestion/gaceta_materialize.py --force
 ```
 
 ### Update warehouse schema
@@ -401,7 +411,7 @@ Usually open:
 - `ingestion/electoral_ingest.py`
 - `ingestion/electoral_materialize.py`
 - `documentation/table_dictionaries/*.csv`
-- `ine_explorer_streamlit_online.py` only if app-facing columns changed
+- `ine_explorer_v2.py` only if app-facing columns changed
 
 ## Git and Data Policy
 

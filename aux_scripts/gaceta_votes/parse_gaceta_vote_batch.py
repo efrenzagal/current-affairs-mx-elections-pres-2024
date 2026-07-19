@@ -56,6 +56,94 @@ class FetchResult:
     from_cache: bool
 
 
+def parsed_row_key(row: dict) -> tuple[str, str, str]:
+    return (
+        str(row["vote_choice"]),
+        str(row["party_key"]),
+        deputy_id(str(row["deputy_name"])),
+    )
+
+
+def add_detail_rows(
+    target: list[dict],
+    seen: set[tuple[str, str, str]],
+    gaceta_vote_id: str,
+    parsed_rows: list[dict[str, object]],
+    from_cache: bool,
+) -> None:
+    for parsed in parsed_rows:
+        row = {
+            "gaceta_vote_id": gaceta_vote_id,
+            "deputy_id": deputy_id(str(parsed["deputy_name"])),
+            "deputy_name": parsed["deputy_name"],
+            "vote_choice": parsed["vote"],
+            "party_key": parsed["party"],
+            "ordinal": parsed["ordinal"],
+            "detail_from_cache": from_cache,
+        }
+        key = parsed_row_key(row)
+        if key in seen:
+            continue
+        seen.add(key)
+        target.append(row)
+
+
+def detail_counts(rows: list[dict]) -> dict[tuple[str, str], int]:
+    counts: dict[tuple[str, str], int] = {}
+    for row in rows:
+        key = (str(row["vote_choice"]), str(row["party_key"]))
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def build_parse_issues(summary_rows: list[dict], deputy_rows: list[dict]) -> pd.DataFrame:
+    """Report summary/detail mismatches after all recoverable detail fetches."""
+    columns = [
+        "gaceta_vote_id", "vote_choice", "party_key", "summary_count",
+        "parsed_count", "missing_count", "lola_key", "issue_type",
+    ]
+    if not summary_rows:
+        return pd.DataFrame(columns=columns)
+
+    summary = pd.DataFrame(summary_rows)
+    summary = summary[
+        (summary["vote_choice"] != "Total") &
+        (summary["party_key"] != "Total") &
+        (summary["count"] > 0)
+    ].copy()
+
+    if deputy_rows:
+        detail = (
+            pd.DataFrame(deputy_rows)
+            .groupby(["gaceta_vote_id", "vote_choice", "party_key"])
+            .size()
+            .reset_index(name="parsed_count")
+        )
+    else:
+        detail = pd.DataFrame(
+            columns=["gaceta_vote_id", "vote_choice", "party_key", "parsed_count"]
+        )
+
+    issues = summary.merge(
+        detail,
+        on=["gaceta_vote_id", "vote_choice", "party_key"],
+        how="left",
+    )
+    issues["parsed_count"] = issues["parsed_count"].fillna(0).astype(int)
+    issues["missing_count"] = issues["count"].astype(int) - issues["parsed_count"]
+    issues = issues[issues["missing_count"] != 0].copy()
+    if issues.empty:
+        return pd.DataFrame(columns=columns)
+
+    issues["issue_type"] = "partial_detail"
+    issues.loc[issues["parsed_count"] == 0, "issue_type"] = "source_empty_detail"
+    issues.loc[issues["missing_count"] < 0, "issue_type"] = "detail_exceeds_summary"
+    issues = issues.rename(columns={"count": "summary_count"})
+    return issues[columns].sort_values(
+        ["gaceta_vote_id", "vote_choice", "party_key"]
+    ).reset_index(drop=True)
+
+
 def safe_name(text: str) -> str:
     return re.sub(r"[^A-Za-z0-9._/-]+", "_", text).strip("_")
 
@@ -176,6 +264,7 @@ def parse_one_vote(row: pd.Series, session: requests.Session, request_delay: flo
     ]
 
     deputy_rows: list[dict] = []
+    seen_detail_rows: set[tuple[str, str, str]] = set()
     for link in links:
         if link.party != "Total" or link.count == 0 or link.lola_key is None:
             continue
@@ -189,18 +278,39 @@ def parse_one_vote(row: pd.Series, session: requests.Session, request_delay: flo
             session,
             request_delay,
         )
-        for parsed in parse_detail(detail_html.text, link.vote):
-            deputy_rows.append(
-                {
-                    "gaceta_vote_id": gaceta_vote_id,
-                    "deputy_id": deputy_id(parsed["deputy_name"]),
-                    "deputy_name": parsed["deputy_name"],
-                    "vote_choice": parsed["vote"],
-                    "party_key": parsed["party"],
-                    "ordinal": parsed["ordinal"],
-                    "detail_from_cache": detail_html.from_cache,
-                }
-            )
+        add_detail_rows(
+            deputy_rows,
+            seen_detail_rows,
+            gaceta_vote_id,
+            parse_detail(detail_html.text, link.vote),
+            detail_html.from_cache,
+        )
+
+    counts = detail_counts(deputy_rows)
+    for link in links:
+        party = normalize_party(link.party)
+        if party == "Total" or link.count == 0 or link.lola_key is None:
+            continue
+        if counts.get((link.vote, party), 0) >= link.count:
+            continue
+        detail_html = fetch_post_cached(
+            action_url,
+            gaceta_vote_id,
+            event,
+            title,
+            link.lola_key,
+            link.count,
+            session,
+            request_delay,
+        )
+        add_detail_rows(
+            deputy_rows,
+            seen_detail_rows,
+            gaceta_vote_id,
+            parse_detail(detail_html.text, link.vote),
+            detail_html.from_cache,
+        )
+        counts = detail_counts(deputy_rows)
 
     return dim_vote, summary_rows, deputy_rows
 
@@ -231,6 +341,7 @@ def write_outputs(
     dim_vote = pd.DataFrame(dim_votes)
     fact_summary = pd.DataFrame(summary_rows)
     fact_deputy = pd.DataFrame(deputy_rows)
+    parse_issues = build_parse_issues(summary_rows, deputy_rows)
     if fact_deputy.empty:
         dim_deputy = pd.DataFrame(columns=["deputy_id", "deputy_name"])
         fact_deputy = pd.DataFrame(
@@ -252,6 +363,7 @@ def write_outputs(
         "dim_gaceta_deputy.csv": dim_deputy,
         "fact_gaceta_vote_summary.csv": fact_summary,
         "fact_gaceta_deputy_vote.csv": fact_deputy,
+        "gaceta_parse_issues.csv": parse_issues,
     }
     for filename, df in outputs.items():
         path = out_dir / filename

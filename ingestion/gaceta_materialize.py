@@ -16,6 +16,10 @@ Reads from election_data.db and writes to data/materialized/:
         One row per vote: date, title, status, legislature, outcome counts.
         Used for the vote browser / timeline.
 
+    gaceta_vote_quality.parquet
+        One row per vote: summary/detail reconciliation flags. Used to
+        exclude incomplete deputy-detail roll calls from person/party metrics.
+
 Alignment definition:
     For each vote, the party majority choice is the most common active
     vote (Favor / Contra / Abstención) among present party members.
@@ -33,6 +37,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import sqlite3
 from pathlib import Path
 
@@ -47,6 +52,31 @@ ACTIVE_CHOICES  = {"Favor", "Contra", "Abstención", "Abstencion", "A favor", "E
 
 # Minimum active votes a deputy must have in a legislature to be included
 MIN_ACTIVE_VOTES = 10
+
+
+def add_vote_thresholds(votes: pd.DataFrame) -> pd.DataFrame:
+    votes = votes.copy()
+    for col in ["favor", "contra", "abstencion", "ausente", "total"]:
+        votes[col] = pd.to_numeric(votes[col], errors="coerce").fillna(0).astype(int)
+
+    if "quorum" not in votes.columns:
+        votes["quorum"] = 0
+    votes["quorum"] = pd.to_numeric(votes["quorum"], errors="coerce").fillna(0).astype(int)
+
+    votes["presentes"] = (
+        votes["favor"] + votes["contra"] + votes["abstencion"] + votes["quorum"]
+    )
+    votes["quorum_requerido"] = (votes["total"] // 2) + 1
+    votes["mayoria_absoluta_requerida"] = (votes["presentes"] // 2) + 1
+    votes["mayoria_calificada_requerida"] = votes["presentes"].map(
+        lambda x: int(math.ceil((2 * x) / 3)) if x > 0 else 0
+    )
+
+    votes["quorum_ok"] = votes["presentes"] >= votes["quorum_requerido"]
+    votes["mayoria_simple_ok"] = votes["favor"] > votes["contra"]
+    votes["mayoria_absoluta_ok"] = votes["favor"] >= votes["mayoria_absoluta_requerida"]
+    votes["mayoria_calificada_ok"] = votes["favor"] >= votes["mayoria_calificada_requerida"]
+    return votes
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -86,6 +116,7 @@ def load_votes(conn: sqlite3.Connection) -> pd.DataFrame:
             s.favor,
             s.contra,
             s.abstencion,
+            s.quorum,
             s.ausente,
             s.total
         FROM dim_gaceta_vote v
@@ -95,12 +126,59 @@ def load_votes(conn: sqlite3.Connection) -> pd.DataFrame:
                 SUM(CASE WHEN vote_choice = 'Favor'      AND party_key = 'Total' THEN count ELSE 0 END) AS favor,
                 SUM(CASE WHEN vote_choice = 'Contra'     AND party_key = 'Total' THEN count ELSE 0 END) AS contra,
                 SUM(CASE WHEN vote_choice IN ('Abstención','Abstencion') AND party_key = 'Total' THEN count ELSE 0 END) AS abstencion,
+                SUM(CASE WHEN vote_choice = 'Quórum *'   AND party_key = 'Total' THEN count ELSE 0 END) AS quorum,
                 SUM(CASE WHEN vote_choice = 'Ausente'    AND party_key = 'Total' THEN count ELSE 0 END) AS ausente,
                 SUM(CASE WHEN vote_choice = 'Total'      AND party_key = 'Total' THEN count ELSE 0 END) AS total
             FROM fact_gaceta_vote_summary
             GROUP BY gaceta_vote_id
         ) s ON v.gaceta_vote_id = s.gaceta_vote_id
         ORDER BY v.legislature, v.vote_date
+    """, conn)
+
+
+def load_vote_quality(conn: sqlite3.Connection) -> pd.DataFrame:
+    return pd.read_sql_query("""
+        WITH summary_totals AS (
+            SELECT
+                gaceta_vote_id,
+                SUM(CASE
+                    WHEN vote_choice <> 'Total' AND party_key = 'Total'
+                    THEN count ELSE 0
+                END) AS summary_choice_total,
+                SUM(CASE
+                    WHEN vote_choice = 'Total' AND party_key <> 'Total'
+                    THEN count ELSE 0
+                END) AS summary_party_total,
+                SUM(CASE
+                    WHEN vote_choice = 'Total' AND party_key = 'Total'
+                    THEN count ELSE 0
+                END) AS summary_grand_total
+            FROM fact_gaceta_vote_summary
+            GROUP BY gaceta_vote_id
+        ),
+        detail_totals AS (
+            SELECT gaceta_vote_id, COUNT(*) AS detail_rows
+            FROM fact_gaceta_deputy_vote
+            GROUP BY gaceta_vote_id
+        )
+        SELECT
+            v.gaceta_vote_id,
+            v.legislature,
+            COALESCE(s.summary_choice_total, 0) AS summary_choice_total,
+            COALESCE(s.summary_party_total, 0) AS summary_party_total,
+            COALESCE(s.summary_grand_total, 0) AS summary_grand_total,
+            COALESCE(d.detail_rows, 0) AS detail_rows,
+            COALESCE(s.summary_party_total, 0) - COALESCE(d.detail_rows, 0) AS missing_detail_rows,
+            COALESCE(s.summary_choice_total, 0) - COALESCE(s.summary_party_total, 0) AS choice_party_total_diff,
+            COALESCE(s.summary_grand_total, 0) - COALESCE(s.summary_party_total, 0) AS grand_party_total_diff,
+            CASE
+                WHEN COALESCE(s.summary_party_total, 0) = COALESCE(d.detail_rows, 0)
+                THEN 1 ELSE 0
+            END AS detail_complete
+        FROM dim_gaceta_vote v
+        LEFT JOIN summary_totals s ON v.gaceta_vote_id = s.gaceta_vote_id
+        LEFT JOIN detail_totals d ON v.gaceta_vote_id = d.gaceta_vote_id
+        ORDER BY v.legislature, v.gaceta_vote_id
     """, conn)
 
 
@@ -212,6 +290,7 @@ def materialize(db_path: Path, out_dir: Path, force: bool) -> None:
         "gaceta_deputy_alignment.parquet": out_dir / "gaceta_deputy_alignment.parquet",
         "gaceta_party_cohesion.parquet":   out_dir / "gaceta_party_cohesion.parquet",
         "gaceta_vote_index.parquet":       out_dir / "gaceta_vote_index.parquet",
+        "gaceta_vote_quality.parquet":     out_dir / "gaceta_vote_quality.parquet",
     }
 
     if not force and all(p.exists() for p in outputs.values()):
@@ -222,12 +301,24 @@ def materialize(db_path: Path, out_dir: Path, force: bool) -> None:
 
     print("Loading gaceta_vote_index...")
     votes = load_votes(conn)
+    votes = add_vote_thresholds(votes)
     votes.to_parquet(outputs["gaceta_vote_index.parquet"], index=False)
     print(f"  → {len(votes):,} votes written")
+
+    print("Loading gaceta_vote_quality...")
+    quality = load_vote_quality(conn)
+    quality.to_parquet(outputs["gaceta_vote_quality.parquet"], index=False)
+    incomplete = quality[quality["detail_complete"] == 0]
+    print(f"  → {len(quality):,} quality rows written ({len(incomplete):,} incomplete)")
 
     print("Loading deputy votes for alignment + cohesion...")
     df       = load_deputy_votes(conn)
     deputies = load_deputies(conn)
+    complete_vote_ids = set(quality.loc[quality["detail_complete"] == 1, "gaceta_vote_id"])
+    before_votes = df["gaceta_vote_id"].nunique()
+    df = df[df["gaceta_vote_id"].isin(complete_vote_ids)].copy()
+    after_votes = df["gaceta_vote_id"].nunique()
+    print(f"  Using {after_votes:,}/{before_votes:,} complete-detail votes for deputy metrics")
 
     print("Building gaceta_deputy_alignment...")
     alignment = build_deputy_alignment(df, deputies)
