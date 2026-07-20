@@ -256,6 +256,26 @@ def _norm(s: str) -> str:
     return "".join(c for c in s if unicodedata.category(c) != "Mn")
 
 
+_ES_LOWERCASE_WORDS = {"de", "del", "la", "las", "los", "y", "el", "en"}
+
+
+def title_case_es(s: str) -> str:
+    """Title-case a name, keeping short Spanish connectors lowercase.
+
+    Source data stores names in ALL CAPS (e.g. "CIUDAD DE MEXICO"); this
+    produces a readable display form ("Ciudad de Mexico") without touching
+    the underlying value used for lookups/joins.
+    """
+    if not isinstance(s, str) or not s:
+        return s
+    words = s.strip().lower().split(" ")
+    out = [
+        w if (w in _ES_LOWERCASE_WORDS and i > 0) else w.capitalize()
+        for i, w in enumerate(words)
+    ]
+    return " ".join(out)
+
+
 def fmt_pct(v) -> str:
     return f"{v:.1f}%"
 

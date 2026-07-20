@@ -9,7 +9,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from ui.common import (
-    CANDIDATES, PARTY_GROUPS, TS_ELECTION_TYPE_LABELS,
+    CANDIDATES, PARTY_GROUPS,
     agg_blocs, plotly_base, pivot_candidates,
     ts_agg_for_plot, ts_base_layout, ts_party_color,
 )
@@ -400,17 +400,17 @@ def render_hist_ternary(df: pd.DataFrame, blocs: dict, title: str,
 def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int,
                                   estado_label: str):
     """
-    Multi-year (2012/2018/2024) votes-by-party chart for a single state.
-    Matched by id_estado (1-32, consistent across all cycles) rather than
+    Multi-year presidential votes-by-party chart for a single state (votes
+    are always shown split by party, never grouped as coalitions). Matched
+    by id_estado (1-32, consistent across all cycles) rather than
     nombre_estado — state name spelling varies enough to silently drop rows.
     """
-    df_state = df_ts[df_ts["id_estado"] == id_estado_sel]
+    df_state = df_ts[
+        (df_ts["id_estado"] == id_estado_sel) & (df_ts["election_type"] == "PRE")
+    ]
     if df_state.empty:
         st.info("Sin datos históricos para este estado.")
         return
-
-    election_types = sorted(df_state["election_type"].unique())
-    et_options     = {TS_ELECTION_TYPE_LABELS.get(e, e): e for e in election_types}
 
     label_of = (
         df_state.dropna(subset=["party_label"])
@@ -418,73 +418,29 @@ def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int,
         .set_index("party_key")["party_label"]
         .to_dict()
     )
-    coalition_keys = set(df_state.loc[df_state["is_coalition"] == True, "party_key"].unique())
-    all_parties    = sorted(df_state["party_key"].unique())
+    coalition_keys  = set(df_state.loc[df_state["is_coalition"] == True, "party_key"].unique())
+    direct_parties  = sorted(p for p in df_state["party_key"].unique() if p not in coalition_keys)
 
-    row1 = st.columns([1.2, 2.8])
-    with row1[0]:
-        et_keys     = list(et_options.keys())
-        pre_default = et_keys.index("Presidencia") if "Presidencia" in et_keys else 0
-        et_label    = st.selectbox("Tipo", et_keys, index=pre_default, key="ts_et")
-        et          = et_options[et_label]
-    with row1[1]:
-        direct_parties  = [p for p in all_parties if p not in coalition_keys]
-        default_p       = [p for p in ["MORENA", "PAN", "PRI", "MC", "PRD"] if p in direct_parties]
-        parties_to_show = st.multiselect(
-            "Partidos", direct_parties, default=default_p,
-            format_func=lambda p: label_of.get(p, p), key="ts_parties",
-        )
-
-    row2 = st.columns([1.6, 1.6, 1])
-    with row2[0]:
-        coalition_mode = st.radio(
-            "Votos de coalición", ["Divididos", "Como coalición"],
-            horizontal=True, key="ts_coalition",
-        )
-        split = coalition_mode == "Divididos"
-    with row2[1]:
-        metric  = st.radio("Métrica", ["% del total", "Votos abs."], index=0,
-                           horizontal=True, key="ts_metric")
-        use_pct = metric == "% del total"
-    with row2[2]:
-        show_area = st.checkbox("Área bajo curva", value=False, key="ts_area")
-
-    if not split:
-        extra = st.multiselect(
-            "Coaliciones", [p for p in all_parties if p in coalition_keys], default=[],
-            format_func=lambda p: label_of.get(p, p), key="ts_coalitions",
-        )
-        parties_to_show = parties_to_show + extra
-
-    y_col   = ("pct_split" if split else "pct_raw") if use_pct else ("votes_split" if split else "votes_raw")
-    y_label = "% de votos" if use_pct else "Votos"
-    y_fmt   = ":.1f" if use_pct else ":,.0f"
-
-    if use_pct:
-        st.caption(
-            "% = votos del partido / **total de votos emitidos** en el estado "
-            "(incluye nulos, no registrados y partidos no seleccionados)."
-        )
-
-    if not parties_to_show:
-        st.info("Selecciona al menos un partido.")
-        return
+    y_col   = "votes_split"
+    y_label = "Votos"
+    y_fmt   = ":,.0f"
 
     df_f = df_state[
-        (df_state["election_type"] == et) &
-        (df_state["party_key"].isin(parties_to_show))
+        (df_state["party_key"].isin(direct_parties)) & (df_state["is_coalition"] == False)
     ].copy()
-    if split:
-        df_f = df_f[df_f["is_coalition"] == False]
     if df_f.empty:
         st.warning("Sin datos para estos filtros.")
         return
 
     df_agg = ts_agg_for_plot(df_f, ["year", "election_type", "nombre_estado", "party_key"])
+    party_totals = df_agg.groupby("party_key")["votes_split"].sum()
     party_order = (
-        df_agg.groupby("party_key")[y_col].sum()
+        party_totals[party_totals >= 10_000]
         .sort_values(ascending=False).index.tolist()
     )
+    if not party_order:
+        st.info("Ningún partido supera los 10,000 votos en este estado.")
+        return
 
     fig = go.Figure()
     for party in party_order:
@@ -496,10 +452,9 @@ def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int,
             mode="lines+markers", name=label,
             line=dict(color=color, width=2.5),
             marker=dict(color=color, size=8),
-            fill="tozeroy" if show_area else "none",
             hovertemplate=f"<b>{label}</b>: %{{y{y_fmt}}}<extra></extra>",
         ))
     fig.update_layout(**ts_base_layout(
-        f"{estado_label} · {et_label}", y_label, sorted(df_agg["year"].unique())
+        f"{estado_label} · Presidencial", y_label, sorted(df_agg["year"].unique())
     ))
     st.plotly_chart(fig, use_container_width=True)
