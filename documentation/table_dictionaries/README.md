@@ -6,6 +6,34 @@ files that feed it.
 Start with `overview.csv`. It describes each normalized table, its primary key,
 row grain, purpose, and important joins.
 
+## Election Coverage
+
+`dim_election` currently holds 18 contests across 8 federal cycles, all backed
+by populated `fact_casilla_vote` rows (not just metadata):
+
+| Year | President (PRE) | Deputies MR (DIP) | Senate MR (SEN) |
+|---|---|---|---|
+| 1994 | ✅ | — | — |
+| 2000 | ✅ | ✅ | ✅ |
+| 2006 | ✅ | ✅ | ✅ |
+| 2012 | ✅ | ✅ | ✅ |
+| 2015 | — | ✅ | — |
+| 2018 | ✅ | ✅ | ✅ |
+| 2021 | — | ✅ | — |
+| 2024 | ✅ | ✅ | ✅ |
+
+Notes:
+- Only *mayoría relativa* (first-past-the-post district) seats are ingested for
+  deputies and senate. *Representación proporcional* (RP) raw source files
+  exist under `data/electoral_data_raw/raw_2024/DIPUTACIONES_FED_RP_2024` and
+  `SENADURIAS_RP_2024`, but there is no RP ingestion path yet — RP is not in
+  the warehouse for any cycle.
+- `dim_candidatos` is populated for 2015, 2021, and 2024 only; 1994/2000/2006/
+  2012/2018 did not have candidate catalogs available for ingestion.
+- The clean parquet layer (`data/electoral_data_clean/clean_*`) mirrors the
+  db exactly for all 8 cycles — nothing is loaded into one and missing from
+  the other.
+
 ## Normalized Warehouse Tables
 
 ### Electoral Results

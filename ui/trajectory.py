@@ -6,6 +6,7 @@ Call render_trajectory() from the main app.
 
 from __future__ import annotations
 
+import random
 from pathlib import Path
 
 import numpy as np
@@ -13,7 +14,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from ui.common import IDEOLOGY_MAP, MATERIALIZED_DIR
+from ui.charts import render_hist_both_charts
+from ui.common import (
+    CATEGORY_COLORS, CYCLE_BLOCS, IDEOLOGY_MAP, MATERIALIZED_DIR,
+    _norm, classify_ternary, fmt_num, fmt_pct, safe_int,
+)
+from ui.tables import header_badge
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +47,7 @@ _S32 = np.sqrt(3) / 2
 @st.cache_data(show_spinner=False)
 def load_trajectory_data() -> pd.DataFrame:
     frames = []
+    label_frames = []
     for year in PRE_YEARS:
         path = MATERIALIZED_DIR / f"view_municipio_PRE_{year}.parquet"
         if not path.exists():
@@ -50,10 +57,17 @@ def load_trajectory_data() -> pd.DataFrame:
             continue
         df["bloc"] = df["party_key"].map(IDEOLOGY_MAP)
         df = df.dropna(subset=["bloc"])
+        df["municipio_key"] = df["municipio"].map(_norm)
 
-        geo_cols = ["id_estado", "nombre_estado", "municipio"]
+        # Historical files vary in capitalization and accents (for example,
+        # COQUIMATLAN in 1994 vs. Coquimatlán in 2006).  Use a normalized
+        # municipality key so every cycle contributes to one trajectory.
+        geo_cols = ["id_estado", "municipio_key"]
+        labels = df[["id_estado", "municipio_key", "nombre_estado", "municipio"]].drop_duplicates()
+        labels["year"] = year
+        label_frames.append(labels)
         tv = (
-            df.drop_duplicates(geo_cols)[geo_cols + ["total_votos"]]
+            df.groupby(geo_cols, as_index=False)["total_votos"].max()
         )
         piv = (
             df.pivot_table(index=geo_cols, columns="bloc", values="votes",
@@ -69,9 +83,35 @@ def load_trajectory_data() -> pd.DataFrame:
         agg["pct_L"] = (agg["L"] / total * 100).round(1)
         agg["pct_R"] = (agg["R"] / total * 100).round(1)
         agg["pct_C"] = (agg["C"] / total * 100).round(1)
+        # Some historical files do not report total_votos consistently. The
+        # mapped bloc total is a safe display fallback and prevents a missing
+        # source value from breaking the chart tooltip.
+        agg["total_votos"] = agg["total_votos"].fillna(total)
         frames.append(agg.dropna(subset=["pct_L"]))
 
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if not frames:
+        return pd.DataFrame()
+
+    data = pd.concat(frames, ignore_index=True)
+    # Prefer the most recent spelling for the user-facing state/municipality
+    # labels while preserving the normalized key solely for matching.
+    labels = (
+        pd.concat(label_frames, ignore_index=True)
+        .sort_values("year", ascending=False)
+        .drop_duplicates(["id_estado", "municipio_key"])
+        .drop(columns="year")
+    )
+    return data.merge(labels, on=["id_estado", "municipio_key"], how="left")
+
+
+@st.cache_data(show_spinner=False)
+def load_raw_year(year: int) -> pd.DataFrame:
+    path = MATERIALIZED_DIR / f"view_municipio_PRE_{year}.parquet"
+    if not path.exists():
+        return pd.DataFrame()
+    df = pd.read_parquet(path).dropna(subset=["municipio"])
+    df["municipio_key"] = df["municipio"].map(_norm)
+    return df
 
 
 def _ternary_xy(pct_l, pct_r, pct_c):
@@ -83,13 +123,42 @@ def _ternary_xy(pct_l, pct_r, pct_c):
 
 # ── Ternary figure ─────────────────────────────────────────────────────────────
 
-def _build_ternary(df: pd.DataFrame, mun_sel: str) -> go.Figure:
+def _build_ternary(df: pd.DataFrame, mun_sel: str, show_bubbles: bool = True,
+                    show_labels: bool = True, tie_radius: float = 8.0) -> go.Figure:
     fig = go.Figure()
 
     # Triangle
     fig.add_trace(go.Scatter(
         x=[0, 1, 0.5, 0], y=[0, 0, _S32, 0],
         mode="lines", line=dict(color="rgba(255,255,255,0.5)", width=1.5),
+        hoverinfo="skip", showlegend=False,
+    ))
+
+    # "No-majority" zone: the medial triangle (edge midpoints). Outside of it,
+    # in each corner, a single bloc holds >50% and can't be outvoted by a
+    # coalition of the other two — that's the majority/"base" cutoff made
+    # visible. Inside it, no bloc clears 50%.
+    mid_lr = (0.5, 0.0)
+    mid_rc = (0.75, _S32 / 2)
+    mid_lc = (0.25, _S32 / 2)
+    fig.add_trace(go.Scatter(
+        x=[mid_lr[0], mid_rc[0], mid_lc[0], mid_lr[0]],
+        y=[mid_lr[1], mid_rc[1], mid_lc[1], mid_lr[1]],
+        mode="lines", fill="toself",
+        fillcolor="rgba(150,150,150,0.07)",
+        line=dict(color="rgba(200,200,200,0.35)", width=1, dash="dash"),
+        hoverinfo="skip", showlegend=False,
+    ))
+
+    # "Empate" zone within the no-majority region: a circle around 33/33/33.
+    cx0, cy0 = _ternary_xy(1, 1, 1)
+    r = tie_radius / 100
+    theta = np.linspace(0, 2 * np.pi, 60)
+    fig.add_trace(go.Scatter(
+        x=cx0 + r * np.cos(theta), y=cy0 + r * np.sin(theta),
+        mode="lines", fill="toself",
+        fillcolor="rgba(170,170,170,0.14)",
+        line=dict(color="rgba(170,170,170,0.5)", width=1, dash="dot"),
         hoverinfo="skip", showlegend=False,
     ))
 
@@ -130,30 +199,57 @@ def _build_ternary(df: pd.DataFrame, mun_sel: str) -> go.Figure:
             line=dict(color="rgba(220,220,220,0.35)", width=1.8, dash="dot"),
             hoverinfo="skip", showlegend=False,
         ))
+        # Arrowheads showing chronological direction between consecutive years
+        for (_, a), (_, b) in zip(df.iloc[:-1].iterrows(), df.iloc[1:].iterrows()):
+            fig.add_annotation(
+                x=b["tx"], y=b["ty"], ax=a["tx"], ay=a["ty"],
+                xref="x", yref="y", axref="x", ayref="y",
+                showarrow=True, arrowhead=3, arrowsize=1,
+                arrowwidth=1.6, arrowcolor="rgba(220,220,220,0.55)",
+                standoff=10 if show_bubbles else 4,
+            )
 
-    # Year bubbles
+    # Year bubbles / points, colored by ternary-zone category
     max_v = df["total_votos"].replace(0, float("nan")).max() or 1
+    seen_categories = set()
     for _, row in df.iterrows():
         yr = int(row["year"])
-        size = float(max(12, row["total_votos"] / max_v * 52))
+        total_votos = 0 if pd.isna(row["total_votos"]) else int(row["total_votos"])
+        category = row["category"]
+        cat_color = CATEGORY_COLORS[category]
+        if show_bubbles:
+            size = float(max(12, total_votos / max_v * 52))
+            marker = dict(size=size, color=YEAR_COLORS.get(yr, "#888"),
+                          opacity=0.90, line=dict(width=2.5, color=cat_color))
+        else:
+            size = 10
+            marker = dict(size=size, color=cat_color, opacity=0.95,
+                          line=dict(width=1.5, color="white"))
         fig.add_trace(go.Scatter(
             x=[row["tx"]], y=[row["ty"]],
-            mode="markers+text",
-            marker=dict(size=size, color=YEAR_COLORS.get(yr, "#888"),
-                        opacity=0.90, line=dict(width=1.8, color="white")),
-            text=[str(yr)],
+            mode="markers+text" if show_labels else "markers",
+            marker=marker,
+            text=[str(yr)] if show_labels else None,
             textposition="top center",
             textfont=dict(size=11, family="IBM Plex Mono",
-                          color=YEAR_COLORS.get(yr, "#888")),
-            name=str(yr),
+                          color=YEAR_COLORS.get(yr, "#888") if show_bubbles else cat_color),
             hovertemplate=(
-                f"<b>{yr}</b><br>"
+                f"<b>{yr}</b> · {category}<br>"
                 f"Izquierda: {row['pct_L']:.1f}%<br>"
                 f"Derecha:   {row['pct_R']:.1f}%<br>"
                 f"Centro:    {row['pct_C']:.1f}%<br>"
-                f"Votos: {int(row['total_votos']):,}<extra></extra>"
+                f"Votos: {total_votos:,}<extra></extra>"
             ),
-            showlegend=True,
+            showlegend=False,
+        ))
+        seen_categories.add(category)
+
+    # Category legend (only entries actually present for this municipio)
+    for category in sorted(seen_categories):
+        fig.add_trace(go.Scatter(
+            x=[None], y=[None], mode="markers",
+            marker=dict(size=10, color=CATEGORY_COLORS[category]),
+            name=category, showlegend=True,
         ))
 
     # Vertex labels (outside triangle corners)
@@ -242,20 +338,42 @@ def render_trajectory():
         st.error("No se encontraron datos. Ejecuta el pipeline de ingesta primero.")
         return
 
+    # "Size" = biggest recorded turnout (total_votos) each unit has ever had,
+    # used to rank the selectors so the largest municipios/states surface first.
+    mun_size = df_all.groupby(["id_estado", "municipio_key"])["total_votos"].max()
+    estado_size = mun_size.groupby("id_estado").sum()
+
     col_e, col_m = st.columns([1, 1])
     with col_e:
-        estados = sorted(df_all["nombre_estado"].dropna().unique())
-        default_e = next((e for e in estados if "CIUDAD" in e.upper()), estados[0])
-        estado_sel = st.selectbox("Estado", estados,
-                                  index=estados.index(default_e), key="traj_estado")
-    with col_m:
-        municipios = sorted(
-            df_all[df_all["nombre_estado"] == estado_sel]["municipio"].dropna().unique()
+        estados = (
+            df_all[["id_estado", "nombre_estado"]]
+            .dropna().drop_duplicates()
         )
+        estados["_size"] = estados["id_estado"].map(estado_size).fillna(0)
+        estados = estados.sort_values("_size", ascending=False)
+        state_names = estados["nombre_estado"].tolist()
+        if "traj_estado" not in st.session_state:
+            st.session_state.traj_estado = random.choice(state_names)
+        estado_sel = st.selectbox("Estado", state_names, key="traj_estado")
+        id_estado_sel = int(estados.loc[
+            estados["nombre_estado"] == estado_sel, "id_estado"
+        ].iloc[0])
+    with col_m:
+        df_estado = df_all[df_all["id_estado"] == id_estado_sel]
+        mun_rank = (
+            df_estado[["municipio", "municipio_key"]].drop_duplicates()
+        )
+        mun_rank["_size"] = mun_rank["municipio_key"].map(
+            mun_size.xs(id_estado_sel, level="id_estado")
+        ).fillna(0)
+        mun_rank = mun_rank.dropna(subset=["municipio"]).sort_values("_size", ascending=False)
+        municipios = mun_rank["municipio"].tolist()
+        if st.session_state.get("traj_mun") not in municipios:
+            st.session_state.traj_mun = random.choice(municipios)
         mun_sel = st.selectbox("Municipio", municipios, key="traj_mun")
 
     df = df_all[
-        (df_all["nombre_estado"] == estado_sel) &
+        (df_all["id_estado"] == id_estado_sel) &
         (df_all["municipio"] == mun_sel)
     ].sort_values("year").reset_index(drop=True)
 
@@ -269,7 +387,27 @@ def render_trajectory():
 
     col_l, col_r = st.columns([1, 1], gap="large")
     with col_l:
-        st.plotly_chart(_build_ternary(df, mun_sel), use_container_width=True)
+        opt_l, opt_r = st.columns([1, 1])
+        with opt_l:
+            show_bubbles = st.checkbox("Mostrar burbujas", value=False, key="traj_show_bubbles")
+        with opt_r:
+            show_labels = st.checkbox("Mostrar etiquetas de año", value=True, key="traj_show_labels")
+        tie_radius = st.slider(
+            "Radio de \"Empate\" (± pts sobre 33.3%)", min_value=0, max_value=15,
+            value=8, key="traj_tie_radius",
+            help="Una coalición del 2do + 3er bloque siempre puede superar al líder "
+                 "si este no pasa de 50% — por eso \"Base\" exige mayoría absoluta. "
+                 "Este control solo ajusta qué tan cerca de 33/33/33 se considera empate "
+                 "en vez de una contienda de dos bloques.",
+        )
+        df["category"] = df.apply(
+            lambda r: classify_ternary(r["pct_L"], r["pct_R"], r["pct_C"], tie_radius=tie_radius),
+            axis=1,
+        )
+        st.plotly_chart(
+            _build_ternary(df, mun_sel, show_bubbles, show_labels, tie_radius),
+            use_container_width=True,
+        )
     with col_r:
         st.plotly_chart(_build_trend(df), use_container_width=True)
 
@@ -279,3 +417,49 @@ def render_trajectory():
             f"Años sin datos para este municipio: {', '.join(map(str, missing))}. "
             "Los porcentajes excluyen partidos menores no mapeados y votos nulos."
         )
+
+    # ── Resultados por partido / coalición (elección seleccionada) ──────────────
+    st.markdown("---")
+    st.markdown('<div class="section-label">Resultados por partido y coalición</div>',
+                unsafe_allow_html=True)
+
+    years_available = df["year"].tolist()
+    default_year = max(years_available)
+    hist_year = st.selectbox(
+        "Año de la elección", years_available,
+        index=years_available.index(default_year), key="traj_hist_year",
+    )
+
+    mun_key = _norm(mun_sel)
+    df_raw_year = load_raw_year(hist_year)
+    df_raw_mun = df_raw_year[
+        (df_raw_year["id_estado"] == id_estado_sel) &
+        (df_raw_year["municipio_key"] == mun_key)
+    ]
+
+    if df_raw_mun.empty:
+        st.info("Sin datos de partido para esta elección.")
+    else:
+        meta_row  = df_raw_mun.drop_duplicates("municipio_key").iloc[0]
+        total_v   = safe_int(df_raw_mun.drop_duplicates("municipio_key")["total_votos"].sum())
+        lista_nom = safe_int(meta_row.get("lista_nominal_part"))
+        part_pct  = total_v / lista_nom * 100 if lista_nom > 0 else 0
+        num_sec   = safe_int(meta_row.get("num_secciones"))
+        num_cas   = safe_int(meta_row.get("num_casillas"))
+        nulos_raw = safe_int(df_raw_mun.drop_duplicates("municipio_key")["num_votos_nulos"].sum())
+        nulos_pct = nulos_raw / total_v * 100 if total_v > 0 else 0
+
+        header_badge([
+            f"{mun_sel} · {hist_year}",
+            f"{fmt_num(total_v)} votos emitidos",
+            f"{fmt_num(lista_nom)} en lista nominal",
+            f"Participación: {fmt_pct(part_pct)}",
+            f"Votos nulos: {fmt_pct(nulos_pct)}",
+            f"{num_sec} secciones", f"{num_cas} actas",
+        ])
+
+        blocs = CYCLE_BLOCS.get(f"PRE_{hist_year}")
+        if blocs is not None:
+            render_hist_both_charts(df_raw_mun, blocs)
+        else:
+            st.info("Sin agrupación ideológica definida para esta elección.")

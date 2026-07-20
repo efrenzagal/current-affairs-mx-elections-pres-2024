@@ -163,6 +163,56 @@ MAP_METRICS = {
     "Lista nominal": {"label": "Lista nominal (electores reg.)","kind": "continuous", "col": "lista_nominal", "scale": [[0,"#fafaf5"],[0.5,"#607D8B"],[1,"#1C313A"]], "range": None,     "cb_title": "Electores",      "fmt": ":,"},
 }
 
+# ── Ternary zone classification ─────────────────────────────────────────────────
+# Classifies an L/R/C percentage triple into a "base" (one bloc holds an
+# outright majority, so no two-way coalition of the other blocs can unseat
+# it), "contenciosa" (no majority; the top two blocs are the live contest),
+# or "empate" (no majority AND no clear pair leading — all three near
+# 33/33/33) category.
+#
+# The base/majority cutoff is fixed at 50%, not an arbitrary margin: if a
+# bloc doesn't clear half the vote, the other two could in principle
+# cooperate and outvote it, so the result isn't "theirs." This avoids
+# mislabeling near-even splits (e.g. 31/38/30) as a clean "base derecha" win.
+
+CATEGORY_COLORS = {
+    "Base Izquierda":                "#8B0000",
+    "Base Derecha":                  "#1E90FF",
+    "Base Centro":                   "#006847",
+    "Contenciosa Izquierda-Centro":  "#CC7A00",
+    "Contenciosa Izquierda-Derecha": "#7B2D8B",
+    "Contenciosa Centro-Derecha":    "#1F8A8A",
+    "Empate":                        "#AAAAAA",
+}
+
+_CONTENTIOUS_LABELS = {
+    frozenset(("L", "C")): "Contenciosa Izquierda-Centro",
+    frozenset(("L", "R")): "Contenciosa Izquierda-Derecha",
+    frozenset(("C", "R")): "Contenciosa Centro-Derecha",
+}
+_BASE_LABELS = {"L": "Base Izquierda", "R": "Base Derecha", "C": "Base Centro"}
+
+
+def classify_ternary(pct_l: float, pct_r: float, pct_c: float,
+                      tie_radius: float = 8.0) -> str:
+    """
+    Classify a normalized L/R/C percentage triple (summing to ~100).
+    A bloc only earns "Base" status with an outright majority (>50) — below
+    that, the other two blocs combined can always match or beat it, so the
+    result is contested. tie_radius: max deviation from 33.33 (on every
+    axis) within the non-majority zone to call it a full three-way tie
+    rather than a two-way contentious race.
+    """
+    vals = {"L": pct_l, "R": pct_r, "C": pct_c}
+    ranked = sorted(vals.items(), key=lambda kv: kv[1], reverse=True)
+    (top_k, top_v), (second_k, _), _ = ranked
+    if top_v > 50:
+        return _BASE_LABELS[top_k]
+    if max(abs(v - 100 / 3) for v in vals.values()) <= tie_radius:
+        return "Empate"
+    return _CONTENTIOUS_LABELS[frozenset((top_k, second_k))]
+
+
 # ── Timeseries constants ───────────────────────────────────────────────────────
 
 TS_PARTY_COLORS: dict[str, str] = {

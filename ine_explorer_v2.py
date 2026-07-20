@@ -9,6 +9,7 @@ Run:
 from __future__ import annotations
 
 import sqlite3
+import random
 from pathlib import Path
 from typing import Optional
 
@@ -29,8 +30,7 @@ from ui.approval import render_approval
 from ui.gaceta import render_gaceta
 from ui.trajectory import render_trajectory
 from ui.maps import (
-    load_municipios_geojson, render_mexico_map,
-    render_hist_winner_map, render_national_generic_map,
+    load_municipios_geojson, render_winner_map,
 )
 from ui.tables import header_badge, render_results_table, render_scorecards
 
@@ -186,31 +186,17 @@ def get_hemicycle_elections(prefix: str) -> list[str]:
 
 # ── Shared state controls helper ───────────────────────────────────────────────
 
-def _election_controls(elections: list[str]) -> tuple[str, str, str, int]:
-    """Renders Año / Tipo / Estado controls; returns (election_sel, estado_sel, page, id_estado)."""
-    TYPE_LABELS = {"PRE": "Presidencial", "DIP": "Diputados", "SEN": "Senadores"}
+def _election_controls(elections: list[str]) -> tuple[str, str, str, int, pd.DataFrame]:
+    """Render the presidential Año / Vista / Estado controls."""
+    all_years = sorted({e.split("_")[-1] for e in elections}, reverse=True)
+    if "el_year" not in st.session_state:
+        st.session_state.el_year = random.choice(all_years)
 
-    all_years    = sorted({e.split("_")[-1] for e in elections}, reverse=True)
-    default_year = "2024" if "2024" in all_years else all_years[0]
-
-    cols = st.columns([0.7, 1.1, 0.9, 1.3])
+    cols = st.columns([0.8, 1, 1.5])
     with cols[0]:
-        year_sel = st.selectbox("Año", all_years, index=all_years.index(default_year),
-                                key="el_year")
-    year_elections = sorted(
-        [e for e in elections if e.endswith(f"_{year_sel}")],
-        key=lambda e: list(TYPE_LABELS.keys()).index("_".join(e.split("_")[:-1]))
-        if "_".join(e.split("_")[:-1]) in TYPE_LABELS else 99,
-    )
-    default_et = next((e for e in year_elections if e.startswith("PRE")), year_elections[0])
+        year_sel = st.selectbox("Año", all_years, key="el_year")
+    election_sel = next(e for e in elections if e.endswith(f"_{year_sel}"))
     with cols[1]:
-        election_sel = st.selectbox(
-            "Tipo", year_elections,
-            index=year_elections.index(default_et),
-            format_func=lambda e: TYPE_LABELS.get("_".join(e.split("_")[:-1]), election_label(e)),
-            key="el_type",
-        )
-    with cols[2]:
         page = st.selectbox("Vista", ["Estado", "Municipio"], key="el_page")
 
     df_est_full = load_view("estado", election_sel)
@@ -219,10 +205,10 @@ def _election_controls(elections: list[str]) -> tuple[str, str, str, int]:
         .dropna().drop_duplicates().sort_values("nombre_estado")
     )
     estado_names = estado_options["nombre_estado"].tolist()
-    default_e    = next((e for e in estado_names if "CIUDAD" in e.upper()), estado_names[0])
-    with cols[3]:
-        estado_sel = st.selectbox("Estado", estado_names,
-                                  index=estado_names.index(default_e), key="el_estado")
+    if "el_estado" not in st.session_state:
+        st.session_state.el_estado = random.choice(estado_names)
+    with cols[2]:
+        estado_sel = st.selectbox("Estado", estado_names, key="el_estado")
 
     id_estado = int(
         estado_options.loc[estado_options["nombre_estado"] == estado_sel, "id_estado"].iloc[0]
@@ -248,30 +234,26 @@ def render_results_tab(
         st.markdown("---")
         map_col, divider_col, ternary_col = st.columns([1.15, 0.04, 0.85], gap="medium")
 
-        if is_2024:
-            with map_col:
-                render_mexico_map(df_raw, map_key_suffix="estado", height=560)
-            with divider_col:
-                st.markdown('<div class="panel-divider"></div>', unsafe_allow_html=True)
-            with ternary_col:
-                st.markdown('<div class="section-label">Distribucion ternaria por Municipio</div>',
-                            unsafe_allow_html=True)
-                n_muns = df_raw["municipio"].nunique()
-                st.caption(f"Mostrando todos los municipios disponibles: {n_muns:,}")
-                render_ternary_bubble(df_raw, "municipio", "municipio",
-                                      "por Municipio", n_bubbles=None, height=560)
-        elif blocs is not None:
+        if blocs is not None:
             geo = load_municipios_geojson()
             with map_col:
-                render_hist_winner_map(df_raw, blocs, geo,
-                                       f"Ganador por Municipio · {election_label(election_id)}",
-                                       height=560)
+                render_winner_map(
+                    df_raw, blocs, geo,
+                    f"Ganador por Municipio · {election_label(election_id)}",
+                    height=560,
+                )
             with divider_col:
                 st.markdown('<div class="panel-divider"></div>', unsafe_allow_html=True)
             with ternary_col:
                 st.markdown('<div class="section-label">Distribución ternaria por Municipio</div>',
                             unsafe_allow_html=True)
-                render_hist_ternary(df_raw, blocs, election_label(election_id), height=560)
+                if is_2024:
+                    n_muns = df_raw["municipio"].nunique()
+                    st.caption(f"Mostrando todos los municipios disponibles: {n_muns:,}")
+                    render_ternary_bubble(df_raw, "municipio", "municipio",
+                                          "por Municipio", n_bubbles=None, height=560)
+                else:
+                    render_hist_ternary(df_raw, blocs, election_label(election_id), height=560)
         else:
             with map_col:
                 st.info("Visualización de mapa no disponible para este tipo de elección.")
@@ -295,8 +277,12 @@ def render_results_tab(
 
     elif page_level == "Municipio":
         st.markdown("---")
-        if is_2024:
-            render_mexico_map(df_raw, map_key_suffix="municipio")
+        if blocs is not None:
+            geo = load_municipios_geojson()
+            render_winner_map(
+                df_raw, blocs, geo,
+                f"Ganador por Municipio · {election_label(election_id)}",
+            )
         if scorecards is not None:
             render_scorecards(*scorecards)
 
@@ -315,10 +301,10 @@ def render_results_tab(
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
 
-tab_elec, tab_tend, tab_traj, tab_aprob, tab_comp, tab_votos = st.tabs([
+tab_elec, tab_traj, tab_tend, tab_aprob, tab_comp, tab_votos = st.tabs([
     "Elecciones",
-    "Tendencias",
     "Trayectoria",
+    "Tendencias",
     "Aprobación",
     "Congreso · Composición",
     "Congreso · Votos",
@@ -326,17 +312,20 @@ tab_elec, tab_tend, tab_traj, tab_aprob, tab_comp, tab_votos = st.tabs([
 
 elections    = get_available_elections()
 candidates_df = load_candidates()
+presidential_elections = [e for e in elections if e.startswith("PRE_")]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 · ELECCIONES
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_elec:
-    if not elections:
-        st.error("No se encontraron archivos Parquet. Ejecuta el pipeline de ingesta primero.")
+    if not presidential_elections:
+        st.error("No se encontraron elecciones presidenciales. Ejecuta el pipeline de ingesta primero.")
         st.stop()
 
-    election_sel, estado_sel, page, id_estado_sel, df_est_full = _election_controls(elections)
+    election_sel, estado_sel, page, id_estado_sel, df_est_full = _election_controls(
+        presidential_elections
+    )
 
     if page == "Estado":
         df_view = df_est_full[df_est_full["id_estado"] == id_estado_sel]
@@ -440,8 +429,8 @@ with tab_tend:
                 df_nat  = load_view("municipio", map_sel)
                 blocs   = CYCLE_BLOCS.get(map_sel)
                 if not df_nat.empty and blocs:
-                    render_hist_winner_map(df_nat, blocs, geo,
-                                           f"Ganador por Municipio · {election_label(map_sel)}")
+                    render_winner_map(df_nat, blocs, geo,
+                                      f"Ganador por Municipio · {election_label(map_sel)}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

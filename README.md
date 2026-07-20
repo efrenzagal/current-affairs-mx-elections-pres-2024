@@ -99,8 +99,8 @@ The render functions are split across four focused modules:
   `MAP_METRICS`, timeseries colors) and pure helpers (`election_label`,
   `agg_blocs`, `pivot_candidates`, `resolve_candidate_name`, etc.).
   No streamlit dependency — safe to import anywhere.
-- `ui/maps.py` — all Mapbox choropleth rendering: interactive multi-metric map,
-  historical bloc winner maps, GeoJSON loader, geometry utilities.
+- `ui/maps.py` — shared bloc winner-map renderer for every presidential cycle,
+  plus the GeoJSON loader and geometry utilities.
 - `ui/charts.py` — bar charts (by candidate and by party), ternary bubble plots
   for 2024 and historical elections, and the multi-year timeseries chart.
 - `ui/tables.py` — scorecards, metric cards, header badges, and the
