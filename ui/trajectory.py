@@ -20,7 +20,7 @@ from ui.common import (
     _norm, classify_ternary, fmt_num, fmt_pct, safe_int, title_case_es,
 )
 from ui.maps import load_municipios_geojson, render_winner_map
-from ui.tables import header_badge
+from ui.tables import header_badge, metric_card
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -449,6 +449,36 @@ def render_trajectory():
         st.caption(
             f"Años sin datos para {mun_label}: {', '.join(map(str, missing))}. "
             "Los porcentajes excluyen partidos menores no mapeados y votos nulos."
+        )
+
+    # ── Tamaño relativo del municipio (votos 2024, vs. estado y país) ────────────
+    votos_2024      = df.loc[df["year"] == 2024, "total_votos"]
+    votos_2024      = float(votos_2024.iloc[0]) if not votos_2024.empty else None
+    votos_promedio  = float(df["total_votos"].mean())
+    estado_2024     = df_all.loc[
+        (df_all["id_estado"] == id_estado_sel) & (df_all["year"] == 2024), "total_votos"
+    ].sum()
+    nacional_2024   = df_all.loc[df_all["year"] == 2024, "total_votos"].sum()
+
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    with sc1:
+        metric_card("Votos 2024", fmt_num(votos_2024) if votos_2024 is not None else "—")
+    with sc2:
+        pct_estado = votos_2024 / estado_2024 * 100 if votos_2024 and estado_2024 > 0 else None
+        metric_card(
+            "% del estado (2024)",
+            fmt_pct(pct_estado) if pct_estado is not None else "—",
+        )
+    with sc3:
+        pct_nacional = votos_2024 / nacional_2024 * 100 if votos_2024 and nacional_2024 > 0 else None
+        metric_card(
+            "% nacional (2024)",
+            fmt_pct(pct_nacional) if pct_nacional is not None else "—",
+        )
+    with sc4:
+        metric_card(
+            "Promedio histórico", fmt_num(votos_promedio),
+            sub=f"entre {len(df)} elecciones",
         )
 
     # ── Tendencias por partido (nivel estado) ────────────────────────────────────
