@@ -5,11 +5,13 @@
 #   python aux_scripts/ternary_classification/build_municipio_ternary_classification.py
 #
 # One row per municipio x presidential election (1994-2024). "category" is
-# the Base / Contenciosa / Empate label from the majority-rule ternary
-# classifier in ui/common.py::classify_ternary — a bloc only counts as
-# "Base" with an outright majority (>50%); below that the other two blocs
-# could in principle coalesce and outvote it, so it's "Contenciosa" (two
-# blocs close) or "Empate" (all three near 33/33/33).
+# the Base / Plural / Contenciosa / Empate label from the majority-rule
+# ternary classifier in ui/common.py::classify_ternary — a bloc only counts
+# as "Base" with an outright majority (>50%); below that the other two
+# blocs could in principle coalesce and outvote it, so it's "Plural" (one
+# bloc clearly leads, but the 2nd/3rd blocs are themselves near-tied, so
+# there's no real top-two race), "Contenciosa" (two blocs close, genuinely
+# fighting for 2nd/1st), or "Empate" (all three near 33/33/33).
 # ─────────────────────────────────────────────────────────────────────────────
 
 library(arrow)
@@ -35,6 +37,7 @@ ternary <- load_ternary_classification()
 # L, R, C                              -- raw votes per bloc (Izquierda/Derecha/Centro)
 # total_votos, pct_L, pct_R, pct_C
 # category                             -- "Base Izquierda" | "Base Derecha" | "Base Centro"
+#                                          "Plural Izquierda" | "Plural Derecha" | "Plural Centro"
 #                                          "Contenciosa Izquierda-Centro" | "...-Derecha" | "Centro-Derecha"
 #                                          "Empate"
 # tie_radius                           -- classifier parameter used (default 8)

@@ -9,7 +9,12 @@ Reuses the exact same L/R/C bloc aggregation as the Trayectoria tab
 Category rule (see ui/common.py for the full rationale):
   - Base <bloc>        : that bloc cleared 50% (no two-way coalition of the
                           other blocs could have beaten it)
-  - Contenciosa X-Y     : no majority; blocs X and Y are the top two
+  - Plural <bloc>       : no majority; that bloc leads by more than
+                          tie_radius, but 2nd and 3rd place are themselves
+                          within tie_radius of each other (no real top-two
+                          race, just a lone leader)
+  - Contenciosa X-Y     : no majority; blocs X and Y are the top two and are
+                          within tie_radius of each other
   - Empate              : no majority AND all three blocs within tie_radius
                           points of 33.33%
 

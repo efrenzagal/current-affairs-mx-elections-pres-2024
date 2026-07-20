@@ -179,6 +179,9 @@ CATEGORY_COLORS = {
     "Base Izquierda":                "#8B0000",
     "Base Derecha":                  "#1E90FF",
     "Base Centro":                   "#006847",
+    "Plural Izquierda":              "#B85C5C",
+    "Plural Derecha":                "#5CA3D9",
+    "Plural Centro":                 "#4CA37A",
     "Contenciosa Izquierda-Centro":  "#CC7A00",
     "Contenciosa Izquierda-Derecha": "#7B2D8B",
     "Contenciosa Centro-Derecha":    "#1F8A8A",
@@ -191,6 +194,7 @@ _CONTENTIOUS_LABELS = {
     frozenset(("C", "R")): "Contenciosa Centro-Derecha",
 }
 _BASE_LABELS = {"L": "Base Izquierda", "R": "Base Derecha", "C": "Base Centro"}
+_PLURAL_LABELS = {"L": "Plural Izquierda", "R": "Plural Derecha", "C": "Plural Centro"}
 
 
 def classify_ternary(pct_l: float, pct_r: float, pct_c: float,
@@ -201,15 +205,23 @@ def classify_ternary(pct_l: float, pct_r: float, pct_c: float,
     that, the other two blocs combined can always match or beat it, so the
     result is contested. tie_radius: max deviation from 33.33 (on every
     axis) within the non-majority zone to call it a full three-way tie
-    rather than a two-way contentious race.
+    rather than a two-way contentious race. It also doubles as the margin
+    used to tell a real two-way race apart from a "Plural" lead: if the top
+    bloc clears the second by more than tie_radius while the second and
+    third are themselves within tie_radius of each other, the second place
+    is too close to third to call it "theirs" too — the honest read is a
+    lone leader, not a top-two contest (e.g. 47.6/26.3/26.2 isn't
+    "Centro-Derecha", it's Centro leading a near-tied L/R behind it).
     """
     vals = {"L": pct_l, "R": pct_r, "C": pct_c}
     ranked = sorted(vals.items(), key=lambda kv: kv[1], reverse=True)
-    (top_k, top_v), (second_k, _), _ = ranked
+    (top_k, top_v), (second_k, second_v), (_, third_v) = ranked
     if top_v > 50:
         return _BASE_LABELS[top_k]
     if max(abs(v - 100 / 3) for v in vals.values()) <= tie_radius:
         return "Empate"
+    if (top_v - second_v) > tie_radius and (second_v - third_v) <= tie_radius:
+        return _PLURAL_LABELS[top_k]
     return _CONTENTIOUS_LABELS[frozenset((top_k, second_k))]
 
 
