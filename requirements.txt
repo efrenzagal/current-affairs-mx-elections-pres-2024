@@ -4,5 +4,6 @@ numpy
 plotly
 pyarrow
 requests
+openai
 pyshp
 pyproj

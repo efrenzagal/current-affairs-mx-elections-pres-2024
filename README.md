@@ -46,6 +46,42 @@ Run the app:
 streamlit run ine_explorer_v2.py
 ```
 
+## Dashboard at a Glance
+
+The Streamlit dashboard has four tabs:
+
+- **Trayectoria** — municipal presidential-election trajectories from 1994 to
+  2024, shown as a three-way ideological composition alongside state trends,
+  turnout metrics, charts, and municipal winner maps.
+- **Aprobación** — presidential approval observations, monthly medians, and
+  pollster house-effect views from Zedillo through Sheinbaum.
+- **Congreso · Composición** — pre-built Chamber of Deputies and Senate
+  hemicycles, with seat summaries by election year.
+- **Congreso · Votos** — Cámara de Diputados roll-call votes, including party
+  cohesion, deputy-level voting records, and a vote browser.
+
+The initial tab is **Trayectoria**. Its state and municipality are chosen at
+random for a new session; the election deep dive defaults to the latest
+available cycle.
+
+### Data sources and interpretation
+
+- Federal election results originate in official **INE** files, then pass
+  through the cycle-specific converters and the normalized warehouse.
+- Municipality geometry originates in the **INEGI Marco Geoestadístico 2024**.
+- Legislative roll calls originate in the Cámara de Diputados’ **Gaceta
+  Parlamentaria**; individual vote pages retain their source URLs.
+- Presidential approval data is stored locally from **Oraculus**-compiled
+  spreadsheets and is analyzed here as a secondary series, not collected by
+  the app in real time.
+
+The ideological trajectory is an analytical construct. Its Left / Right /
+Center party and coalition assignments are maintained in `ui/common.py` and
+should be treated as documented methodology—not as a raw INE classification.
+Historical coalition mappings can be incomplete or contestable, so use the
+view for exploration and pair any published claim with the underlying results
+and methodology.
+
 Useful partial materialization commands:
 
 ```bash
@@ -60,7 +96,8 @@ Open only the files needed for the task:
 
 - Page flow, data loading, controls: `ine_explorer_v2.py`
 - Maps and choropleth rendering: `ui/maps.py`
-- Bar charts, ternary plots, timeseries: `ui/charts.py`
+- Trajectory charts and state time series: `ui/trajectory.py`, `ui/charts.py`
+- Presidential approval views: `ui/approval.py`
 - Scorecards, result tables, badges: `ui/tables.py`
 - Gaceta Parlamentaria section: `ui/gaceta.py`
 - Shared constants and pure helpers: `ui/common.py`
@@ -83,28 +120,28 @@ Streamlit app entry point — page config, CSS, data loaders, and page routing.
 Important responsibilities:
 
 - Loads and caches materialized parquet views.
-- Provides year/type/unit selectors.
-- Orchestrates the three page views (Estado, Municipio, Nacional · Histórico)
-  via `render_results_tab`, which sequences map → scorecards → bars → tables.
-- Dispatches rendering to the `ui/` modules.
+- Defines the four dashboard tabs and dispatches to their render functions.
+- Loads the pre-built congressional-composition hemicycle assets.
+- Provides shared page configuration and visual styling.
 
 Open this file for page flow, selector logic, caching behavior, or Streamlit
 deployment issues. For chart or map changes, open the relevant `ui/` module.
 
 ### `ui/` — UI modules
 
-The render functions are split across four focused modules:
+The render functions are split across focused modules:
 
-- `ui/common.py` — shared constants (`PARTY_GROUPS`, `CYCLE_BLOCS`,
-  `MAP_METRICS`, timeseries colors) and pure helpers (`election_label`,
-  `agg_blocs`, `pivot_candidates`, `resolve_candidate_name`, etc.).
+- `ui/common.py` — shared party/coalition mappings, historical ideological
+  assignments, colors, and pure aggregation helpers.
   No streamlit dependency — safe to import anywhere.
 - `ui/maps.py` — shared bloc winner-map renderer for every presidential cycle,
   plus the GeoJSON loader and geometry utilities.
-- `ui/charts.py` — bar charts (by candidate and by party), ternary bubble plots
-  for 2024 and historical elections, and the multi-year timeseries chart.
+- `ui/charts.py` — historical bar charts and state-level time-series charts.
+- `ui/trajectory.py` — the municipal ideological-trajectory tab, including
+  ternary trajectories, turnout metrics, and state election deep dives.
+- `ui/approval.py` — the presidential-approval tab and its polling views.
 - `ui/tables.py` — scorecards, metric cards, header badges, and the
-  winners-only results dataframe with progress bar.
+  supporting HTML components.
 - `ui/gaceta.py` — the entire Gaceta Parlamentaria section: deputy alignment
   scatter, party cohesion heatmap, and vote browser. Call `render_gaceta()`
   from the main app.
@@ -189,6 +226,8 @@ vote data.
 - `hemicycle_explorer.py` — generates an interactive in-browser hemicycle
   visualization (500 seats) with tabs by year, partido/coalición toggle, and
   state filter. Run with `python3 aux_scripts/seat_allocations/hemicycle_explorer.py`.
+- `build_hemicycle_cache.py` — materializes all Congreso composition figures
+  and summaries for the Streamlit app. Run it after rebuilding the warehouse.
 - `district_audit.py` — cross-checks computed MR winners against official
   district results for QA purposes.
 - `common.py` — shared helpers for actor totals and D'Hondt computation.
@@ -382,6 +421,15 @@ python3 aux_scripts/seat_allocations/hemicycle_explorer.py
 
 This opens an interactive hemicycle in the browser. Use `diputados.py` or
 `senadores.py` directly for tabular seat counts or QA against official results.
+
+To refresh the pre-built assets used by the **Congreso · Composición** tab:
+
+```bash
+python3 aux_scripts/build_hemicycle_cache.py
+```
+
+The command writes ignored files under `data/cache/hemicycles/`. Streamlit only
+loads and visualizes those assets; it does not calculate seat allocations.
 
 ### Scrape and ingest Gaceta roll-call votes
 

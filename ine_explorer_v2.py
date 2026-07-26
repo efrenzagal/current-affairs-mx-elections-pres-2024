@@ -8,26 +8,16 @@ Run:
 
 from __future__ import annotations
 
-import sqlite3
+import json
 from pathlib import Path
 
-import pandas as pd
+import plotly.io as pio
 import streamlit as st
 import streamlit.components.v1 as components
 
 from ui.approval import render_approval
 from ui.gaceta import render_gaceta
 from ui.trajectory import render_trajectory
-
-from aux_scripts.seat_allocations.hemicycle_explorer import (
-    build_figure,
-    build_summary_html,
-    get_elections,
-    load_composicion_dip,
-    load_composicion_sen,
-    dip_winners_from_votes,
-    sen_winners_from_votes,
-)
 
 # ── Page config ────────────────────────────────────────────────────────────────
 
@@ -84,37 +74,42 @@ h1, h2, h3 { font-family: 'IBM Plex Mono', monospace; letter-spacing: -0.02em; }
 
 st.markdown("**INE · Explorador Electoral de México**")
 
-# ── Data loaders ───────────────────────────────────────────────────────────────
+# ── Pre-built hemicycle assets ─────────────────────────────────────────────────
 
-DB_PATH = Path("election_data.db")
+HEMICYCLE_CACHE_DIR = Path("data/cache/hemicycles")
+HEMICYCLE_MANIFEST = HEMICYCLE_CACHE_DIR / "manifest.json"
 
-@st.cache_resource(show_spinner=False)
-def get_db_conn():
-    if not DB_PATH.exists():
-        return None
-    return sqlite3.connect(str(DB_PATH), check_same_thread=False)
 
-@st.cache_data(show_spinner="Cargando hemiciclo...")
-def load_hemicycle_winners(election_id: str) -> pd.DataFrame:
-    conn = get_db_conn()
-    if conn is None:
-        return pd.DataFrame()
-    if election_id.startswith("DIP"):
-        winners = load_composicion_dip(election_id, conn)
-        if winners is None or winners.empty:
-            winners = dip_winners_from_votes(conn, election_id)
-    else:
-        winners = load_composicion_sen(election_id, conn)
-        if winners is None or winners.empty:
-            winners = sen_winners_from_votes(conn, election_id)
-    return winners if winners is not None else pd.DataFrame()
+def get_hemicycle_cache_version() -> tuple[int, int]:
+    """Version the read cache by the manifest file; never query SQLite here."""
+    if not HEMICYCLE_MANIFEST.exists():
+        return (0, 0)
+    stat = HEMICYCLE_MANIFEST.stat()
+    return (stat.st_mtime_ns, stat.st_size)
+
 
 @st.cache_data(show_spinner=False)
-def get_hemicycle_elections(prefix: str) -> list[str]:
-    conn = get_db_conn()
-    if conn is None:
-        return []
-    return get_elections(conn, prefix)
+def load_hemicycle_manifest(cache_version: tuple[int, int]) -> dict:
+    with HEMICYCLE_MANIFEST.open(encoding="utf-8") as cache_file:
+        return json.load(cache_file)
+
+
+@st.cache_data(show_spinner=False)
+def load_prebuilt_hemicycle(election_id: str, cache_version: tuple[int, int]):
+    """Deserialize the pre-built figure and table without running seat logic."""
+    figure_path = HEMICYCLE_CACHE_DIR / f"{election_id}.figure.json"
+    table_path = HEMICYCLE_CACHE_DIR / f"{election_id}.summary.html"
+    return pio.from_json(figure_path.read_text(encoding="utf-8")), table_path.read_text(encoding="utf-8")
+
+
+def render_hemicycle_summary(table_html: str) -> None:
+    components.html(
+        f"""<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+        <div style="background:#1a1a1a;border-radius:8px;padding:16px;font-family:'IBM Plex Mono',monospace">
+        {table_html}</div>""",
+        height=360,
+        scrolling=True,
+    )
 
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
@@ -147,47 +142,50 @@ with tab_aprob:
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab_comp:
-    conn = get_db_conn()
-    if conn is None:
-        st.error("No se encontró la base de datos. "
-                 "Ejecuta `python ingestion/electoral_ingest.py` primero.")
-    else:
-        chamber_sel = st.radio(
-            "Cámara",
-            ["Cámara de Diputados · 500 escaños", "Senado de la República · 128 escaños"],
-            horizontal=True,
-            key="comp_chamber",
+    if not HEMICYCLE_MANIFEST.exists():
+        st.info(
+            "Los hemiciclos aún no están preparados. Ejecuta "
+            "`python3 aux_scripts/build_hemicycle_cache.py`."
         )
-        is_dip   = chamber_sel.startswith("Cámara")
-        prefix   = "DIP_MR" if is_dip else "SEN_MR"
-        hemi_elections = get_hemicycle_elections(prefix)
+    else:
+        cache_version = get_hemicycle_cache_version()
+        manifest = load_hemicycle_manifest(cache_version)
+        elections = manifest.get("elections", [])
+        dip_years = {e.rsplit("_", 1)[-1] for e in elections if e.startswith("DIP_MR_")}
+        sen_years = {e.rsplit("_", 1)[-1] for e in elections if e.startswith("SEN_MR_")}
+        shared_years = sorted(dip_years & sen_years, key=int)
 
-        if not hemi_elections:
-            st.info("Sin datos de escaños en la base de datos.")
+        if not shared_years:
+            st.info("La caché no contiene años con datos de ambas cámaras.")
         else:
-            year_labels = [e.split("_")[-1] for e in hemi_elections]
-            year_tab_sel = st.radio("Año", year_labels, horizontal=True,
-                                    index=len(year_labels) - 1, key="comp_year")
-            election_id  = f"{prefix}_{year_tab_sel}"
+            year_tab_sel = st.radio(
+                "Año electoral",
+                shared_years,
+                horizontal=True,
+                index=len(shared_years) - 1,
+                key="comp_year",
+            )
 
-            winners = load_hemicycle_winners(election_id)
-            if winners.empty:
-                st.info(f"Sin datos de escaños para {election_id}.")
-            else:
-                fig        = build_figure(winners, election_id)
-                table_html = build_summary_html(winners, election_id)
+            dip_id = f"DIP_MR_{year_tab_sel}"
+            sen_id = f"SEN_MR_{year_tab_sel}"
+            dip_fig, dip_table = load_prebuilt_hemicycle(dip_id, cache_version)
+            sen_fig, sen_table = load_prebuilt_hemicycle(sen_id, cache_version)
 
-                hem_col, tbl_col = st.columns([2.2, 1], gap="large")
-                with hem_col:
-                    st.plotly_chart(fig, use_container_width=True)
-                with tbl_col:
-                    components.html(
-                        f"""<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
-                        <div style="background:#1a1a1a;border-radius:8px;padding:16px;font-family:'IBM Plex Mono',monospace">
-                        {table_html}</div>""",
-                        height=600,
-                        scrolling=True,
-                    )
+            dip_col, sen_col = st.columns(2, gap="large")
+            with dip_col:
+                st.markdown("#### Cámara de Diputados · 500 escaños")
+                if dip_fig is None:
+                    st.info(f"Sin datos de escaños para {dip_id}.")
+                else:
+                    st.plotly_chart(dip_fig, use_container_width=True, key=f"dip_{year_tab_sel}")
+                    render_hemicycle_summary(dip_table)
+            with sen_col:
+                st.markdown("#### Senado de la República · 128 escaños")
+                if sen_fig is None:
+                    st.info(f"Sin datos de escaños para {sen_id}.")
+                else:
+                    st.plotly_chart(sen_fig, use_container_width=True, key=f"sen_{year_tab_sel}")
+                    render_hemicycle_summary(sen_table)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

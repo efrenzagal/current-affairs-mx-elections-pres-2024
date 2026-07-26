@@ -6,6 +6,7 @@ Call render_trajectory() from the main app.
 
 from __future__ import annotations
 
+from html import escape
 import random
 from pathlib import Path
 
@@ -113,6 +114,51 @@ def load_raw_year(year: int) -> pd.DataFrame:
     df = pd.read_parquet(path).dropna(subset=["municipio"])
     df["municipio_key"] = df["municipio"].map(_norm)
     return df
+
+
+@st.cache_data(show_spinner=False)
+def load_vertex_members(year: int) -> dict[str, tuple[str, ...]]:
+    """Return the observed party/candidacy keys assigned to each ternary vertex."""
+    path = MATERIALIZED_DIR / f"view_municipio_PRE_{year}.parquet"
+    if not path.exists():
+        return {bloc: () for bloc in ("L", "R", "C")}
+
+    parties = pd.read_parquet(path, columns=["party_key"])["party_key"].dropna().unique()
+    members = {bloc: [] for bloc in ("L", "R", "C")}
+    for party_key in sorted(parties):
+        bloc = IDEOLOGY_MAP.get(party_key)
+        if bloc:
+            members[bloc].append(party_key)
+    return {bloc: tuple(keys) for bloc, keys in members.items()}
+
+
+def _display_party_key(party_key: str) -> str:
+    """Make warehouse party keys legible without hiding the source grouping."""
+    if party_key.startswith("CAND_IND_"):
+        return f"Independiente {party_key.rsplit('_', 1)[-1]}"
+    if party_key.startswith("C_"):
+        return "Coalición " + party_key[2:].replace("_", " + ")
+    return party_key.replace("_", " + ")
+
+
+def render_vertex_members(years: list[int]) -> None:
+    """Show the exact L/R/C assignment used for every plotted election cycle."""
+    st.markdown("<div class='section-label'>Vértices por ciclo</div>", unsafe_allow_html=True)
+    st.caption("Partidos y candidaturas independientes incluidos en cada vértice de los puntos mostrados.")
+    rows = []
+    for year in years:
+        members = load_vertex_members(year)
+        cells = ["<br>".join(escape(_display_party_key(key)) for key in members[bloc]) or "—"
+                 for bloc in ("L", "C", "R")]
+        rows.append(
+            f"<tr><td>{year}</td><td>{cells[0]}</td><td>{cells[1]}</td><td>{cells[2]}</td></tr>"
+        )
+    st.markdown(
+        """<table style='width:100%; table-layout:fixed; border-collapse:collapse; font-size:0.82rem'>
+        <thead><tr><th style='width:8%'>Ciclo</th><th>Izquierda</th><th>Centro</th><th>Derecha</th></tr></thead>
+        <tbody>""" + "".join(rows) + "</tbody></table>",
+        unsafe_allow_html=True,
+    )
 
 
 @st.cache_data(show_spinner="Cargando series de tiempo...")
@@ -248,6 +294,11 @@ def _build_ternary(df: pd.DataFrame, mun_sel: str, show_bubbles: bool = True,
         total_votos = 0 if pd.isna(row["total_votos"]) else int(row["total_votos"])
         category = row["category"]
         cat_color = CATEGORY_COLORS[category]
+        members = load_vertex_members(yr)
+        assignments = "<br>".join(
+            f"{label}: {', '.join(_display_party_key(key) for key in members[bloc]) or '—'}"
+            for bloc, label in (("L", "Izquierda"), ("C", "Centro"), ("R", "Derecha"))
+        )
         if show_bubbles:
             size = float(max(12, total_votos / max_v * 52))
             marker = dict(size=size, color=YEAR_COLORS.get(yr, "#888"),
@@ -269,7 +320,8 @@ def _build_ternary(df: pd.DataFrame, mun_sel: str, show_bubbles: bool = True,
                 f"Izquierda: {row['pct_L']:.1f}%<br>"
                 f"Derecha:   {row['pct_R']:.1f}%<br>"
                 f"Centro:    {row['pct_C']:.1f}%<br>"
-                f"Votos: {total_votos:,}<extra></extra>"
+                f"Votos: {total_votos:,}<br><br>"
+                f"<b>Asignación del ciclo</b><br>{assignments}<extra></extra>"
             ),
             showlegend=False,
         ))
@@ -289,9 +341,9 @@ def _build_ternary(df: pd.DataFrame, mun_sel: str, show_bubbles: bool = True,
         y=[-0.10, -0.10, _S32 + 0.10],
         mode="text",
         text=[
-            "<b>Izquierda</b><br><span style='font-size:9px'>PRD · Morena · PT</span>",
-            "<b>Derecha</b><br><span style='font-size:9px'>PAN</span>",
-            "<b>Centro</b><br><span style='font-size:9px'>PRI · MC</span>",
+            "<b>Izquierda</b><br><span style='font-size:9px'>ver ciclo abajo</span>",
+            "<b>Derecha</b><br><span style='font-size:9px'>ver ciclo abajo</span>",
+            "<b>Centro</b><br><span style='font-size:9px'>ver ciclo abajo</span>",
         ],
         textfont=dict(size=12, family="IBM Plex Mono",
                       color=[VERTEX_COLORS["L"], VERTEX_COLORS["R"], VERTEX_COLORS["C"]]),
@@ -443,6 +495,8 @@ def render_trajectory():
     with col_r:
         st.markdown('<div class="section-label">Tendencias</div>', unsafe_allow_html=True)
         st.plotly_chart(_build_trend(df), use_container_width=True)
+
+    render_vertex_members(df["year"].astype(int).tolist())
 
     missing = [y for y in PRE_YEARS if y not in df["year"].tolist()]
     if missing:

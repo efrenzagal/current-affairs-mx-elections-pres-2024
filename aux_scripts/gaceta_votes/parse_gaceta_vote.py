@@ -158,17 +158,20 @@ def parse_detail(html: str, vote: str) -> list[dict[str, object]]:
     soup = BeautifulSoup(html, "html.parser")
     headings = soup.find_all(
         string=re.compile(
-            r"Diputados .* que "
-            r"(?:votaron|estuvieron|se abstuvieron)"
+            r"Diputad[oa]s? .* que "
+            r"(?:vot(?:aron|ó)|estuv(?:ieron|o)|se abstuv(?:ieron|o))"
         )
     )
     rows: list[dict[str, object]] = []
     for heading in headings:
         text = clean_text(str(heading))
-        if text.startswith(("Diputados independientes", "Diputados Independientes", "Diputados sin partido")):
+        if re.match(r"Diputad[oa]s? (?:independientes?|sin partido) que ", text,
+                    flags=re.IGNORECASE):
             match = re.match(
-                r"Diputados (?:independientes|sin partido) que "
-                r"(?:votaron .+?|estuvieron ausentes|estuvieron presentes y no votaron|se abstuvieron de votar): (\d+)$",
+                r"Diputad[oa]s? (?:independientes?|sin partido) que "
+                r"(?:vot(?:aron|ó) .+?|estuv(?:ieron|o) ausentes?|"
+                r"estuv(?:ieron|o) presentes? y no votaron?|"
+                r"se abstuv(?:ieron|o) de votar): (\d+)$",
                 text,
                 flags=re.IGNORECASE,
             )

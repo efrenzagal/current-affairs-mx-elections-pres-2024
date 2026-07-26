@@ -75,6 +75,18 @@ GACETA_RE = re.compile(
     r"Gaceta Parlamentaria\s*,\s*número\s+([^,]+),\s*(.+?)(?:\.|$)",
     re.IGNORECASE,
 )
+# Known typos in gaceta.diputados.gob.mx's own source text that parse
+# correctly but produce a wrong date. Verified case by case — do not add an
+# entry here without confirming the true date independently (e.g. against
+# gaceta_date, the weekday text, or the vote's title).
+KNOWN_SOURCE_DATE_TYPOS: dict[str, str] = {
+    # Source text reads "...el jueves 29 de agosto de 2021", but Aug 29 2021
+    # was a Sunday while Aug 29 2024 was a Thursday — matches the weekday,
+    # gaceta_date, and title text ("29 de agosto de 2024"). The vote is for
+    # the LXVI Legislatura's first Mesa Directiva, so 2024 is correct.
+    "GACETA_L66_TABLA1OR1_1": "2024-08-29",
+}
+
 STATUS_RE = re.compile(r"\b(Aprobad[oa]|Desechad[oa]|No aprobado|Rechazad[oa])\b", re.IGNORECASE)
 FAVOR_RE = re.compile(r"(\d+)\s+votos?\s+en\s+pro", re.IGNORECASE)
 CONTRA_RE = re.compile(r"(\d+)\s+en\s+contra", re.IGNORECASE)
@@ -214,6 +226,10 @@ def add_context_metadata(votes: pd.DataFrame) -> pd.DataFrame:
             else:
                 segment_date = gaceta_date
                 date_source = "gaceta_date" if gaceta_date else None
+
+            if row["gaceta_vote_id"] in KNOWN_SOURCE_DATE_TYPOS:
+                segment_date = KNOWN_SOURCE_DATE_TYPOS[row["gaceta_vote_id"]]
+                date_source = "manual_correction"
 
             status = STATUS_RE.search(segment or "")
             out = row.to_dict()
