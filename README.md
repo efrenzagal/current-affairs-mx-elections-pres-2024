@@ -57,8 +57,10 @@ The Streamlit dashboard has four tabs:
   pollster house-effect views from Zedillo through Sheinbaum.
 - **Congreso · Composición** — pre-built Chamber of Deputies and Senate
   hemicycles, with seat summaries by election year.
-- **Congreso · Votos** — Cámara de Diputados roll-call votes, including party
-  cohesion, deputy-level voting records, and a vote browser.
+- **Congreso · Votos** — Cámara de Diputados roll-call votes: a deputy-level
+  voting calendar, and an LLM-classified view of votes (topic, origin,
+  legislative stage) with topic-composition and consensus-vs-participation
+  charts that link out to each vote's source page.
 
 The initial tab is **Trayectoria**. Its state and municipality are chosen at
 random for a new session; the election deep dive defaults to the latest
@@ -142,9 +144,9 @@ The render functions are split across focused modules:
 - `ui/approval.py` — the presidential-approval tab and its polling views.
 - `ui/tables.py` — scorecards, metric cards, header badges, and the
   supporting HTML components.
-- `ui/gaceta.py` — the entire Gaceta Parlamentaria section: deputy alignment
-  scatter, party cohesion heatmap, and vote browser. Call `render_gaceta()`
-  from the main app.
+- `ui/gaceta.py` — the entire Gaceta Parlamentaria section: the deputy voting
+  calendar and the LLM-classified vote explorer (filters, topic/consensus
+  charts, vote-detail drilldown). Call `render_gaceta()` from the main app.
 
 ### `ingestion/electoral_materialize.py`
 
