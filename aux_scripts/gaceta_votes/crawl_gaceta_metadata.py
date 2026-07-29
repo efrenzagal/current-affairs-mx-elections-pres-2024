@@ -85,6 +85,10 @@ KNOWN_SOURCE_DATE_TYPOS: dict[str, str] = {
     # gaceta_date, and title text ("29 de agosto de 2024"). The vote is for
     # the LXVI Legislatura's first Mesa Directiva, so 2024 is correct.
     "GACETA_L66_TABLA1OR1_1": "2024-08-29",
+    # The title says the IFE appointments would run until October 2019, which
+    # the generic "last date" parser mistakes for the roll-call date. The
+    # vote context itself says 6 October 2011.
+    "GACETA_L61_TABLA3OR1_200": "2011-10-06",
 }
 
 STATUS_RE = re.compile(r"\b(Aprobad[oa]|Desechad[oa]|No aprobado|Rechazad[oa])\b", re.IGNORECASE)

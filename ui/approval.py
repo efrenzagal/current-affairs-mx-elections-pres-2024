@@ -208,7 +208,7 @@ def render_approval():
         )
     fig.update_layout(
         height=520,
-        yaxis=dict(range=[20, 100], ticksuffix="%"),
+        yaxis=dict(range=[0, 100], ticksuffix="%"),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         font=dict(family="IBM Plex Sans"),

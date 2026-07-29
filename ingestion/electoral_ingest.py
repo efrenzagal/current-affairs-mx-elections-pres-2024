@@ -412,6 +412,26 @@ class ElectionWarehouse:
                 UNIQUE(election_type, party_key, id_estado, id_distrito_federal, candidate_name)
             );
 
+            CREATE TABLE IF NOT EXISTS dim_municipio_map_crosswalk (
+                municipio_map_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                election_id            TEXT NOT NULL,
+                id_estado              INTEGER NOT NULL,
+                nombre_estado          TEXT,
+                source_municipio_id    INTEGER,
+                source_municipio       TEXT NOT NULL,
+                municipio_key          TEXT NOT NULL,
+                inegi_cvegeo           TEXT,
+                map_feature_id         TEXT,
+                match_method           TEXT NOT NULL,
+                review_status          TEXT,
+                suggested_cvegeo       TEXT,
+                suggested_municipio    TEXT,
+                similarity             REAL,
+                created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(election_id, id_estado, municipio_key, source_municipio_id),
+                FOREIGN KEY (election_id) REFERENCES dim_election(election_id)
+            );
+
             CREATE TABLE IF NOT EXISTS fact_casilla_vote (
                 vote_id             INTEGER PRIMARY KEY AUTOINCREMENT,
                 election_id         TEXT NOT NULL,
@@ -434,6 +454,8 @@ class ElectionWarehouse:
             CREATE INDEX IF NOT EXISTS idx_casilla_elec   ON dim_casilla(election_id);
             CREATE INDEX IF NOT EXISTS idx_geo_state      ON dim_geography(id_estado);
             CREATE INDEX IF NOT EXISTS idx_candidatos_type ON dim_candidatos(election_type, id_estado, party_key);
+            CREATE INDEX IF NOT EXISTS idx_mun_map_election ON dim_municipio_map_crosswalk(election_id, id_estado);
+            CREATE INDEX IF NOT EXISTS idx_mun_map_cvegeo ON dim_municipio_map_crosswalk(inegi_cvegeo);
         """)
 
         self.conn.commit()

@@ -20,6 +20,18 @@ Reads from election_data.db and writes to data/materialized/:
         One row per vote: summary/detail reconciliation flags. Used to
         exclude incomplete deputy-detail roll calls from person/party metrics.
 
+    gaceta_party_vote_positions.parquet
+        One row per party × complete roll call with the party's substantive
+        position: (Favor - Contra) / (Favor + Contra). Abstentions, absences,
+        and quorum records are excluded from this measure.
+
+    gaceta_party_vote_correlations.parquet
+        Pearson correlations between party positions within each legislature.
+
+    gaceta_party_vote_correlations_rolling.parquet
+        The same correlations in trailing six-month windows, for tracking
+        party alignment through time.
+
 Alignment definition:
     For each vote, the party majority choice is the most common active
     vote (Favor / Contra / Abstención) among present party members.
@@ -52,6 +64,9 @@ ACTIVE_CHOICES  = {"Favor", "Contra", "Abstención", "Abstencion", "A favor", "E
 
 # Minimum active votes a deputy must have in a legislature to be included
 MIN_ACTIVE_VOTES = 10
+MIN_PARTY_DIRECTIONAL_VOTES = 5
+MIN_CORRELATION_VOTES = 20
+ROLLING_CORRELATION_DAYS = 183
 
 
 def add_vote_thresholds(votes: pd.DataFrame) -> pd.DataFrame:
@@ -93,7 +108,8 @@ def load_deputy_votes(conn: sqlite3.Connection) -> pd.DataFrame:
             f.deputy_id,
             f.vote_choice,
             f.party_key,
-            v.legislature
+            v.legislature,
+            v.vote_date
         FROM fact_gaceta_deputy_vote f
         JOIN dim_gaceta_vote v ON f.gaceta_vote_id = v.gaceta_vote_id
     """, conn)
@@ -281,6 +297,81 @@ def build_party_cohesion(df: pd.DataFrame) -> pd.DataFrame:
     return party_cohesion.sort_values(["legislature", "cohesion_mean"], ascending=[True, False])
 
 
+# ── Party positions and pairwise alignment ───────────────────────────────────
+
+def build_party_vote_positions(df: pd.DataFrame) -> pd.DataFrame:
+    """Summarise each party's substantive position on each complete roll call."""
+    directional = df[df["vote_choice"].isin({"Favor", "Contra", "A favor", "En contra"})].copy()
+    directional["direction"] = directional["vote_choice"].map({
+        "Favor": 1, "A favor": 1, "Contra": -1, "En contra": -1,
+    })
+    positions = (
+        directional.groupby(["legislature", "gaceta_vote_id", "vote_date", "party_key"])
+        .agg(
+            directional_votes=("direction", "size"),
+            favor=("direction", lambda values: (values == 1).sum()),
+            contra=("direction", lambda values: (values == -1).sum()),
+            position=("direction", "mean"),
+        )
+        .reset_index()
+    )
+    positions = positions[positions["directional_votes"] >= MIN_PARTY_DIRECTIONAL_VOTES].copy()
+    positions["position"] = positions["position"].round(6)
+    positions["vote_date"] = pd.to_datetime(positions["vote_date"], errors="coerce")
+    return positions.sort_values(["legislature", "vote_date", "gaceta_vote_id", "party_key"])
+
+
+def _pairwise_correlations(positions: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
+    """Correlate all party pairs on the roll calls they have in common."""
+    rows: list[dict[str, object]] = []
+    for group_values, group in positions.groupby(group_columns, dropna=False):
+        if not isinstance(group_values, tuple):
+            group_values = (group_values,)
+        wide = group.pivot(index="gaceta_vote_id", columns="party_key", values="position")
+        parties = sorted(wide.columns)
+        for left_index, party_a in enumerate(parties):
+            for party_b in parties[left_index + 1:]:
+                paired = wide[[party_a, party_b]].dropna()
+                n = len(paired)
+                if (n < MIN_CORRELATION_VOTES or
+                        paired[party_a].nunique() < 2 or
+                        paired[party_b].nunique() < 2):
+                    continue
+                correlation = paired[party_a].corr(paired[party_b])
+                if pd.isna(correlation):
+                    continue
+                row = dict(zip(group_columns, group_values))
+                row.update({
+                    "party_a": party_a,
+                    "party_b": party_b,
+                    "roll_calls": n,
+                    "pearson_correlation": round(float(correlation), 6),
+                })
+                rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def build_party_vote_correlations(positions: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return legislature-level and trailing-six-month party correlations."""
+    overall = _pairwise_correlations(positions, ["legislature"])
+
+    dated = positions.dropna(subset=["vote_date"]).copy()
+    window_rows: list[pd.DataFrame] = []
+    for legislature, group in dated.groupby("legislature"):
+        endpoints = group["vote_date"].drop_duplicates().sort_values()
+        for window_end in endpoints:
+            window_start = window_end - pd.Timedelta(days=ROLLING_CORRELATION_DAYS)
+            window = group[(group["vote_date"] > window_start) & (group["vote_date"] <= window_end)]
+            correlations = _pairwise_correlations(window, ["legislature"])
+            if correlations.empty:
+                continue
+            correlations["window_start"] = window_start.date().isoformat()
+            correlations["window_end"] = window_end.date().isoformat()
+            window_rows.append(correlations)
+    rolling = pd.concat(window_rows, ignore_index=True) if window_rows else pd.DataFrame()
+    return overall, rolling
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def materialize(db_path: Path, out_dir: Path, force: bool) -> None:
@@ -291,6 +382,9 @@ def materialize(db_path: Path, out_dir: Path, force: bool) -> None:
         "gaceta_party_cohesion.parquet":   out_dir / "gaceta_party_cohesion.parquet",
         "gaceta_vote_index.parquet":       out_dir / "gaceta_vote_index.parquet",
         "gaceta_vote_quality.parquet":     out_dir / "gaceta_vote_quality.parquet",
+        "gaceta_party_vote_positions.parquet": out_dir / "gaceta_party_vote_positions.parquet",
+        "gaceta_party_vote_correlations.parquet": out_dir / "gaceta_party_vote_correlations.parquet",
+        "gaceta_party_vote_correlations_rolling.parquet": out_dir / "gaceta_party_vote_correlations_rolling.parquet",
     }
 
     if not force and all(p.exists() for p in outputs.values()):
@@ -329,6 +423,15 @@ def materialize(db_path: Path, out_dir: Path, force: bool) -> None:
     cohesion = build_party_cohesion(df)
     cohesion.to_parquet(outputs["gaceta_party_cohesion.parquet"], index=False)
     print(f"  → {len(cohesion):,} party × legislature rows written")
+
+    print("Building party positions and correlations...")
+    positions = build_party_vote_positions(df)
+    positions.to_parquet(outputs["gaceta_party_vote_positions.parquet"], index=False)
+    correlations, rolling_correlations = build_party_vote_correlations(positions)
+    correlations.to_parquet(outputs["gaceta_party_vote_correlations.parquet"], index=False)
+    rolling_correlations.to_parquet(outputs["gaceta_party_vote_correlations_rolling.parquet"], index=False)
+    print(f"  → {len(positions):,} party × vote positions, {len(correlations):,} legislature pairs, "
+          f"{len(rolling_correlations):,} rolling-window pairs written")
 
     conn.close()
 

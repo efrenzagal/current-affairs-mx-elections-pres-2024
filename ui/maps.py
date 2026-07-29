@@ -7,7 +7,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from ui.common import MATERIALIZED_DIR, TS_PARTY_COLORS, _norm, _ts_fallback_color, agg_blocs
+from ui.common import (
+    MATERIALIZED_DIR, TS_PARTY_COLORS, _norm, _ts_fallback_color, agg_blocs,
+    title_case_es,
+)
 
 
 # ── GeoJSON loader ─────────────────────────────────────────────────────────────
@@ -25,6 +28,32 @@ def load_municipios_geojson(geojson_path: str = None) -> dict:
     with open(path, encoding="utf-8") as f:
         geojson = json.load(f)
     return _trim_colima_remote_islands(geojson)
+
+
+# State names in our election data that don't literally match the state
+# GeoJSON's `name` property (which uses shorter common-use forms).
+_ESTADO_NAME_ALIASES = {
+    "COAHUILA DE ZARAGOZA": "COAHUILA",
+    "MICHOACAN DE OCAMPO": "MICHOACAN",
+    "VERACRUZ DE IGNACIO DE LA LLAVE": "VERACRUZ",
+}
+
+
+@st.cache_data(show_spinner="Cargando GeoJSON de estados...")
+def load_estados_geojson(geojson_path: str = None) -> dict:
+    """Load the 32-state Mexico GeoJSON, keying each feature by its normalized name."""
+    path = (
+        __import__("pathlib").Path(geojson_path)
+        if geojson_path
+        else MATERIALIZED_DIR / "estados_processed.geojson"
+    )
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        geojson = json.load(f)
+    for feature in geojson.get("features", []):
+        feature["id"] = _norm(feature["properties"].get("name", ""))
+    return geojson
 
 
 # ── Geometry utilities ─────────────────────────────────────────────────────────
@@ -147,6 +176,73 @@ def render_winner_map(df: pd.DataFrame, blocs: dict, geojson: dict,
             marker_line_width=0.25, marker_line_color="rgba(255,255,255,0.1)",
             hovertext=subset["_label"],
             customdata=subset[["pct_A","pct_B","pct_C","total_votos"]].values,
+            hovertemplate=(
+                "<b>%{hovertext}</b><br>"
+                f"<span style='color:{blocs['A']['color']}'>{blocs['A']['label'].split('—')[0].strip()}</span>: %{{customdata[0]:.1f}}%<br>"
+                f"<span style='color:{blocs['B']['color']}'>{blocs['B']['label'].split('—')[0].strip()}</span>: %{{customdata[1]:.1f}}%<br>"
+                f"<span style='color:{blocs['C']['color']}'>{blocs['C']['label'].split('—')[0].strip()}</span>: %{{customdata[2]:.1f}}%<br>"
+                "Votos: %{customdata[3]:,}<extra></extra>"
+            ),
+            name=cfg["label"], showlegend=True,
+        ))
+
+    fig.update_layout(
+        mapbox=dict(style="carto-darkmatter", zoom=zoom, center=center),
+        legend=dict(orientation="h", yanchor="top", y=-0.04,
+                    xanchor="center", x=0.5, font=dict(size=11), itemsizing="constant"),
+        title=dict(text=f"<b>{title}</b>", font=dict(family="IBM Plex Mono", size=14)),
+        margin=dict(l=0, r=0, t=50, b=70),
+        height=height,
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_winner_map_estado(df: pd.DataFrame, blocs: dict, geojson: dict,
+                              title: str, height: int = 560):
+    """Render the shared bloc-colored state-level winner map (Nacional view)."""
+    if not geojson:
+        st.warning(
+            "No se encontró el GeoJSON procesado de estados. "
+            "Descarga `estados_processed.geojson` en data/materialized/."
+        )
+        return
+
+    agg = agg_blocs(df, ["id_estado", "nombre_estado"], blocs)
+    if agg.empty:
+        st.info("Sin datos para el mapa.")
+        return
+
+    agg["_geo_id"] = agg["nombre_estado"].map(
+        lambda n: _norm(_ESTADO_NAME_ALIASES.get(_norm(n), n))
+    )
+    loc_col = "_geo_id"
+    all_ids = {f["id"] for f in geojson["features"]}
+    agg     = agg[agg[loc_col].isin(all_ids)].copy()
+    agg["_label"] = agg["nombre_estado"].apply(title_case_es)
+
+    matched_ids = set(agg[loc_col])
+    center, zoom = _bbox_to_zoom_center(
+        [f for f in geojson["features"] if f["id"] in matched_ids]
+    )
+
+    fig = go.Figure()
+    for bloc_key in ("A", "B", "C"):
+        cfg    = blocs[bloc_key]
+        subset = agg[agg["winner"] == bloc_key]
+        if subset.empty:
+            continue
+        ids_set = set(subset[loc_col])
+        geo_sub = {"type": "FeatureCollection",
+                   "features": [f for f in geojson["features"] if f["id"] in ids_set]}
+        fig.add_trace(go.Choroplethmapbox(
+            geojson=geo_sub, locations=subset[loc_col],
+            z=[1] * len(subset),
+            colorscale=[[0, cfg["color"]], [1, cfg["color"]]],
+            showscale=False, marker_opacity=0.82,
+            marker_line_width=0.4, marker_line_color="rgba(255,255,255,0.15)",
+            hovertext=subset["_label"],
+            customdata=subset[["pct_A", "pct_B", "pct_C", "total_votos"]].values,
             hovertemplate=(
                 "<b>%{hovertext}</b><br>"
                 f"<span style='color:{blocs['A']['color']}'>{blocs['A']['label'].split('—')[0].strip()}</span>: %{{customdata[0]:.1f}}%<br>"

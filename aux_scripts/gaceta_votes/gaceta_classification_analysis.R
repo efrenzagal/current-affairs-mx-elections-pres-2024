@@ -15,6 +15,7 @@ library(tidyr)
 library(ggplot2)
 library(scales)
 
+setwd('Documents/GitHub/current-affairs-mx-elections-pres-2024/')
 db_path <- "election_data.db"
 stopifnot(file.exists(db_path))
 
@@ -336,3 +337,24 @@ print(grafica_consenso_tema)
 
 # When you finish the RStudio session:
 # dbDisconnect(con)
+
+
+library(plotly)
+p <- votos_clasificados %>%
+  mutate(
+    favorable = favor > contra,
+    text = paste0(
+      gaceta_vote_id, "<br>",
+      format(vote_date, "%Y-%m-%d"), " · L", legislature, "<br>",
+      strtrim(gsub("<[^>]+>", "", title), 80), "<br>",
+      "Favor: ", favor, " · Contra: ", contra, " · Efectivos: ", votos_efectivos, "<br>",
+      "Tema: ", tema_politica, " · Etapa: ", etapa_votacion, "<br>",
+      if_else(requiere_revision == 1, " ⚠ requiere revisión", "")
+    )
+  ) %>%
+  filter(legislature %in% c(64, 65, 66)) %>%
+  ggplot(aes(x = margen, y = votos_efectivos, col = tema_politica, text = text)) +
+  facet_wrap(legislature ~ favorable, ncol = 2) +
+  geom_point()
+
+ggplotly(p, tooltip = "text")

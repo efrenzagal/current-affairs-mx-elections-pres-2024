@@ -153,6 +153,135 @@ IDEOLOGY_MAP: dict[str, str] = {
     "PAN_PRI_PRD": "R", "PAN_PRI": "R", "PRI_PRD": "R",
 }
 
+# Coalition party_key -> member party_keys, restricted to cycles where the
+# raw casilla data actually reports each member's own direct vote count
+# alongside the coalition's combined line (2012, 2018, 2024). The 2000/2006
+# coalitions (A. MEX., A. CAM., APM, PBT) have no such member-level rows in
+# the source data, so they stay as single indivisible units in IDEOLOGY_MAP —
+# there is nothing to split them against.
+#
+# This exists so ideological bloc totals (L/R/C) attribute a mixed-ideology
+# coalition's votes to each member proportionally instead of assigning the
+# whole coalition to one bloc (e.g. PAN_PRD lumping PRD's left-leaning votes
+# into the "R" bucket just because PAN led the ticket). It is intentionally
+# separate from CYCLE_BLOCS, which classifies by *candidate supported*
+# (correct to leave as one bloc — a coalition vote is 100% a vote for that
+# candidate) rather than by *party ideology* (what this map is for).
+COALITION_MEMBERS: dict[str, tuple[str, ...]] = {
+    # 2012
+    "C_PRD_PT_MC": ("PRD", "PT", "MC"),
+    "C_PRD_PT":    ("PRD", "PT"),
+    "C_PRD_MC":    ("PRD", "MC"),
+    "C_PT_MC":     ("PT", "MC"),
+    "C_PRI_PVEM":  ("PRI", "PVEM"),
+    # 2018
+    "PAN_PRD_MC":    ("PAN", "PRD", "MOVIMIENTO CIUDADANO"),
+    "PAN_PRD":       ("PAN", "PRD"),
+    "PAN_MC":        ("PAN", "MOVIMIENTO CIUDADANO"),
+    "PRD_MC":        ("PRD", "MOVIMIENTO CIUDADANO"),
+    "PT_MORENA_PES": ("PT", "MORENA", "ENCUENTRO SOCIAL"),
+    "PT_MORENA":     ("PT", "MORENA"),
+    "MORENA_PES":    ("MORENA", "ENCUENTRO SOCIAL"),
+    "PT_PES":        ("PT", "ENCUENTRO SOCIAL"),
+    "PRI_PVEM_NA":   ("PRI", "PVEM", "NUEVA ALIANZA"),
+    "PRI_PVEM":      ("PRI", "PVEM"),
+    "PRI_NA":        ("PRI", "NUEVA ALIANZA"),
+    "PVEM_NA":       ("PVEM", "NUEVA ALIANZA"),
+    # 2024
+    "PAN_PRI_PRD":    ("PAN", "PRI", "PRD"),
+    "PAN_PRI":        ("PAN", "PRI"),
+    "PAN_PRD":        ("PAN", "PRD"),
+    "PRI_PRD":        ("PRI", "PRD"),
+    "PVEM_PT_MORENA": ("PVEM", "PT", "MORENA"),
+    "PVEM_PT":        ("PVEM", "PT"),
+    "PVEM_MORENA":    ("PVEM", "MORENA"),
+    "PT_MORENA":      ("PT", "MORENA"),
+}
+
+
+def split_coalition_votes_by_geo(
+    df: pd.DataFrame,
+    coalition_members: dict[str, tuple[str, ...]] = COALITION_MEMBERS,
+) -> pd.DataFrame:
+    """
+    Dissolve coalition party_key rows into their member parties, attributing
+    each coalition's votes to members proportionally to the members' own
+    direct votes. Expects one election/year at a time, with columns
+    id_estado, municipio_key, party_key, votes.
+
+    The weight for each member is the member's direct-vote share among
+    members, computed at the finest granularity available and falling back
+    to a coarser one when a geography has no direct votes to weight by:
+        municipio share -> estado share -> national share -> equal split.
+    This keeps a coalition's local composition (e.g. a state where one
+    partner has no on-the-ground base) from being smeared by a national
+    ratio when better local data exists, while still producing a sane
+    result where local data is missing.
+    """
+    coalition_keys = set(coalition_members) & set(df["party_key"].unique())
+    if not coalition_keys:
+        return df.copy()
+
+    direct = df[~df["party_key"].isin(coalition_keys)].copy()
+    geo_cols = ["id_estado", "municipio_key"]
+    added = []
+
+    for ckey in coalition_keys:
+        members = list(coalition_members[ckey])
+        # Some sources carry more than one raw row per (estado, municipio_key)
+        # for the same party_key (e.g. duplicate normalized municipio names
+        # within a state); collapse before using as a reindex target so the
+        # index stays unique.
+        coal = (
+            df.loc[df["party_key"] == ckey, geo_cols + ["votes"]]
+            .groupby(geo_cols, as_index=False)["votes"].sum()
+            .rename(columns={"votes": "coalition_votes"})
+        )
+        coal_index = pd.MultiIndex.from_frame(coal[geo_cols])
+        mem_direct = direct[direct["party_key"].isin(members)]
+        wide = (
+            mem_direct.pivot_table(index=geo_cols, columns="party_key",
+                                   values="votes", aggfunc="sum", fill_value=0)
+            .reindex(columns=members, fill_value=0)
+        )
+        if wide.empty:
+            # No member ever reported a direct vote for this coalition —
+            # nothing to weight by at any granularity; split evenly.
+            weights = pd.DataFrame(1.0 / len(members), index=coal_index, columns=members)
+        else:
+            # Bring in every municipio where the coalition itself appears,
+            # even ones with zero direct member votes locally — otherwise
+            # those rows never see the estado/national fallback ratios and
+            # silently drop to an equal split instead.
+            wide = wide.reindex(wide.index.union(coal_index), fill_value=0)
+            mun_total = wide.sum(axis=1)
+            edo_wide  = wide.groupby(level="id_estado").transform("sum")
+            edo_total = edo_wide.sum(axis=1)
+            nat_totals = wide.sum(axis=0)
+            nat_total  = nat_totals.sum()
+
+            weights = pd.DataFrame(index=wide.index, columns=members, dtype=float)
+            for member in members:
+                mun_w = wide[member] / mun_total.replace(0, np.nan)
+                edo_w = edo_wide[member] / edo_total.replace(0, np.nan)
+                nat_w = (nat_totals[member] / nat_total) if nat_total > 0 else (1.0 / len(members))
+                weights[member] = mun_w.fillna(edo_w).fillna(nat_w).fillna(1.0 / len(members))
+
+        coal_indexed = coal.set_index(geo_cols)["coalition_votes"]
+        for member in members:
+            w = weights[member].reindex(coal_index).fillna(1.0 / len(members))
+            attributed = coal_indexed * w
+            added.append(
+                attributed.rename("votes").reset_index().assign(party_key=member)
+            )
+
+    if not added:
+        return direct
+
+    extra = pd.concat(added, ignore_index=True)
+    combined = pd.concat([direct, extra], ignore_index=True)
+    return combined.groupby(geo_cols + ["party_key"], as_index=False)["votes"].sum()
+
 MAP_METRICS = {
     "Ganador":       {"label": "Ganador (por municipio)",        "kind": "winner"},
     "% SHH":         {"label": "% Sheinbaum (SHH)",             "kind": "continuous", "col": "pct_shh",       "scale": [[0,"#fff0f0"],[0.5,"#8B0000"],[1,"#4a0000"]], "range": [20,90],  "cb_title": "SHH %",          "fmt": ":.1f"},
@@ -226,6 +355,13 @@ def classify_ternary(pct_l: float, pct_r: float, pct_c: float,
 
 
 # ── Timeseries constants ───────────────────────────────────────────────────────
+
+# Parties tracked in the multi-cycle "Tendencias por partido" chart. Minor and
+# one-cycle parties (PARM, PPS, PFCRN, ASDC, PCD, DSPPN, NUEVA ALIANZA, PES,
+# independents, etc.) clutter the legend and add little at national/state
+# scale — direct votes for those are still counted in every other view
+# (ternary blocs, histograms, totals), this list only trims the timeseries.
+MAIN_PARTY_KEYS = ("MORENA", "PAN", "PRI", "PRD", "PT", "MC", "PVEM")
 
 TS_PARTY_COLORS: dict[str, str] = {
     "MORENA":           "#8B0000",
@@ -468,13 +604,14 @@ def ts_base_layout(title: str, y_label: str, years: list,
         yaxis=dict(
             title=y_label,
             tickfont=dict(family="IBM Plex Mono", size=11),
+            rangemode="tozero",
         ),
         legend=dict(
             font=dict(family="IBM Plex Mono", size=10),
             orientation="h",
-            yanchor="bottom", y=1.02,
-            xanchor="left",   x=0,
+            yanchor="top", y=-0.18,
+            xanchor="center", x=0.5,
         ),
         hovermode="x unified",
-        margin=dict(l=55, r=20, t=70, b=40),
+        margin=dict(l=55, r=20, t=50, b=90),
     )

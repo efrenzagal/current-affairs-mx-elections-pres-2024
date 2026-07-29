@@ -4,8 +4,6 @@
 .claude/
 .devcontainer/
 
-data/
-
 *.db
 
 *.db-shm
@@ -17,10 +15,7 @@ graveyard/
 streamlit app/
 
 data/*
-
-!data/materialized/
-
-!data/materialized/**
+!data/municipio_cvegeo_overrides.csv
 
 .RData
 .Rhistory

@@ -2,6 +2,8 @@
 All Plotly chart rendering: bar charts, ternary bubble plots, and timeseries.
 """
 
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -9,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from ui.common import (
-    CANDIDATES, PARTY_GROUPS,
+    CANDIDATES, MAIN_PARTY_KEYS, PARTY_GROUPS,
     agg_blocs, plotly_base, pivot_candidates,
     ts_agg_for_plot, ts_base_layout, ts_party_color,
 )
@@ -397,19 +399,23 @@ def render_hist_ternary(df: pd.DataFrame, blocs: dict, title: str,
 
 # ── Timeseries ─────────────────────────────────────────────────────────────────
 
-def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int,
+def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int | None,
                                   estado_label: str):
     """
-    Multi-year presidential votes-by-party chart for a single state (votes
-    are always shown split by party, never grouped as coalitions). Matched
-    by id_estado (1-32, consistent across all cycles) rather than
-    nombre_estado — state name spelling varies enough to silently drop rows.
+    Multi-year presidential votes-by-party chart for a single state, or for
+    the whole country when id_estado_sel is None (votes are always shown
+    split by party, never grouped as coalitions). Matched by id_estado
+    (1-32, consistent across all cycles) rather than nombre_estado — state
+    name spelling varies enough to silently drop rows.
     """
-    df_state = df_ts[
-        (df_ts["id_estado"] == id_estado_sel) & (df_ts["election_type"] == "PRE")
-    ]
+    if id_estado_sel is None:
+        df_state = df_ts[df_ts["election_type"] == "PRE"]
+    else:
+        df_state = df_ts[
+            (df_ts["id_estado"] == id_estado_sel) & (df_ts["election_type"] == "PRE")
+        ]
     if df_state.empty:
-        st.info("Sin datos históricos para este estado.")
+        st.info("Sin datos históricos para este nivel.")
         return
 
     label_of = (
@@ -432,14 +438,17 @@ def render_timeseries_for_estado(df_ts: pd.DataFrame, id_estado_sel: int,
         st.warning("Sin datos para estos filtros.")
         return
 
-    df_agg = ts_agg_for_plot(df_f, ["year", "election_type", "nombre_estado", "party_key"])
+    ts_group_cols = ["year", "election_type", "party_key"]
+    if id_estado_sel is not None:
+        ts_group_cols.insert(2, "nombre_estado")
+    df_agg = ts_agg_for_plot(df_f, ts_group_cols)
     party_totals = df_agg.groupby("party_key")["votes_split"].sum()
     party_order = (
-        party_totals[party_totals >= 10_000]
+        party_totals[party_totals.index.isin(MAIN_PARTY_KEYS) & (party_totals >= 10_000)]
         .sort_values(ascending=False).index.tolist()
     )
     if not party_order:
-        st.info("Ningún partido supera los 10,000 votos en este estado.")
+        st.info("Ningún partido principal supera los 10,000 votos en este nivel.")
         return
 
     fig = go.Figure()

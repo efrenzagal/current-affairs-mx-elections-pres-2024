@@ -28,6 +28,7 @@ Usage:
 """
 
 import argparse
+from difflib import SequenceMatcher
 import json
 import sqlite3
 import tempfile
@@ -49,13 +50,7 @@ INEGI_MG_2024_URL = (
     "espanol/bvinegi/productos/geografia/marcogeo/794551132173/"
     "mg_2024_integrado.zip"
 )
-INE_TO_INEGI_MUNICIPIO_CODES = {
-    # INE result files carry these older/local municipio codes; INEGI Marco
-    # Geoestadistico 2024 uses the current CVEGEO codes below.
-    (3, 4): "03008",   # Baja California Sur, Los Cabos
-    (3, 5): "03009",   # Baja California Sur, Loreto
-    (7, 95): "07094",  # Chiapas, Teopisca
-}
+MUNICIPIO_CVEGEO_OVERRIDES = Path("data/municipio_cvegeo_overrides.csv")
 
 
 def _norm(s: str) -> str:
@@ -64,12 +59,9 @@ def _norm(s: str) -> str:
     return "".join(c for c in s if unicodedata.category(c) != "Mn")
 
 
-def _mun_code(id_estado, id_municipio) -> str:
-    if pd.isna(id_estado) or pd.isna(id_municipio):
-        return ""
-    ent = int(id_estado)
-    mun = int(id_municipio)
-    return INE_TO_INEGI_MUNICIPIO_CODES.get((ent, mun), f"{ent:02d}{mun:03d}")
+def _mun_name_key(s: object) -> str:
+    """Return a punctuation-insensitive municipio name key for crosswalks."""
+    return "".join(c for c in _norm(s) if c.isalnum())
 
 
 
@@ -227,14 +219,218 @@ def query_municipio(conn, election_id: str) -> pd.DataFrame:
     """, conn)
 
     df = votes.merge(nominal, on=["id_estado", "municipio"], how="left")
-    # Keep the normalized-name key for quick diagnostics, while maps join on
-    # the stable INEGI municipality code from Marco Geoestadistico geometries.
+    # `_mun_code` is added by `attach_municipio_cvegeo` after the INEGI
+    # geometry is available.  INE's ID_MUNICIPIO is *not* an INEGI CVE_MUN
+    # and must never be concatenated with ID_ESTADO as a geometry key.
     df["_join_key"] = df["nombre_estado"].map(_norm) + "||" + df["municipio"].map(_norm)
-    df["_mun_code"] = df.apply(
-        lambda r: _mun_code(r["id_estado"], r["id_municipio"]),
-        axis=1,
-    )
     return df
+
+
+def _load_municipio_overrides(path: Path) -> dict[tuple[str, str, str], str]:
+    """Load user-reviewed CVEGEO overrides keyed by state, name, and raw ID.
+
+    The optional `id_municipio` column distinguishes duplicate names within a
+    state (notably several Oaxaca municipios).  Leave it blank for an
+    override that applies to every source row with that name.
+    """
+    if not path.exists():
+        return {}
+    required = {"id_estado", "municipio_key", "cvegeo"}
+    overrides = pd.read_csv(path, dtype=str).fillna("")
+    missing = required - set(overrides.columns)
+    if missing:
+        raise ValueError(f"{path} is missing required columns: {sorted(missing)}")
+    if "id_municipio" not in overrides:
+        overrides["id_municipio"] = ""
+    out = {}
+    for row in overrides.itertuples(index=False):
+        cvegeo = str(getattr(row, "cvegeo")).strip().zfill(5)
+        if not (cvegeo.isdigit() and len(cvegeo) == 5):
+            raise ValueError(f"Invalid CVEGEO in {path}: {cvegeo!r}")
+        state = str(getattr(row, "id_estado")).strip().zfill(2)
+        key = str(getattr(row, "municipio_key")).strip()
+        raw_id = str(getattr(row, "id_municipio")).strip()
+        out[(state, key, raw_id)] = cvegeo
+    return out
+
+
+def attach_municipio_cvegeo(
+    df: pd.DataFrame,
+    geojson_path: Path,
+    overrides_path: Path = MUNICIPIO_CVEGEO_OVERRIDES,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Attach safe INEGI CVEGEO values and emit unresolved fuzzy suggestions.
+
+    Exact state/name matches are applied automatically.  Fuzzy matches are
+    deliberately *not* applied: they are written to a review table so a
+    plausible spelling match cannot silently paint the wrong municipio.
+    """
+    with open(geojson_path, encoding="utf-8") as f:
+        features = json.load(f).get("features", [])
+
+    geo_rows = []
+    for feature in features:
+        props = feature.get("properties", {})
+        cvegeo = str(feature.get("id") or props.get("CVEGEO") or "").zfill(5)
+        ent = str(props.get("CVE_ENT") or cvegeo[:2]).zfill(2)
+        name = str(props.get("NOMGEO") or "")
+        if cvegeo.isdigit() and len(cvegeo) == 5 and name:
+            geo_rows.append((ent, _mun_name_key(name), cvegeo, name))
+    geo_df = pd.DataFrame(geo_rows, columns=["id_estado", "municipio_key", "cvegeo", "inegi_municipio"])
+    counts = geo_df.groupby(["id_estado", "municipio_key"])["cvegeo"].nunique()
+    exact = {
+        key: group.iloc[0]
+        for key, group in geo_df.groupby(["id_estado", "municipio_key"])
+        if counts.loc[key] == 1
+    }
+    state_candidates = {
+        state: group[["municipio_key", "cvegeo", "inegi_municipio"]].to_dict("records")
+        for state, group in geo_df.groupby("id_estado")
+    }
+    overrides = _load_municipio_overrides(overrides_path)
+
+    out = df.copy()
+    out["_mun_code"] = ""
+    out["_mun_code_method"] = "unresolved"
+    review_rows = []
+    for idx, row in out.iterrows():
+        if pd.isna(row.get("id_estado")) or pd.isna(row.get("municipio")):
+            continue
+        state = f"{int(row['id_estado']):02d}"
+        name_key = _mun_name_key(row["municipio"])
+        raw_id = "" if pd.isna(row.get("id_municipio")) else str(int(row["id_municipio"]))
+        if not name_key or name_key == "VOTOENELEXTRANJERO":
+            out.at[idx, "_mun_code_method"] = "non_geographic"
+            continue
+        cvegeo = overrides.get((state, name_key, raw_id)) or overrides.get((state, name_key, ""))
+        if cvegeo:
+            out.at[idx, "_mun_code"] = cvegeo
+            out.at[idx, "_mun_code_method"] = "manual_override"
+            continue
+        matched = exact.get((state, name_key))
+        if matched is not None:
+            out.at[idx, "_mun_code"] = matched["cvegeo"]
+            out.at[idx, "_mun_code_method"] = "exact_name"
+            continue
+
+        candidates = state_candidates.get(state, [])
+        best = max(
+            candidates,
+            key=lambda c: SequenceMatcher(None, name_key, c["municipio_key"]).ratio(),
+            default=None,
+        )
+        review_rows.append({
+            "election_id": row.get("election_id", ""),
+            "id_estado": state,
+            "id_municipio": raw_id,
+            "municipio": row["municipio"],
+            "municipio_key": name_key,
+            "status": "ambiguous_exact_name" if (state, name_key) in counts.index else "unresolved",
+            "suggested_cvegeo": best["cvegeo"] if best else "",
+            "suggested_inegi_municipio": best["inegi_municipio"] if best else "",
+            "similarity": round(SequenceMatcher(None, name_key, best["municipio_key"]).ratio(), 3) if best else None,
+        })
+
+    review = pd.DataFrame(review_rows).drop_duplicates()
+    return out, review
+
+
+def refresh_municipio_map_crosswalk(
+    conn: sqlite3.Connection, df: pd.DataFrame, review: pd.DataFrame
+) -> None:
+    """Persist the auditable election-municipio → INEGI map crosswalk."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS dim_municipio_map_crosswalk (
+            municipio_map_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            election_id            TEXT NOT NULL,
+            id_estado              INTEGER NOT NULL,
+            nombre_estado          TEXT,
+            source_municipio_id    INTEGER,
+            source_municipio       TEXT NOT NULL,
+            municipio_key          TEXT NOT NULL,
+            inegi_cvegeo           TEXT,
+            map_feature_id         TEXT,
+            match_method           TEXT NOT NULL,
+            review_status          TEXT,
+            suggested_cvegeo       TEXT,
+            suggested_municipio    TEXT,
+            similarity             REAL,
+            created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(election_id, id_estado, municipio_key, source_municipio_id),
+            FOREIGN KEY (election_id) REFERENCES dim_election(election_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mun_map_election
+            ON dim_municipio_map_crosswalk(election_id, id_estado);
+        CREATE INDEX IF NOT EXISTS idx_mun_map_cvegeo
+            ON dim_municipio_map_crosswalk(inegi_cvegeo);
+    """)
+
+    columns = [
+        "election_id", "id_estado", "nombre_estado", "id_municipio",
+        "municipio", "_mun_code", "_mun_code_method",
+    ]
+    crosswalk = df[columns].drop_duplicates().copy()
+    crosswalk = crosswalk[crosswalk["municipio"].notna()].copy()
+    crosswalk["municipio_key"] = crosswalk["municipio"].map(_mun_name_key)
+    crosswalk["source_municipio_id"] = pd.to_numeric(
+        crosswalk["id_municipio"], errors="coerce"
+    ).astype("Int64")
+    crosswalk = crosswalk.drop_duplicates([
+        "election_id", "id_estado", "municipio_key", "source_municipio_id",
+    ])
+    if review.empty:
+        crosswalk["review_status"] = None
+        crosswalk["suggested_cvegeo"] = None
+        crosswalk["suggested_municipio"] = None
+        crosswalk["similarity"] = None
+    else:
+        review_values = review.rename(columns={
+            "id_municipio": "_review_municipio_id",
+            "status": "review_status",
+            "suggested_inegi_municipio": "suggested_municipio",
+        })
+        review_values["source_municipio_id"] = pd.to_numeric(
+            review_values["_review_municipio_id"], errors="coerce"
+        ).astype("Int64")
+        review_values["id_estado"] = pd.to_numeric(
+            review_values["id_estado"], errors="raise"
+        ).astype(int)
+        crosswalk = crosswalk.merge(
+            review_values[[
+                "election_id", "id_estado", "municipio_key", "source_municipio_id",
+                "review_status", "suggested_cvegeo", "suggested_municipio", "similarity",
+            ]],
+            on=["election_id", "id_estado", "municipio_key", "source_municipio_id"],
+            how="left",
+        )
+
+    election_ids = crosswalk["election_id"].dropna().unique().tolist()
+    conn.executemany(
+        "DELETE FROM dim_municipio_map_crosswalk WHERE election_id = ?",
+        [(election_id,) for election_id in election_ids],
+    )
+    rows = []
+    for _, row in crosswalk.iterrows():
+        cvegeo = row["_mun_code"] or None
+        rows.append((
+            row["election_id"], int(row["id_estado"]), row["nombre_estado"],
+            None if pd.isna(row["source_municipio_id"]) else int(row["source_municipio_id"]),
+            row["municipio"], row["municipio_key"], cvegeo, cvegeo,
+            row["_mun_code_method"],
+            None if pd.isna(row["review_status"]) else row["review_status"],
+            None if pd.isna(row["suggested_cvegeo"]) else row["suggested_cvegeo"],
+            None if pd.isna(row["suggested_municipio"]) else row["suggested_municipio"],
+            None if pd.isna(row["similarity"]) else float(row["similarity"]),
+        ))
+    conn.executemany("""
+        INSERT INTO dim_municipio_map_crosswalk (
+            election_id, id_estado, nombre_estado, source_municipio_id,
+            source_municipio, municipio_key, inegi_cvegeo, map_feature_id,
+            match_method, review_status, suggested_cvegeo, suggested_municipio,
+            similarity
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, rows)
+    conn.commit()
 
 
 # ── Estado ─────────────────────────────────────────────────────────────────────
@@ -463,6 +659,8 @@ def materialize_views(
     inegi_zip: Optional[str] = None,
     simplify_tolerance_m: float = 120.0,
     force: bool = False,
+    rebuild_geo: bool = False,
+    levels: Optional[set[str]] = None,
 ):
     print("=" * 55)
     print("PER-ELECTION VIEWS: SQLite → parquet views + aux")
@@ -474,8 +672,21 @@ def materialize_views(
     conn = get_conn(db_path)
 
     try:
+        # Municipio views need the authoritative INEGI names/codes before they
+        # can be materialized.  Build or load the geometry first.
+        geo_path = out_dir / "municipios_processed.geojson"
+        if geo_path.exists() and not rebuild_geo:
+            print("  ⏭  municipios_processed.geojson already exists, using for CVEGEO crosswalk")
+        else:
+            preprocess_inegi_municipios(
+                src_zip=inegi_zip,
+                out_dir=out_dir,
+                simplify_tolerance_m=simplify_tolerance_m,
+            )
+
         elections = get_all_elections(conn)
         print(f"Found {len(elections)} election(s): {elections}\n")
+        municipio_review = []
 
         for eid in elections:
             print(f"Processing {eid}...")
@@ -485,6 +696,8 @@ def materialize_views(
                 ("municipio", query_municipio),
                 ("estado",    query_estado),
             ]:
+                if levels is not None and name not in levels:
+                    continue
                 path = out_dir / f"view_{name}_{eid}.parquet"
                 if path.exists() and not force:
                     mb = path.stat().st_size / 1024 / 1024
@@ -492,6 +705,10 @@ def materialize_views(
                     continue
                 print(f"  → {name}...", end=" ", flush=True)
                 df = fn(conn, eid)
+                if name == "municipio":
+                    df, review = attach_municipio_cvegeo(df, geo_path)
+                    refresh_municipio_map_crosswalk(conn, df, review)
+                    municipio_review.append(review)
                 df.to_parquet(path, index=False)
                 mb = path.stat().st_size / 1024 / 1024
                 print(f"✓  {len(df):>10,} rows  ({mb:.2f} MB)")
@@ -503,9 +720,11 @@ def materialize_views(
         # SQLite is the source of truth post-ingest; we dump it back to parquet
         # so Streamlit's read path stays "parquet only", same as every other view.
         cand_path = out_dir / "dim_candidatos.parquet"
-        if cand_path.exists() and not force:
+        if levels is not None:
+            pass
+        elif cand_path.exists() and not force:
             print(f"  ⏭  dim_candidatos already exists, skipping")
-        else:
+        elif levels is None:
             df_cand = pd.read_sql_query("SELECT * FROM dim_candidatos", conn)
             if df_cand.empty:
                 print("  ⚠️  dim_candidatos is empty in SQLite — skipping parquet write")
@@ -513,15 +732,13 @@ def materialize_views(
                 df_cand.to_parquet(cand_path, index=False)
                 print(f"  ✓ dim_candidatos  ({len(df_cand):,} rows  →  {cand_path.stat().st_size/1024:.0f} KB)")
 
-        geo_path = out_dir / "municipios_processed.geojson"
-        if geo_path.exists() and not force:
-            print(f"  ⏭  municipios_processed.geojson already exists, skipping")
-        else:
-            preprocess_inegi_municipios(
-                src_zip=inegi_zip,
-                out_dir=out_dir,
-                simplify_tolerance_m=simplify_tolerance_m,
-            )
+        review_path = out_dir / "municipio_cvegeo_review.csv"
+        if municipio_review:
+            review = pd.concat(municipio_review, ignore_index=True).drop_duplicates()
+            review.to_csv(review_path, index=False)
+            print(f"  ✓ municipio CVEGEO review ({len(review):,} unresolved rows → {review_path})")
+        elif review_path.exists() and not force:
+            print(f"  ⏭  municipio CVEGEO review already exists, skipping")
 
         print(f"\nAll files in {out_dir.resolve()}\n")
         for f in sorted(out_dir.glob("*.parquet")):
@@ -912,11 +1129,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Materialize Streamlit parquets from SQLite")
     parser.add_argument(
         "command",
-        choices=["views", "timeseries", "all"],
+        choices=["views", "municipios", "timeseries", "all"],
         nargs="?",
         default="all",
         help=(
             "views       — per-election casilla/seccion/municipio/estado parquets + aux\n"
+            "municipios  — refresh only municipio CVEGEO joins and review CSV\n"
             "timeseries  — multi-year state-level timeseries parquet\n"
             "all         — both (default)"
         ),
@@ -938,17 +1156,24 @@ if __name__ == "__main__":
         help="Simplification tolerance in source meters for INEGI municipio polygons",
     )
     parser.add_argument("--force",   action="store_true",          help="Overwrite existing materialized view files")
+    parser.add_argument(
+        "--rebuild-geo",
+        action="store_true",
+        help="Re-download and rebuild municipios_processed.geojson before materializing views",
+    )
     args = parser.parse_args()
 
     mat = Path(args.mat_dir)
 
-    if args.command in ("views", "all"):
+    if args.command in ("views", "municipios", "all"):
         materialize_views(
             db_path=args.db,
             out_dir=mat,
             inegi_zip=args.inegi_zip,
             simplify_tolerance_m=args.simplify_tolerance_m,
             force=args.force,
+            rebuild_geo=args.rebuild_geo,
+            levels={"municipio"} if args.command == "municipios" else None,
         )
 
     if args.command in ("timeseries", "all"):

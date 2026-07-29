@@ -1,6 +1,9 @@
 """
 Trayectoria ideológica por municipio — ternary across all PRE elections.
-Vertices: Left (PRD/Morena), Right (PAN), Center (PRI/MC).
+Vertices: Left (PRD/Morena tradition), Right (PAN), Center (everyone else —
+PRI, MC, and the smaller parties that aren't ideologically anchored to
+either pole; a residual "non-Morena, non-PAN" bucket rather than a claim
+that PRI and MC share one coherent ideology).
 Call render_trajectory() from the main app.
 """
 
@@ -17,10 +20,11 @@ import streamlit as st
 
 from ui.charts import render_hist_both_charts, render_timeseries_for_estado
 from ui.common import (
-    CATEGORY_COLORS, CYCLE_BLOCS, IDEOLOGY_MAP, MATERIALIZED_DIR, TIMESERIES_PATH,
-    _norm, classify_ternary, fmt_num, fmt_pct, safe_int, title_case_es,
+    CATEGORY_COLORS, COALITION_MEMBERS, CYCLE_BLOCS, IDEOLOGY_MAP, MATERIALIZED_DIR,
+    TIMESERIES_PATH, _norm, classify_ternary, fmt_num, fmt_pct, safe_int,
+    split_coalition_votes_by_geo, title_case_es,
 )
-from ui.maps import load_municipios_geojson, render_winner_map
+from ui.maps import load_estados_geojson, load_municipios_geojson, render_winner_map, render_winner_map_estado
 from ui.tables import header_badge, metric_card
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -57,8 +61,6 @@ def load_trajectory_data() -> pd.DataFrame:
         df = pd.read_parquet(path).dropna(subset=["municipio"])
         if df.empty:
             continue
-        df["bloc"] = df["party_key"].map(IDEOLOGY_MAP)
-        df = df.dropna(subset=["bloc"])
         df["municipio_key"] = df["municipio"].map(_norm)
 
         # Historical files vary in capitalization and accents (for example,
@@ -71,9 +73,18 @@ def load_trajectory_data() -> pd.DataFrame:
         tv = (
             df.groupby(geo_cols, as_index=False)["total_votos"].max()
         )
+
+        # Dissolve mixed-ideology coalitions (e.g. PAN_PRD, PRI_PRD) into
+        # their member parties before classifying L/R/C — a coalition vote
+        # is 100% a vote for its candidate, but attributing 100% of it to
+        # one ideological bloc would misclassify the other member's share.
+        df_ideo = split_coalition_votes_by_geo(df[geo_cols + ["party_key", "votes"]])
+        df_ideo["bloc"] = df_ideo["party_key"].map(IDEOLOGY_MAP)
+        df_ideo = df_ideo.dropna(subset=["bloc"])
+
         piv = (
-            df.pivot_table(index=geo_cols, columns="bloc", values="votes",
-                           aggfunc="sum", fill_value=0)
+            df_ideo.pivot_table(index=geo_cols, columns="bloc", values="votes",
+                                aggfunc="sum", fill_value=0)
             .reset_index()
         )
         for col in ("L", "R", "C"):
@@ -126,6 +137,12 @@ def load_vertex_members(year: int) -> dict[str, tuple[str, ...]]:
     parties = pd.read_parquet(path, columns=["party_key"])["party_key"].dropna().unique()
     members = {bloc: [] for bloc in ("L", "R", "C")}
     for party_key in sorted(parties):
+        # Coalitions we dissolve into members (see COALITION_MEMBERS) are
+        # excluded here — their votes end up folded into each member's own
+        # row, so listing the composite key too would be double-counting
+        # what the ternary/trend charts actually plot.
+        if party_key in COALITION_MEMBERS:
+            continue
         bloc = IDEOLOGY_MAP.get(party_key)
         if bloc:
             members[bloc].append(party_key)
@@ -189,6 +206,23 @@ def load_timeseries(_mtime: float) -> pd.DataFrame:
                 synthetic[col] = None
         df = pd.concat([df, synthetic[df.columns]], ignore_index=True)
     return df
+
+
+def aggregate_geo(df_all: pd.DataFrame, id_estado: int | None = None) -> pd.DataFrame:
+    """Roll up the per-municipio L/R/C votes to a state or national level.
+
+    Percentages are recomputed from the summed bloc votes (not averaged from
+    per-municipio percentages) so a state/national trajectory reflects the
+    actual vote mass rather than an unweighted mean of municipios.
+    """
+    d = df_all if id_estado is None else df_all[df_all["id_estado"] == id_estado]
+    g = d.groupby("year", as_index=False)[["L", "R", "C"]].sum()
+    total = (g["L"] + g["R"] + g["C"]).replace(0, float("nan"))
+    g["pct_L"] = (g["L"] / total * 100).round(1)
+    g["pct_R"] = (g["R"] / total * 100).round(1)
+    g["pct_C"] = (g["C"] / total * 100).round(1)
+    g["total_votos"] = total
+    return g.dropna(subset=["pct_L"]).sort_values("year").reset_index(drop=True)
 
 
 def _ternary_xy(pct_l, pct_r, pct_c):
@@ -340,11 +374,7 @@ def _build_ternary(df: pd.DataFrame, mun_sel: str, show_bubbles: bool = True,
         x=[-0.07, 1.07, 0.5],
         y=[-0.10, -0.10, _S32 + 0.10],
         mode="text",
-        text=[
-            "<b>Izquierda</b><br><span style='font-size:9px'>ver ciclo abajo</span>",
-            "<b>Derecha</b><br><span style='font-size:9px'>ver ciclo abajo</span>",
-            "<b>Centro</b><br><span style='font-size:9px'>ver ciclo abajo</span>",
-        ],
+        text=["<b>Izquierda</b>", "<b>Derecha</b>", "<b>Centro</b>"],
         textfont=dict(size=12, family="IBM Plex Mono",
                       color=[VERTEX_COLORS["L"], VERTEX_COLORS["R"], VERTEX_COLORS["C"]]),
         hoverinfo="skip", showlegend=False,
@@ -410,12 +440,29 @@ def _build_trend(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _rank_estados(df_all: pd.DataFrame, estado_size: pd.Series) -> pd.DataFrame:
+    estados = df_all[["id_estado", "nombre_estado"]].dropna().drop_duplicates()
+    estados["_size"] = estados["id_estado"].map(estado_size).fillna(0)
+    estados = estados.sort_values("_size", ascending=False)
+    estados["_display"] = estados["nombre_estado"].map(title_case_es)
+    return estados
+
+
+def _prep_ternary_df(df: pd.DataFrame, tie_radius: float = 8.0) -> pd.DataFrame:
+    df = df.sort_values("year").reset_index(drop=True)
+    df["tx"], df["ty"] = zip(*df.apply(
+        lambda r: _ternary_xy(r["pct_L"], r["pct_R"], r["pct_C"]), axis=1
+    ))
+    df["category"] = df.apply(
+        lambda r: classify_ternary(r["pct_L"], r["pct_R"], r["pct_C"], tie_radius=tie_radius),
+        axis=1,
+    )
+    return df
+
+
 # ── Main render ────────────────────────────────────────────────────────────────
 
 def render_trajectory():
-    st.markdown('<div class="section-label">Trayectoria ideológica por municipio</div>',
-                unsafe_allow_html=True)
-
     df_all = load_trajectory_data()
     if df_all.empty:
         st.error("No se encontraron datos. Ejecuta el pipeline de ingesta primero.")
@@ -425,119 +472,147 @@ def render_trajectory():
     # used to rank the selectors so the largest municipios/states surface first.
     mun_size = df_all.groupby(["id_estado", "municipio_key"])["total_votos"].max()
     estado_size = mun_size.groupby("id_estado").sum()
+    nacional_2024 = df_all.loc[df_all["year"] == 2024, "total_votos"].sum()
 
-    col_e, col_m = st.columns([1, 1])
-    with col_e:
-        estados = (
-            df_all[["id_estado", "nombre_estado"]]
-            .dropna().drop_duplicates()
-        )
-        estados["_size"] = estados["id_estado"].map(estado_size).fillna(0)
-        estados = estados.sort_values("_size", ascending=False)
-        estados["_display"] = estados["nombre_estado"].map(title_case_es)
+    # ══════════════════════════════════════════════════════════════════════
+    # TRAYECTORIA POR GEOGRAFÍA (Nacional / Estado / Municipio)
+    # ══════════════════════════════════════════════════════════════════════
+    st.markdown('<div class="section-label">Trayectoria ideológica</div>',
+                unsafe_allow_html=True)
+
+    level = st.radio(
+        "Nivel geográfico", ["Nacional", "Estado", "Municipio"],
+        horizontal=True, key="traj_geo_level",
+    )
+
+    id_estado_geo = None
+    mun_sel = None
+    geo_label = "Nacional"
+
+    if level in ("Estado", "Municipio"):
+        estados = _rank_estados(df_all, estado_size)
         state_names = estados["nombre_estado"].tolist()
         display_by_state = dict(zip(estados["nombre_estado"], estados["_display"]))
-        if "traj_estado" not in st.session_state:
-            st.session_state.traj_estado = random.choice(state_names)
-        estado_sel = st.selectbox(
-            "Estado", state_names, key="traj_estado",
-            format_func=lambda v: display_by_state.get(v, v),
-        )
-        id_estado_sel = int(estados.loc[
-            estados["nombre_estado"] == estado_sel, "id_estado"
+        if "traj_geo_estado" not in st.session_state:
+            st.session_state.traj_geo_estado = random.choice(state_names)
+
+        if level == "Municipio":
+            col_e, col_m = st.columns([1, 1])
+            with col_e:
+                estado_geo_sel = st.selectbox(
+                    "Estado", state_names, key="traj_geo_estado",
+                    format_func=lambda v: display_by_state.get(v, v),
+                )
+        else:
+            estado_geo_sel = st.selectbox(
+                "Estado", state_names, key="traj_geo_estado",
+                format_func=lambda v: display_by_state.get(v, v),
+            )
+        id_estado_geo = int(estados.loc[
+            estados["nombre_estado"] == estado_geo_sel, "id_estado"
         ].iloc[0])
-    with col_m:
-        df_estado = df_all[df_all["id_estado"] == id_estado_sel]
-        mun_rank = (
-            df_estado[["municipio", "municipio_key"]].drop_duplicates()
-        )
-        mun_rank["_size"] = mun_rank["municipio_key"].map(
-            mun_size.xs(id_estado_sel, level="id_estado")
-        ).fillna(0)
-        mun_rank = mun_rank.dropna(subset=["municipio"]).sort_values("_size", ascending=False)
-        municipios = mun_rank["municipio"].tolist()
-        display_by_mun = dict(zip(mun_rank["municipio"], mun_rank["municipio"].map(title_case_es)))
-        if st.session_state.get("traj_mun") not in municipios:
-            st.session_state.traj_mun = random.choice(municipios)
-        mun_sel = st.selectbox(
-            "Municipio", municipios, key="traj_mun",
-            format_func=lambda v: display_by_mun.get(v, v),
-        )
+        geo_label = title_case_es(estado_geo_sel)
 
-    estado_label = title_case_es(estado_sel)
-    mun_label = title_case_es(mun_sel)
+        if level == "Municipio":
+            with col_m:
+                df_estado = df_all[df_all["id_estado"] == id_estado_geo]
+                mun_rank = df_estado[["municipio", "municipio_key"]].drop_duplicates()
+                mun_rank["_size"] = mun_rank["municipio_key"].map(
+                    mun_size.xs(id_estado_geo, level="id_estado")
+                ).fillna(0)
+                mun_rank = mun_rank.dropna(subset=["municipio"]).sort_values("_size", ascending=False)
+                municipios = mun_rank["municipio"].tolist()
+                display_by_mun = dict(zip(mun_rank["municipio"], mun_rank["municipio"].map(title_case_es)))
+                if st.session_state.get("traj_mun") not in municipios:
+                    st.session_state.traj_mun = random.choice(municipios)
+                mun_sel = st.selectbox(
+                    "Municipio", municipios, key="traj_mun",
+                    format_func=lambda v: display_by_mun.get(v, v),
+                )
+            geo_label = title_case_es(mun_sel)
 
-    df = df_all[
-        (df_all["id_estado"] == id_estado_sel) &
-        (df_all["municipio"] == mun_sel)
-    ].sort_values("year").reset_index(drop=True)
+    if level == "Municipio":
+        df_geo = df_all[
+            (df_all["id_estado"] == id_estado_geo) & (df_all["municipio"] == mun_sel)
+        ]
+    else:
+        df_geo = aggregate_geo(df_all, id_estado_geo)
 
-    if df.empty:
-        st.info("Sin datos para este municipio.")
+    if df_geo.empty:
+        st.info("Sin datos para este nivel geográfico.")
         return
-
-    df["tx"], df["ty"] = zip(*df.apply(
-        lambda r: _ternary_xy(r["pct_L"], r["pct_R"], r["pct_C"]), axis=1
-    ))
-
-    show_bubbles, show_labels, tie_radius = False, True, 8.0
-    df["category"] = df.apply(
-        lambda r: classify_ternary(r["pct_L"], r["pct_R"], r["pct_C"], tie_radius=tie_radius),
-        axis=1,
-    )
+    df_geo = _prep_ternary_df(df_geo)
 
     col_l, col_r = st.columns([1, 1], gap="large")
     with col_l:
         st.plotly_chart(
-            _build_ternary(df, mun_label, show_bubbles, show_labels, tie_radius),
+            _build_ternary(df_geo, geo_label, show_bubbles=False, show_labels=True, tie_radius=8.0),
             use_container_width=True,
         )
     with col_r:
         st.markdown('<div class="section-label">Tendencias</div>', unsafe_allow_html=True)
-        st.plotly_chart(_build_trend(df), use_container_width=True)
+        st.plotly_chart(_build_trend(df_geo), use_container_width=True)
 
-    render_vertex_members(df["year"].astype(int).tolist())
+    # ── Tamaño relativo del nivel (votos 2024 vs. estado y país) ─────────────────
+    votos_2024     = df_geo.loc[df_geo["year"] == 2024, "total_votos"]
+    votos_2024     = float(votos_2024.iloc[0]) if not votos_2024.empty else None
+    votos_promedio = float(df_geo["total_votos"].mean())
 
-    missing = [y for y in PRE_YEARS if y not in df["year"].tolist()]
-    if missing:
-        st.caption(
-            f"Años sin datos para {mun_label}: {', '.join(map(str, missing))}. "
-            "Los porcentajes excluyen partidos menores no mapeados y votos nulos."
-        )
+    if level == "Nacional":
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            metric_card("Votos 2024", fmt_num(votos_2024) if votos_2024 is not None else "—")
+        with sc2:
+            metric_card(
+                "Promedio histórico", fmt_num(votos_promedio),
+                sub=f"entre {len(df_geo)} elecciones",
+            )
+    elif level == "Estado":
+        sc1, sc2, sc3 = st.columns(3)
+        with sc1:
+            metric_card("Votos 2024", fmt_num(votos_2024) if votos_2024 is not None else "—")
+        with sc2:
+            pct_nacional = votos_2024 / nacional_2024 * 100 if votos_2024 and nacional_2024 > 0 else None
+            metric_card(
+                "% nacional (2024)",
+                fmt_pct(pct_nacional) if pct_nacional is not None else "—",
+            )
+        with sc3:
+            metric_card(
+                "Promedio histórico", fmt_num(votos_promedio),
+                sub=f"entre {len(df_geo)} elecciones",
+            )
+    else:
+        estado_2024 = df_all.loc[
+            (df_all["id_estado"] == id_estado_geo) & (df_all["year"] == 2024), "total_votos"
+        ].sum()
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        with sc1:
+            metric_card("Votos 2024", fmt_num(votos_2024) if votos_2024 is not None else "—")
+        with sc2:
+            pct_estado = votos_2024 / estado_2024 * 100 if votos_2024 and estado_2024 > 0 else None
+            metric_card(
+                "% del estado (2024)",
+                fmt_pct(pct_estado) if pct_estado is not None else "—",
+            )
+        with sc3:
+            pct_nacional = votos_2024 / nacional_2024 * 100 if votos_2024 and nacional_2024 > 0 else None
+            metric_card(
+                "% nacional (2024)",
+                fmt_pct(pct_nacional) if pct_nacional is not None else "—",
+            )
+        with sc4:
+            metric_card(
+                "Promedio histórico", fmt_num(votos_promedio),
+                sub=f"entre {len(df_geo)} elecciones",
+            )
 
-    # ── Tamaño relativo del municipio (votos 2024, vs. estado y país) ────────────
-    votos_2024      = df.loc[df["year"] == 2024, "total_votos"]
-    votos_2024      = float(votos_2024.iloc[0]) if not votos_2024.empty else None
-    votos_promedio  = float(df["total_votos"].mean())
-    estado_2024     = df_all.loc[
-        (df_all["id_estado"] == id_estado_sel) & (df_all["year"] == 2024), "total_votos"
-    ].sum()
-    nacional_2024   = df_all.loc[df_all["year"] == 2024, "total_votos"].sum()
-
-    sc1, sc2, sc3, sc4 = st.columns(4)
-    with sc1:
-        metric_card("Votos 2024", fmt_num(votos_2024) if votos_2024 is not None else "—")
-    with sc2:
-        pct_estado = votos_2024 / estado_2024 * 100 if votos_2024 and estado_2024 > 0 else None
-        metric_card(
-            "% del estado (2024)",
-            fmt_pct(pct_estado) if pct_estado is not None else "—",
-        )
-    with sc3:
-        pct_nacional = votos_2024 / nacional_2024 * 100 if votos_2024 and nacional_2024 > 0 else None
-        metric_card(
-            "% nacional (2024)",
-            fmt_pct(pct_nacional) if pct_nacional is not None else "—",
-        )
-    with sc4:
-        metric_card(
-            "Promedio histórico", fmt_num(votos_promedio),
-            sub=f"entre {len(df)} elecciones",
-        )
-
-    # ── Tendencias por partido (nivel estado) ────────────────────────────────────
+    # ── Tendencias por partido — siempre a nivel estado/nacional ─────────────────
+    # (un municipio no tiene suficiente volumen de partidos menores para un
+    # desglose útil, así que la serie de partidos usa el estado contenedor)
+    ts_label = "Nacional" if id_estado_geo is None else title_case_es(estado_geo_sel)
     st.markdown("---")
-    st.markdown('<div class="section-label">Tendencias por partido — nivel estado</div>',
+    st.markdown(f'<div class="section-label">Tendencias por partido — {ts_label}</div>',
                 unsafe_allow_html=True)
     df_ts = load_timeseries(
         TIMESERIES_PATH.stat().st_mtime if TIMESERIES_PATH.exists() else 0.0
@@ -546,14 +621,14 @@ def render_trajectory():
         st.info("No se encontró el archivo de series de tiempo. "
                 "Ejecuta `python ingestion/electoral_materialize.py timeseries` primero.")
     else:
-        render_timeseries_for_estado(df_ts, id_estado_sel, estado_label)
+        render_timeseries_for_estado(df_ts, id_estado_geo, ts_label)
 
-    # ── Análisis por elección (deep dive a nivel estado) ─────────────────────────
+    # ── Análisis por elección (deep dive) — misma escala que la serie de partido ─
     st.markdown("---")
-    st.markdown('<div class="section-label">Análisis por elección — nivel estado</div>',
+    st.markdown(f'<div class="section-label">Análisis por elección — {ts_label}</div>',
                 unsafe_allow_html=True)
 
-    years_available = df["year"].tolist()
+    years_available = df_geo["year"].tolist()
     default_year = max(years_available)
     hist_year = st.selectbox(
         "Año de la elección", years_available,
@@ -561,21 +636,23 @@ def render_trajectory():
     )
 
     df_raw_year = load_raw_year(hist_year)
-    df_raw_estado = df_raw_year[df_raw_year["id_estado"] == id_estado_sel]
+    df_raw_geo = (
+        df_raw_year if id_estado_geo is None
+        else df_raw_year[df_raw_year["id_estado"] == id_estado_geo]
+    )
 
-    if df_raw_estado.empty:
+    if df_raw_geo.empty:
         st.info("Sin datos de partido para esta elección.")
     else:
-        meta_row  = df_raw_estado.drop_duplicates("municipio_key").iloc[0]
-        total_v   = safe_int(df_raw_estado.drop_duplicates("municipio_key")["total_votos"].sum())
-        lista_nom = safe_int(df_raw_estado.drop_duplicates("municipio_key")["lista_nominal_part"].sum())
+        total_v   = safe_int(df_raw_geo.drop_duplicates("municipio_key")["total_votos"].sum())
+        lista_nom = safe_int(df_raw_geo.drop_duplicates("municipio_key")["lista_nominal_part"].sum())
         part_pct  = total_v / lista_nom * 100 if lista_nom > 0 else 0
-        num_mun   = df_raw_estado["municipio_key"].nunique()
-        nulos_raw = safe_int(df_raw_estado.drop_duplicates("municipio_key")["num_votos_nulos"].sum())
+        num_mun   = df_raw_geo["municipio_key"].nunique()
+        nulos_raw = safe_int(df_raw_geo.drop_duplicates("municipio_key")["num_votos_nulos"].sum())
         nulos_pct = nulos_raw / total_v * 100 if total_v > 0 else 0
 
         header_badge([
-            f"{estado_label} · {hist_year}",
+            f"{ts_label} · {hist_year}",
             f"{fmt_num(total_v)} votos emitidos",
             f"{fmt_num(lista_nom)} en lista nominal",
             f"Participación: {fmt_pct(part_pct)}",
@@ -585,24 +662,43 @@ def render_trajectory():
 
         blocs = CYCLE_BLOCS.get(f"PRE_{hist_year}")
         if blocs is not None:
-            render_hist_both_charts(df_raw_estado, blocs)
+            render_hist_both_charts(df_raw_geo, blocs)
         else:
             st.info("Sin agrupación ideológica definida para esta elección.")
 
         st.markdown("---")
+        map_unit = "Estado" if level == "Nacional" else "Municipio"
         st.markdown(
-            '<div class="section-label">Mapa de ganador por municipio (beta)</div>',
+            f'<div class="section-label">Mapa de ganador por {map_unit.lower()} (beta)</div>',
             unsafe_allow_html=True,
         )
         st.caption(
             "⚠️ Vista beta: para algunas elecciones históricas el mapeo de "
             "partidos/coaliciones a un bloque puede ser impreciso o incompleto "
-            "entre ciclos. Aun así, el patrón agregado por municipio es informativo."
+            f"entre ciclos. Aun así, el patrón agregado por {map_unit.lower()} es informativo."
         )
         if blocs is not None:
-            geo = load_municipios_geojson()
-            render_winner_map(
-                df_raw_estado, blocs, geo,
-                f"Ganador por Municipio · {estado_label} · PRE {hist_year}",
-                height=520,
-            )
+            if level == "Nacional":
+                geo = load_estados_geojson()
+                render_winner_map_estado(
+                    df_raw_geo, blocs, geo,
+                    f"Ganador por Estado · {ts_label} · PRE {hist_year}",
+                    height=520,
+                )
+            else:
+                geo = load_municipios_geojson()
+                render_winner_map(
+                    df_raw_geo, blocs, geo,
+                    f"Ganador por Municipio · {ts_label} · PRE {hist_year}",
+                    height=520,
+                )
+
+    st.markdown("---")
+    render_vertex_members(df_geo["year"].astype(int).tolist())
+
+    missing = [y for y in PRE_YEARS if y not in df_geo["year"].tolist()]
+    if missing:
+        st.caption(
+            f"Años sin datos para {geo_label}: {', '.join(map(str, missing))}. "
+            "Los porcentajes excluyen partidos menores no mapeados y votos nulos."
+        )

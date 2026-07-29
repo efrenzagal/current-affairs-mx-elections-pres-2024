@@ -1,0 +1,15 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+municipio_map_id,INTEGER,Primary key,Identificador sustituto de la fila de cruce.,Surrogate identifier for the crosswalk row.,Autoincrement integer.,The natural uniqueness rule is election_id plus state name key and source municipality ID when available.
+election_id,TEXT,Required foreign key,Eleccion a la que corresponde el municipio fuente.,Election contest to which the source municipality belongs.,References dim_election.election_id.,A municipio may have a different source representation in each election cycle.
+id_estado,INTEGER,Required natural key,Clave numerica de entidad federativa.,Numeric state identifier.,1-32.,Used together with municipio_key because municipio names repeat across states.
+nombre_estado,TEXT,Attribute,Nombre normalizado de la entidad.,Normalized state name.,Mexican federal entities.,For display and auditing only.
+source_municipio_id,INTEGER,Source attribute,Identificador municipal crudo proporcionado por INE cuando existe.,Raw municipal identifier supplied by INE when available.,Integer or NULL.,It is retained for audit and duplicate-name disambiguation; it is not assumed to be INEGI CVE_MUN.
+source_municipio,TEXT,Source attribute,Nombre de municipio en los resultados electorales.,Municipality name in the electoral results.,Source text.,The historical spelling is intentionally preserved.
+municipio_key,TEXT,Normalized join key,Nombre normalizado sin acentos ni puntuacion.,Normalized name without accents or punctuation.,Uppercase alphanumeric text.,Used for exact state/name matching and manual overrides.
+inegi_cvegeo,TEXT,Map key,Clave INEGI de cinco digitos del municipio resuelto.,Resolved five-digit INEGI municipality code.,CVE_ENT plus CVE_MUN or NULL.,Only populated for exact name matches or manual overrides.
+map_feature_id,TEXT,Map key,Identificador de la feature GeoJSON usada en el mapa.,GeoJSON feature identifier used by the map.,Same value as inegi_cvegeo or NULL.,Kept explicitly so map joins are inspectable.
+match_method,TEXT,Quality flag,Metodo usado para resolver la clave de mapa.,Method used to resolve the map key.,exact_name manual_override unresolved non_geographic.,Fuzzy suggestions are never automatically assigned.
+review_status,TEXT,Review flag,Estado de revision para nombres no resueltos o ambiguos.,Review status for unresolved or ambiguous names.,unresolved ambiguous_exact_name or NULL.,Consult suggested fields and the materialized review CSV before adding an override.
+suggested_cvegeo,TEXT,Review aid,Mejor sugerencia por similitud de nombre.,Best name-similarity suggestion.,Five-digit CVEGEO or NULL.,Not applied automatically.
+suggested_municipio,TEXT,Review aid,Nombre INEGI asociado a la sugerencia.,INEGI name associated with the suggestion.,Text or NULL.,Not applied automatically.
+similarity,REAL,Review aid,Puntaje de similitud de nombre.,Name-similarity score.,0-1 or NULL.,For review prioritization only; not a confidence guarantee.
