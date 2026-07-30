@@ -3,7 +3,7 @@ Reconstruct Cámara de Diputados seat counts from election data.
 
 This module computes:
   - 300 MR district winners from warehouse votes
-  - 200 RP seats with a transparent D'Hondt approximation
+  - 200 RP seats with a transparent natural-quotient approximation
 
 For 2024, use `official_counts()` as ground truth when exact
 coalition-to-party ownership matters.
@@ -21,7 +21,7 @@ from aux_scripts.seat_allocations.common import (
     canonical_party,
     compare_counts,
     connect,
-    dhondt,
+    largest_remainder,
     discover_elections,
     integration_counts,
     official_bloc_counts,
@@ -151,7 +151,7 @@ def rp_allocation(conn: sqlite3.Connection, election_id: str, winners: pd.DataFr
     for circ in range(1, N_CIRCUNSCRIPCIONES + 1):
         circ_totals = df[df["circunscripcion"] == circ].groupby("party")["votes"].sum()
         circ_q = {p: float(circ_totals.get(p, 0)) for p in qualified if circ_totals.get(p, 0) > 0}
-        for party, seats in dhondt(circ_q, RP_SEATS_PER_CIRC).items():
+        for party, seats in largest_remainder(circ_q, RP_SEATS_PER_CIRC).items():
             rp_counts[party] = rp_counts.get(party, 0) + seats
 
     vote_shares = {p: national.get(p, 0) / total_votes for p in qualified}

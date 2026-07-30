@@ -290,6 +290,7 @@ def validate(conn: sqlite3.Connection, loaded_legislatures: list[int]) -> bool:
 
 def drop_gaceta_tables(conn: sqlite3.Connection) -> None:
     for table in [
+        "dim_diputados",
         "fact_gaceta_deputy_vote", "fact_gaceta_vote_summary",
         "dim_gaceta_deputy", "dim_gaceta_vote",
     ]:
@@ -350,10 +351,25 @@ def main() -> None:
         conn.commit()
         print(f"  {len(deputies):,} unique deputies loaded")
 
+    print("Building dim_diputados (official INE seats → Gaceta identities)...")
+    try:
+        from ingestion.diputados_ingest import materialize_dim_diputados
+
+        diputados = materialize_dim_diputados(conn)
+        match_counts = diputados["match_method"].value_counts().to_dict()
+        print(f"  {len(diputados):,} official seats loaded; mappings={match_counts}")
+    except FileNotFoundError as exc:
+        _warn(str(exc))
+
     # Row count summary
     print("\n── Row counts ──────────────────────────────────────────")
-    for table in ["dim_gaceta_vote", "dim_gaceta_deputy",
+    for table in ["dim_gaceta_vote", "dim_gaceta_deputy", "dim_diputados",
                   "fact_gaceta_vote_summary", "fact_gaceta_deputy_vote"]:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        if not exists:
+            continue
         n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         print(f"  {table}: {n:,}")
 

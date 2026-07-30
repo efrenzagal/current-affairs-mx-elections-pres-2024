@@ -1,6 +1,7 @@
 """
 INE · Explorador Electoral v2
-4-tab layout: Trayectoria | Aprobación | Congreso · Composición | Congreso · Votos
+5-section layout: Trayectoria | Aprobación | Congreso · Composición |
+Congreso · Votos por diputado | Congreso · Clasificación de votos
 
 Run:
     streamlit run ine_explorer_v2.py
@@ -17,6 +18,7 @@ import streamlit.components.v1 as components
 
 from ui.approval import render_approval
 from ui.gaceta import render_gaceta
+from ui.person_names import display_person_name
 from ui.trajectory import render_trajectory
 
 # ── Page config ────────────────────────────────────────────────────────────────
@@ -112,36 +114,48 @@ def render_hemicycle_summary(table_html: str) -> None:
     )
 
 
-# ── Tabs ───────────────────────────────────────────────────────────────────────
+# ── Lazy section navigation ────────────────────────────────────────────────────
 
-tab_traj, tab_aprob, tab_comp, tab_votos = st.tabs([
+SECTION_LABELS = [
     "Trayectoria",
     "Aprobación",
     "Congreso · Composición",
-    "Congreso · Votos",
-])
+    "Congreso · Votos por diputado",
+    "Congreso · Clasificación de votos",
+]
+active_section = st.segmented_control(
+    "Sección",
+    SECTION_LABELS,
+    default=SECTION_LABELS[0],
+    key="main_section",
+    label_visibility="collapsed",
+    width="stretch",
+)
+previous_section = st.session_state.get("_last_main_section")
+section_just_opened = previous_section != active_section
+st.session_state["_last_main_section"] = active_section
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 · TRAYECTORIA
+# SECTION 1 · TRAYECTORIA
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_traj:
+if active_section == "Trayectoria":
     render_trajectory()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 · APROBACIÓN
+# SECTION 2 · APROBACIÓN
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_aprob:
+elif active_section == "Aprobación":
     render_approval()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 · CONGRESO · COMPOSICIÓN
+# SECTION 3 · CONGRESO · COMPOSICIÓN
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_comp:
+elif active_section == "Congreso · Composición":
     if not HEMICYCLE_MANIFEST.exists():
         st.info(
             "Los hemiciclos aún no están preparados. Ejecuta "
@@ -158,6 +172,14 @@ with tab_comp:
         if not shared_years:
             st.info("La caché no contiene años con datos de ambas cámaras.")
         else:
+            source = manifest.get("source", {})
+            st.caption(
+                "Composición electoral final, no la afiliación parlamentaria actual. "
+                "Fuente: "
+                f"[{source.get('name', 'INE')}]"
+                f"({source.get('url', 'https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/')}). "
+                "Los escaños se leen directamente de la integración oficial; no se estiman."
+            )
             year_tab_sel = st.radio(
                 "Año electoral",
                 shared_years,
@@ -171,13 +193,20 @@ with tab_comp:
             dip_fig, dip_table = load_prebuilt_hemicycle(dip_id, cache_version)
             sen_fig, sen_table = load_prebuilt_hemicycle(sen_id, cache_version)
 
+            dip_event = None
             dip_col, sen_col = st.columns(2, gap="large")
             with dip_col:
                 st.markdown("#### Cámara de Diputados · 500 escaños")
                 if dip_fig is None:
                     st.info(f"Sin datos de escaños para {dip_id}.")
                 else:
-                    st.plotly_chart(dip_fig, use_container_width=True, key=f"dip_{year_tab_sel}")
+                    dip_event = st.plotly_chart(
+                        dip_fig,
+                        use_container_width=True,
+                        on_select="rerun",
+                        selection_mode="points",
+                        key=f"dip_{year_tab_sel}",
+                    )
                     render_hemicycle_summary(dip_table)
             with sen_col:
                 st.markdown("#### Senado de la República · 128 escaños")
@@ -187,10 +216,51 @@ with tab_comp:
                     st.plotly_chart(sen_fig, use_container_width=True, key=f"sen_{year_tab_sel}")
                     render_hemicycle_summary(sen_table)
 
+            dip_points = (
+                (dip_event.get("selection") or {}).get("points", [])
+                if dip_event
+                else []
+            )
+            st.markdown("---")
+            if not dip_points:
+                st.caption(
+                    "Selecciona un escaño de la Cámara de Diputados para consultar "
+                    "el historial de votaciones de esa persona."
+                )
+            else:
+                selected_data = dip_points[0].get("customdata") or []
+                candidate_name = selected_data[0] if selected_data else ""
+                party = selected_data[1] if len(selected_data) > 1 else ""
+                seat_type = selected_data[2] if len(selected_data) > 2 else ""
+                diputado_id = selected_data[5] if len(selected_data) > 5 else ""
+                if candidate_name:
+                    st.markdown(
+                        f"### Historial de votaciones · "
+                        f"{display_person_name(candidate_name)}"
+                    )
+                    st.caption(
+                        f"Escaño {seat_type} · {party} · Legislatura 66"
+                    )
+                    render_gaceta(
+                        "Diputado",
+                        diputado_id=diputado_id,
+                        candidate_name=candidate_name,
+                    )
+                else:
+                    st.info("Este escaño no tiene un nombre de candidatura asociado.")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 · CONGRESO · VOTOS (GACETA)
+# SECTION 4 · CONGRESO · VOTOS POR DIPUTADO
 # ══════════════════════════════════════════════════════════════════════════════
 
-with tab_votos:
-    render_gaceta()
+elif active_section == "Congreso · Votos por diputado":
+    render_gaceta("Diputado", randomize_deputy=section_just_opened)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 5 · CONGRESO · CLASIFICACIÓN DE VOTOS
+# ══════════════════════════════════════════════════════════════════════════════
+
+elif active_section == "Congreso · Clasificación de votos":
+    render_gaceta("Clasificación")

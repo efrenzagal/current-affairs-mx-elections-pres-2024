@@ -125,20 +125,34 @@ def discover_elections(conn: sqlite3.Connection, prefix: str) -> list[str]:
     return [r[0] for r in rows]
 
 
-def dhondt(votes: dict[str, float], n_seats: int) -> dict[str, int]:
-    seats = {p: 0 for p, v in votes.items() if v > 0}
-    for _ in range(n_seats):
-        quotients = {p: votes[p] / (seats[p] + 1) for p in seats}
-        if not quotients:
-            break
-        seats[max(quotients, key=quotients.get)] += 1
+def largest_remainder(votes: dict[str, float], n_seats: int) -> dict[str, int]:
+    """Allocate seats by natural quotient and largest remainder.
+
+    This is the proportional-allocation rule used by Mexico's LGIPE.  It is
+    still only a building block: chamber-specific thresholds, caps, and
+    circunscripción rules must be applied by the caller.
+    """
+    positive_votes = {party: float(value) for party, value in votes.items() if value > 0}
+    total_votes = sum(positive_votes.values())
+    if total_votes <= 0 or n_seats <= 0:
+        return {}
+
+    quotient = total_votes / n_seats
+    exact = {party: value / quotient for party, value in positive_votes.items()}
+    seats = {party: int(value) for party, value in exact.items()}
+    seats_left = n_seats - sum(seats.values())
+    remainder_order = sorted(
+        positive_votes,
+        key=lambda party: (exact[party] - seats[party], positive_votes[party], party),
+        reverse=True,
+    )
+    for party in remainder_order[:seats_left]:
+        seats[party] += 1
     return seats
 
 
 def load_integracion(path: Path = INTEGRACION_2024) -> pd.DataFrame:
-    df = pd.read_csv(path, encoding="latin-1")
-    df.columns = [c.replace("ï»¿", "").strip() for c in df.columns]
-    return df
+    return pd.read_csv(path, encoding="utf-8-sig")
 
 
 def integration_counts(tipo_prefix: str, path: Path = INTEGRACION_2024) -> pd.DataFrame:

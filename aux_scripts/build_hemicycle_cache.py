@@ -1,8 +1,8 @@
 """Pre-build the Congreso composition assets consumed by Streamlit.
 
-This performs all database queries, seat attribution, and Plotly construction
+This reads INE's final seat integration and performs all Plotly construction
 outside the web app. It writes one Plotly JSON figure and one HTML summary per
-election, plus a manifest used by ``ine_explorer_v2.py``.
+officially supported election, plus a manifest used by ``ine_explorer_v2.py``.
 
 Run from the repository root:
 
@@ -14,7 +14,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,7 +22,6 @@ import plotly.io as pio
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB_PATH = REPO_ROOT / "election_data.db"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "cache" / "hemicycles"
 
 # ``python aux_scripts/build_hemicycle_cache.py`` puts aux_scripts/ on
@@ -32,21 +30,16 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-def load_winners(election_id: str, conn: sqlite3.Connection):
-    """Use the same source priority as the standalone hemicycle explorer."""
+def load_winners(election_id: str):
+    """Load final seats from the official INE integration file."""
     from aux_scripts.seat_allocations.hemicycle_explorer import (
-        dip_winners_from_votes,
-        load_composicion_dip,
-        load_composicion_sen,
-        sen_winners_from_votes,
+        INTEGRACION_PATHS,
+        load_from_integracion,
     )
 
-    if election_id.startswith("DIP_MR_"):
-        winners = load_composicion_dip(election_id, conn)
-        return winners if winners is not None and not winners.empty else dip_winners_from_votes(conn, election_id)
-
-    winners = load_composicion_sen(election_id, conn)
-    return winners if winners is not None and not winners.empty else sen_winners_from_votes(conn, election_id)
+    source_path = REPO_ROOT / INTEGRACION_PATHS[election_id]
+    chamber = "DIP" if election_id.startswith("DIP_") else "SEN"
+    return load_from_integracion(str(source_path), chamber=chamber)
 
 
 def write_text(path: Path, content: str) -> None:
@@ -58,54 +51,51 @@ def write_text(path: Path, content: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build cached Congreso hemicycle assets.")
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH, help="SQLite warehouse path")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_DIR, help="Asset output directory")
     args = parser.parse_args()
 
-    db_path = args.db.resolve()
     output_dir = args.output.resolve()
-    if not db_path.exists():
-        raise SystemExit(f"No se encontró la base de datos: {db_path}")
 
-    # The seat-allocation module refers to data/ paths relative to the repo.
     os.chdir(REPO_ROOT)
 
     from aux_scripts.seat_allocations.hemicycle_explorer import (
+        INTEGRACION_PATHS,
         build_figure,
         build_summary_html,
-        get_elections,
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(db_path) as conn:
-        election_ids = (
-            get_elections(conn, "DIP_MR")
-            + get_elections(conn, "SEN_MR")
+    completed_ids: list[str] = []
+
+    for election_id in sorted(INTEGRACION_PATHS):
+        print(f"Building {election_id}...")
+        winners = load_winners(election_id)
+        expected_seats = 500 if election_id.startswith("DIP_") else 128
+        if len(winners) != expected_seats:
+            raise SystemExit(
+                f"{election_id}: expected {expected_seats} official seats, found {len(winners)}"
+            )
+
+        figure = build_figure(winners, election_id)
+        write_text(
+            output_dir / f"{election_id}.figure.json",
+            pio.to_json(figure, validate=False, pretty=False),
         )
-        completed_ids: list[str] = []
-
-        for election_id in election_ids:
-            print(f"Building {election_id}...")
-            winners = load_winners(election_id, conn)
-            if winners is None or winners.empty:
-                print("  Skipped: no seat data.")
-                continue
-
-            figure = build_figure(winners, election_id)
-            write_text(
-                output_dir / f"{election_id}.figure.json",
-                pio.to_json(figure, validate=False, pretty=False),
-            )
-            write_text(
-                output_dir / f"{election_id}.summary.html",
-                build_summary_html(winners, election_id),
-            )
-            completed_ids.append(election_id)
-            print(f"  Saved {len(winners)} seats.")
+        write_text(
+            output_dir / f"{election_id}.summary.html",
+            build_summary_html(winners, election_id),
+        )
+        completed_ids.append(election_id)
+        print(f"  Saved {len(winners)} seats.")
 
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "source_database": str(db_path),
+        "methodology": "Final seat assignments published by INE; no inferred or simulated seats.",
+        "source": {
+            "name": "INE · Integración de diputaciones y senadurías, PEF 2023–2024",
+            "url": "https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/",
+            "local_file": INTEGRACION_PATHS["DIP_MR_2024"],
+        },
         "elections": completed_ids,
     }
     write_text(output_dir / "manifest.json", json.dumps(manifest, indent=2) + "\n")

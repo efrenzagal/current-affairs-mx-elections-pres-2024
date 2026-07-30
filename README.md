@@ -7,7 +7,7 @@ The most useful way to understand the project is as a three-stage pipeline:
 
 ```text
 official INE/raw files
-  -> cycle-specific converters in ingestion/*_to_arrow_*.py
+  -> cycle-specific converters in ingestion/raw_electoral_data_converters/
   -> clean per-cycle parquet folders in data/electoral_data_clean/clean_<year>/
   -> ingestion/electoral_ingest.py builds SQLite warehouse
   -> ingestion/electoral_materialize.py builds Streamlit parquet/GeoJSON artifacts
@@ -48,21 +48,29 @@ streamlit run ine_explorer_v2.py
 
 ## Dashboard at a Glance
 
-The Streamlit dashboard has four tabs:
+The Streamlit dashboard has five sections in a segmented navigation control:
 
 - **Trayectoria** — municipal presidential-election trajectories from 1994 to
   2024, shown as a three-way ideological composition alongside state trends,
   turnout metrics, charts, and municipal winner maps.
 - **Aprobación** — presidential approval observations, monthly medians, and
   pollster house-effect views from Zedillo through Sheinbaum.
-- **Congreso · Composición** — pre-built Chamber of Deputies and Senate
-  hemicycles, with seat summaries by election year.
-- **Congreso · Votos** — Cámara de Diputados roll-call votes: a deputy-level
-  voting calendar, and an LLM-classified view of votes (topic, origin,
-  legislative stage) with topic-composition and consensus-vs-participation
-  charts that link out to each vote's source page.
+- **Congreso · Composición** — official 2024 Chamber of Deputies and Senate
+  seat assignments from INE, shown as pre-built hemicycles and summaries.
+  Selecting a deputy seat opens that person's Gaceta voting history below the
+  composition charts when a reliable cross-source name match exists.
+- **Congreso · Votos por diputado** — a deputy-level Cámara de Diputados
+  roll-call voting calendar. Each new visit starts with a random
+  deputy/legislature pair; selectors remain available for deliberate lookup.
+- **Congreso · Clasificación de votos** — an LLM-classified view of roll-call
+  votes covering topic, origin, and legislative stage, with topic-composition
+  and consensus-vs-participation charts that link out to each vote's source
+  page.
 
-The initial tab is **Trayectoria**. Its state and municipality are chosen at
+Only the selected section is rendered, so changing a control in one section
+does not also load and execute the other four sections.
+
+The initial section is **Trayectoria**. Its state and municipality are chosen at
 random for a new session; the election deep dive defaults to the latest
 available cycle.
 
@@ -102,12 +110,14 @@ Open only the files needed for the task:
 - Maps and choropleth rendering: `ui/maps.py`
 - Trajectory charts and state time series: `ui/trajectory.py`, `ui/charts.py`
 - Presidential approval views: `ui/approval.py`
-- Scorecards, result tables, badges: `ui/tables.py`
+- Metric cards and badges used by the current app, plus reusable scorecard and
+  results-table components retained for future views: `ui/tables.py`
 - Gaceta Parlamentaria section: `ui/gaceta.py`
 - Shared constants and pure helpers: `ui/common.py`
 - Streamlit-ready parquet and GeoJSON generation: `ingestion/electoral_materialize.py`
 - Clean parquet to SQLite ingestion: `ingestion/electoral_ingest.py`
-- Raw/cycle-specific parsing: the matching converter in `ingestion/`
+- Raw/cycle-specific parsing: the matching converter in
+  `ingestion/raw_electoral_data_converters/`
 - Warehouse schema meaning: `documentation/table_dictionaries/overview.csv`
 - Column-level table dictionaries: `documentation/table_dictionaries/*.csv`
 - Validation/reference scripts: `aux_scripts/`
@@ -124,7 +134,8 @@ Streamlit app entry point — page config, CSS, data loaders, and page routing.
 Important responsibilities:
 
 - Loads and caches materialized parquet views.
-- Defines the four dashboard tabs and dispatches to their render functions.
+- Defines the five-section navigation and dispatches only to the selected
+  section's render function.
 - Loads the pre-built congressional-composition hemicycle assets.
 - Provides shared page configuration and visual styling.
 
@@ -144,8 +155,9 @@ The render functions are split across focused modules:
 - `ui/trajectory.py` — the municipal ideological-trajectory tab, including
   ternary trajectories, turnout metrics, and state election deep dives.
 - `ui/approval.py` — the presidential-approval tab and its polling views.
-- `ui/tables.py` — scorecards, metric cards, header badges, and the
-  supporting HTML components.
+- `ui/tables.py` — metric cards and header badges used by the current app,
+  plus reusable scorecard and results-table components retained for future
+  views.
 - `ui/gaceta.py` — the entire Gaceta Parlamentaria section: the deputy voting
   calendar and the LLM-classified vote explorer (filters, topic/consensus
   charts, vote-detail drilldown). Call `render_gaceta()` from the main app.
@@ -221,23 +233,22 @@ sources but do not write back into it.
 
 ### `aux_scripts/seat_allocations/`
 
-Reconstructs Cámara de Diputados and Senado seat allocations from warehouse
-vote data.
+Provides official seat-integration readers plus experimental Cámara de
+Diputados and Senado reconstructions from warehouse vote data. The dashboard
+uses the official INE integration, not the reconstructions.
 
-- `diputados.py` — computes 300 MR district winners and approximates 200 RP
-  seats using D'Hondt allocation per circunscripción, with Mexico's
-  sobrerrepresentación cap (no party may hold more than 300 seats or exceed
-  its national vote share by more than 8 percentage points).
+- `diputados.py` — computes 300 MR district winners and provides a QA-only
+  approximation of 200 RP seats using natural quotient/largest remainder,
+  with Mexico's overrepresentation limits. It is not a substitute for INE's
+  final assignment.
 - `senadores.py` — reconstructs Senado seat counts from MR and first-minority
-  results.
+  results and provides a QA-only RP approximation.
 - `hemicycle_explorer.py` — generates an interactive in-browser hemicycle
-  visualization (500 seats) with tabs by year, partido/coalición toggle, and
-  state filter. Run with `python3 aux_scripts/seat_allocations/hemicycle_explorer.py`.
-- `build_hemicycle_cache.py` — materializes all Congreso composition figures
-  and summaries for the Streamlit app. Run it after rebuilding the warehouse.
-- `district_audit.py` — cross-checks computed MR winners against official
-  district results for QA purposes.
-- `common.py` — shared helpers for actor totals and D'Hondt computation.
+  visualization with party summaries and a state filter.
+- `build_hemicycle_cache.py` — materializes the official 2024 Congreso
+  composition figures and summaries used by Streamlit.
+- `common.py` — shared helpers for official integration counts, actor totals,
+  and natural-quotient/largest-remainder QA calculations.
 
 ### `aux_scripts/gaceta_votes/`
 
@@ -255,9 +266,11 @@ documented in `documentation/table_dictionaries/`.
 
 ### `aux_scripts/qa_reports/`
 
-District-level QA audit CSVs comparing computed seat winners against official
-results, one file per election cycle: `district_audit_2000.csv` through
-`district_audit_2024.csv`.
+R scripts for election-cycle QA checks:
+
+- `qa_2012.R`
+- `qa_2018.R`
+- `qa_2024.R`
 
 ### `aux_scripts/approval_rates/`
 
@@ -350,6 +363,8 @@ The normalized warehouse uses these tables:
 - `dim_gaceta_vote`: one row per Gaceta roll-call vote page (metadata, URL,
   legislature, chamber).
 - `dim_gaceta_deputy`: normalized deputy names observed across roll-call lists.
+- `dim_diputados`: 500 official 2024 deputy seat assignments and the audited
+  identity bridge to `dim_gaceta_deputy`.
 - `fact_gaceta_vote_summary`: summary vote counts by choice and parliamentary
   group for each roll-call vote.
 - `fact_gaceta_deputy_vote`: individual deputy vote records per roll-call vote.
@@ -357,6 +372,13 @@ The normalized warehouse uses these tables:
 Start with `documentation/table_dictionaries/overview.csv` for row grain,
 primary keys, joins, and purpose. Use the other CSVs in
 `documentation/table_dictionaries/` for column-level details.
+
+Rebuild the deputy identity bridge after refreshing either the official INE
+integration or the Gaceta warehouse:
+
+```bash
+python -m ingestion.diputados_ingest
+```
 
 ## Common Workflows
 
@@ -408,7 +430,7 @@ python -m ingestion.electoral_materialize timeseries
 
 Usually open:
 
-- The matching `ingestion/*_to_arrow_*.py`
+- The matching converter in `ingestion/raw_electoral_data_converters/`
 - `ingestion/electoral_ingest.py` if the clean schema or election metadata changes
 - `documentation/table_dictionaries/raw_cycle_examples.csv` for source quirks
 
@@ -442,8 +464,12 @@ To refresh the pre-built assets used by the **Congreso · Composición** tab:
 python3 aux_scripts/build_hemicycle_cache.py
 ```
 
-The command writes ignored files under `data/cache/hemicycles/`. Streamlit only
-loads and visualizes those assets; it does not calculate seat allocations.
+The command reads the local copy of INE's
+`INTEGRACION_CARGOS_PEF_2024.csv` and writes ignored files under
+`data/cache/hemicycles/`. It refuses to build unless it finds exactly 500
+deputy seats and 128 senate seats. Streamlit only loads and visualizes those
+official assignments; it does not calculate or infer seats. Source:
+[INE · Integración de diputaciones y senadurías, PEF 2023–2024](https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/).
 
 ### Scrape and ingest Gaceta roll-call votes
 

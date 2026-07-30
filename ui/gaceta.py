@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 import math
+import secrets
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from plotly.subplots import make_subplots
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
+
+from ui.person_names import display_person_name
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "election_data.db"
@@ -114,6 +117,50 @@ def load_legislature_deputies(
         ORDER BY d.deputy_name
         """,
         conn, params=(int(leg_sel),),
+    )
+
+
+@st.cache_data
+def load_all_legislature_deputies(
+    database_version: tuple[tuple[int, int], ...]
+) -> pd.DataFrame:
+    """Return every deputy/legislature pair that has at least one roll-call vote."""
+    conn = get_connection(database_version)
+    return pd.read_sql_query(
+        """
+        SELECT DISTINCT v.legislature, f.deputy_id, d.deputy_name
+        FROM fact_gaceta_deputy_vote AS f
+        JOIN dim_gaceta_vote AS v ON v.gaceta_vote_id = f.gaceta_vote_id
+        JOIN dim_gaceta_deputy AS d ON d.deputy_id = f.deputy_id
+        ORDER BY v.legislature, d.deputy_name
+        """,
+        conn,
+    )
+
+
+@st.cache_data
+def load_dim_diputado(
+    diputado_id: str,
+    database_version: tuple[tuple[int, int], ...],
+) -> pd.DataFrame:
+    """Resolve one official INE seat through the persisted identity bridge."""
+    conn = get_connection(database_version)
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='dim_diputados'"
+    ).fetchone()
+    if not exists:
+        return pd.DataFrame()
+    return pd.read_sql_query(
+        """
+        SELECT
+            diputado_id, legislature, ine_candidate_name, display_name,
+            source_name_role, gaceta_deputy_id, gaceta_deputy_name,
+            match_method, match_score
+        FROM dim_diputados
+        WHERE diputado_id = ?
+        """,
+        conn,
+        params=(diputado_id,),
     )
 
 
@@ -236,6 +283,31 @@ def _format_label(value: str) -> str:
     return value.replace("_", " ").capitalize()
 
 
+CLASSIFIED_TOPIC_KEYS = (
+    "administracion_publica",
+    "agricultura_y_desarrollo_rural",
+    "cultura_y_deporte",
+    "derechos_humanos_e_igualdad",
+    "desarrollo_social_y_vivienda",
+    "economia_e_industria",
+    "educacion",
+    "energia",
+    "finanzas_publicas",
+    "gobernacion_y_elecciones",
+    "infraestructura_y_transporte",
+    "justicia_y_seguridad",
+    "medio_ambiente",
+    "organizacion_y_regimen_del_congreso",
+    "relaciones_exteriores",
+    "salud",
+    "trabajo_y_seguridad_social",
+)
+TOPIC_COLOR_MAP = {
+    _format_label(topic): color
+    for topic, color in zip(CLASSIFIED_TOPIC_KEYS, px.colors.qualitative.Light24)
+}
+
+
 def _clean_title(title: str) -> str:
     return (
         pd.Series([title or ""])
@@ -310,11 +382,15 @@ def _calendar_grid_figure(df: pd.DataFrame, year_col: str, year_levels: list,
     row_counts = {
         y: max(1, math.ceil((df[year_col] == y).sum() / columns)) for y in year_levels
     }
-    # Domain proportions get a floor so a sparse year's facet doesn't collapse to a
-    # sliver — its data range below still uses the real row_counts, so tiles stay
-    # left/top-aligned at the correct size instead of stretching to fill the floor.
+    # Every facet uses the same x range (the fixed number of columns). Plotly's
+    # 1:1 scale constraint then derives its effective width from the y domain
+    # and y range. Weight each facet by that *full* y-axis span—including the
+    # one row of top/bottom padding—so sparse and dense years resolve to the
+    # same column width and marker scale.
     min_facet_rows = 3
-    row_heights = [max(row_counts[y], min_facet_rows) for y in year_levels]
+    facet_rows = {y: max(row_counts[y], min_facet_rows) for y in year_levels}
+    axis_span_rows = {y: facet_rows[y] + 1 for y in year_levels}
+    row_heights = [axis_span_rows[y] for y in year_levels]
 
     fig = make_subplots(
         rows=len(year_levels), cols=1,
@@ -344,17 +420,20 @@ def _calendar_grid_figure(df: pd.DataFrame, year_col: str, year_levels: list,
         x_axis_id = "x" if i == 1 else f"x{i}"
         fig.update_yaxes(visible=False, showticklabels=False, scaleanchor=x_axis_id,
                           scaleratio=1, constrain="domain", constraintoward="top",
-                          range=[-(row_counts[y] + 0.7), 0.3], row=i, col=1)
+                          range=[-(facet_rows[y] + 0.7), 0.3], row=i, col=1)
 
     fig.for_each_annotation(lambda a: a.update(font=dict(size=16, family="IBM Plex Sans")))
     total_height = sum(row_heights) * row_px + 70 * len(year_levels) + 40
     fig.update_layout(
         height=total_height,
+        dragmode=False,
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
         font=dict(family="IBM Plex Sans", size=13),
         legend=dict(title=None, orientation="h", y=-0.02, font=dict(size=13)),
         margin=dict(t=40, b=10, l=10, r=10),
     )
+    fig.update_xaxes(fixedrange=True)
+    fig.update_yaxes(fixedrange=True)
     return fig
 
 
@@ -420,8 +499,9 @@ def render_vote_detail(
     deputies["party_display"] = pd.Categorical(deputies["party_display"], categories=party_order)
     deputies = deputies.sort_values(["party_display", "vote_display", "ordinal", "deputy_name"])
     deputies = _add_tile_coords(deputies, "party_display", columns=24)
+    deputies["deputy_display"] = deputies["deputy_name"].map(display_person_name)
     deputies["tooltip"] = (
-        "<b>" + deputies["deputy_name"] + "</b>"
+        "<b>" + deputies["deputy_display"] + "</b>"
         + "<br>Grupo parlamentario: " + deputies["party_display"].astype(str)
         + "<br>Voto individual: " + deputies["vote_display"].astype(str)
     )
@@ -432,26 +512,61 @@ def render_vote_detail(
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_deputy_view(leg_sel: int, database_version: tuple[tuple[int, int], ...]):
+def render_deputy_view(
+    leg_sel: int,
+    database_version: tuple[tuple[int, int], ...],
+    requested_name: str | None = None,
+    requested_deputy_id: str | None = None,
+    show_selector: bool = True,
+) -> bool:
+    """Render one deputy's voting history.
+
+    The composition hemicycle supplies a persisted Gaceta ``deputy_id`` from
+    ``dim_diputados``; the normal selector supplies the ID directly.
+    """
     deputies = load_legislature_deputies(leg_sel, database_version)
     if deputies.empty:
         st.info("Sin diputados para esta legislatura.")
-        return
+        return False
 
-    name_to_id = dict(zip(deputies["deputy_name"], deputies["deputy_id"]))
-    selected_name = st.selectbox("Diputado", list(name_to_id.keys()))
-    deputy_id = name_to_id[selected_name]
+    if requested_deputy_id:
+        matches = deputies[deputies["deputy_id"] == requested_deputy_id]
+        if matches.empty:
+            st.info(
+                f"No encontré historial de Gaceta para "
+                f"**{display_person_name(requested_name)}** en la Legislatura {leg_sel}. "
+                "La identidad existe en el puente, pero no en el roster de esta legislatura."
+            )
+            return False
+        selected = matches.iloc[0]
+        deputy_id = selected["deputy_id"]
+        selected_name = selected["deputy_name"]
+    else:
+        id_to_name = dict(zip(deputies["deputy_id"], deputies["deputy_name"]))
+        deputy_ids = list(id_to_name)
+        if st.session_state.get("dep_deputy_id") not in deputy_ids:
+            st.session_state["dep_deputy_id"] = deputy_ids[0]
+        if show_selector:
+            deputy_id = st.selectbox(
+                "Diputado",
+                deputy_ids,
+                format_func=lambda deputy_key: display_person_name(id_to_name[deputy_key]),
+                key="dep_deputy_id",
+            )
+        else:
+            deputy_id = st.session_state["dep_deputy_id"]
+        selected_name = id_to_name[deputy_id]
 
     calendar = load_deputy_calendar(deputy_id, leg_sel, database_version)
     if calendar.empty:
         st.info("Sin votaciones registradas para este diputado.")
-        return
+        return False
 
     calendar["vote_date"] = pd.to_datetime(calendar["vote_date"], errors="coerce")
     calendar = calendar[calendar["vote_date"].notna()].copy()
     if calendar.empty:
         st.info("Sin votaciones con fecha para este diputado.")
-        return
+        return False
 
     calendar["year"] = calendar["vote_date"].dt.year.astype(str)
     calendar["vote_display"] = calendar["vote_choice"].map(VOTE_RECODE).fillna(calendar["vote_choice"])
@@ -463,8 +578,15 @@ def render_deputy_view(leg_sel: int, database_version: tuple[tuple[int, int], ..
     first_vote = calendar["vote_date"].min().date()
     last_vote = calendar["vote_date"].max().date()
     vote_counts = calendar["vote_display"].value_counts().reindex(VOTE_LEVELS, fill_value=0)
+    directional_votes = int(vote_counts["Sí"] + vote_counts["No"])
+    favor_pct = vote_counts["Sí"] / directional_votes if directional_votes else None
+    contra_pct = vote_counts["No"] / directional_votes if directional_votes else None
 
-    st.markdown(f"##### {selected_name}")
+    def count_and_pct(count: int, pct: float | None) -> str:
+        return f"{count:,} · {pct:.1%}" if pct is not None else f"{count:,} · —"
+
+    heading_name = requested_name or selected_name
+    st.markdown(f"##### {display_person_name(heading_name)}")
     st.caption(f"Legislatura {leg_sel} · Partido(s): {', '.join(parties)}")
 
     m1, m2, m3, m4 = st.columns(4)
@@ -474,11 +596,15 @@ def render_deputy_view(leg_sel: int, database_version: tuple[tuple[int, int], ..
     m4.metric("Total votaciones", f"{len(calendar):,}")
 
     v1, v2, v3, v4, v5 = st.columns(5)
-    v1.metric("Sí", f"{vote_counts['Sí']:,}")
-    v2.metric("No", f"{vote_counts['No']:,}")
+    v1.metric("A favor", count_and_pct(int(vote_counts["Sí"]), favor_pct))
+    v2.metric("En contra", count_and_pct(int(vote_counts["No"]), contra_pct))
     v3.metric("Abstención", f"{vote_counts['Abstención']:,}")
     v4.metric("Ausente", f"{vote_counts['Ausente']:,}")
     v5.metric("Presente s/voto", f"{vote_counts['Presente, sin voto']:,}")
+    st.caption(
+        "Porcentajes sobre votos con dirección (a favor + en contra); "
+        "excluyen abstenciones, ausencias y presencia sin voto."
+    )
 
     st.markdown("---")
 
@@ -494,7 +620,17 @@ def render_deputy_view(leg_sel: int, database_version: tuple[tuple[int, int], ..
 
     fig = _calendar_grid_figure(calendar, year_col="year", year_levels=year_levels,
                                  columns=calendar_columns, marker_size=38, row_px=48)
-    st.plotly_chart(fig, use_container_width=True)
+    chart_key = (
+        f"deputy_calendar_{leg_sel}_{deputy_id}_"
+        f"{len(calendar)}_{first_vote}_{last_vote}"
+    )
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+        key=chart_key,
+        config={"displayModeBar": False, "scrollZoom": False},
+    )
+    return True
 
 
 CLASSIFICATION_FILTER_COLUMNS = {
@@ -557,14 +693,39 @@ def render_classification_view(
             temas_tiempo["porcentaje"] = 100 * temas_tiempo["votos"] / temas_tiempo.groupby(
                 "year"
             )["votos"].transform("sum")
+            # Keep the largest topic (by average annual share) at the bottom of
+            # the stack. Missing topic-year combinations count as zero.
+            topic_order = (
+                temas_tiempo.pivot_table(
+                    index="year",
+                    columns="tema_display",
+                    values="porcentaje",
+                    fill_value=0,
+                )
+                .mean()
+                .sort_values(ascending=False)
+                .index.tolist()
+            )
             fig = px.area(
                 temas_tiempo, x="year", y="porcentaje", color="tema_display",
                 title="Composición temática por año",
                 labels={"year": "Año", "porcentaje": "% de votaciones", "tema_display": "Tema"},
+                color_discrete_map=TOPIC_COLOR_MAP,
+                category_orders={"tema_display": topic_order},
+                custom_data=["votos"],
+            )
+            fig.update_traces(
+                hovertemplate=(
+                    "Año: %{x:.0f}<br>"
+                    "Proporción: %{y:.1f}%<br>"
+                    "Votaciones: %{customdata[0]:,}"
+                    "<extra>%{fullData.name}</extra>"
+                )
             )
             # year is numeric, so with only 2-3 distinct years Plotly's
             # default tick spacing inserts fractional ticks like "2024.5".
             fig.update_xaxes(dtick=1, tickformat="d")
+            fig.update_yaxes(tickformat=".0f", ticksuffix="%", range=[0, 100])
             fig.update_layout(
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 font=dict(family="IBM Plex Sans", size=12),
@@ -629,6 +790,7 @@ def render_consensus_scatter(
 
     fig = px.scatter(
         scatter_df, x="favor_share", y="votos_efectivos", color="tema_display",
+        color_discrete_map=TOPIC_COLOR_MAP,
         custom_data=[
             "gaceta_vote_id", "date_str", "legislature", "title_clean",
             "favor", "contra", "tema_display", "etapa_votacion",
@@ -709,8 +871,14 @@ def render_consensus_scatter(
 
 # ── Top-level entry point ──────────────────────────────────────────────────────
 
-def render_gaceta():
-    """Load data, render controls, dispatch to sub-page renderers."""
+def render_gaceta(
+    view: str,
+    *,
+    diputado_id: str | None = None,
+    candidate_name: str | None = None,
+    randomize_deputy: bool = False,
+):
+    """Load Gaceta data and render one lazily selected top-level view."""
     vote_index_version, database_version = get_gaceta_cache_versions()
     try:
         votes_df = load_gaceta_votes(vote_index_version)
@@ -723,18 +891,57 @@ def render_gaceta():
 
     all_legs = sorted(votes_df["legislature"].unique(), reverse=True)
 
-    gc1, gc2 = st.columns([1, 2])
-    with gc2:
-        page = st.radio("Vista", ["Diputado", "Clasificación"], horizontal=True)
-    with gc1:
-        if page == "Diputado":
-            leg_sel = st.selectbox(
-                "Legislatura", all_legs, format_func=lambda x: f"Legislatura {x}", key="dep_legislature",
+    if view == "Diputado":
+        if diputado_id is not None:
+            mapping = load_dim_diputado(diputado_id, database_version)
+            if mapping.empty:
+                st.info(
+                    "Este escaño todavía no está en `dim_diputados`. Ejecuta "
+                    "`python -m ingestion.diputados_ingest` para reconstruir el puente."
+                )
+                return
+            mapped = mapping.iloc[0]
+            mapped_name = mapped["display_name"] or candidate_name or ""
+            if not mapped["gaceta_deputy_id"]:
+                st.info(
+                    f"No hay una correspondencia confiable en Gaceta para "
+                    f"**{display_person_name(mapped_name)}** "
+                    f"(`{mapped['match_method']}`)."
+                )
+                return
+            target_legislature = int(mapped["legislature"])
+            if mapped["source_name_role"] == "suplente":
+                st.caption("La integración oficial no publica titular; se enlaza la suplencia registrada.")
+            if mapped["match_method"] == "approximate_tokens":
+                st.caption(
+                    f"Correspondencia auditada: {display_person_name(mapped_name)} → "
+                    f"{display_person_name(mapped['gaceta_deputy_name'])} "
+                    f"(similitud {mapped['match_score']:.0%})"
+                )
+            render_deputy_view(
+                target_legislature,
+                database_version,
+                requested_name=mapped_name,
+                requested_deputy_id=mapped["gaceta_deputy_id"],
+                show_selector=False,
             )
+            return
 
-    st.markdown("---")
+        if randomize_deputy:
+            all_deputies = load_all_legislature_deputies(database_version)
+            if not all_deputies.empty:
+                random_row = all_deputies.iloc[secrets.randbelow(len(all_deputies))]
+                st.session_state["dep_legislature"] = int(random_row["legislature"])
+                st.session_state["dep_deputy_id"] = random_row["deputy_id"]
 
-    if page == "Diputado":
+        leg_sel = st.selectbox(
+            "Legislatura",
+            all_legs,
+            format_func=lambda x: f"Legislatura {x}",
+            key="dep_legislature",
+        )
         render_deputy_view(leg_sel, database_version)
-    else:
+    elif view == "Clasificación":
         render_classification_view(votes_df, database_version)
+    else:
+        raise ValueError(f"Vista de Gaceta desconocida: {view}")

@@ -21,7 +21,7 @@ from aux_scripts.seat_allocations.common import (
     canonical_party,
     compare_counts,
     connect,
-    dhondt,
+    largest_remainder,
     discover_elections,
     integration_counts,
     official_bloc_counts,
@@ -100,13 +100,13 @@ def national_votes(conn: sqlite3.Connection, election_id: str) -> pd.DataFrame:
 
 
 def rp_allocation(conn: sqlite3.Connection, election_id: str) -> pd.DataFrame:
-    """Approximate 32 Senate RP seats by canonical party with D'Hondt."""
+    """Approximate 32 Senate RP seats by natural quotient and largest remainder."""
     votes = national_votes(conn, election_id)
     if votes.empty:
         return pd.DataFrame(columns=["party", "seat_type", "seats"])
     votes["party"] = votes["party_key"].map(canonical_party)
     totals = votes.groupby("party")["votes"].sum()
-    seats = dhondt({p: float(v) for p, v in totals.items()}, SEN_RP_SEATS)
+    seats = largest_remainder({p: float(v) for p, v in totals.items()}, SEN_RP_SEATS)
     return pd.DataFrame(
         [{"party": party, "seat_type": "RP", "seats": n} for party, n in seats.items() if n > 0]
     )

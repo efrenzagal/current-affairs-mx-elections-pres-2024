@@ -66,6 +66,9 @@ using `aux_scripts/gaceta_votes/`.
 - `dim_gaceta_deputy.csv` — normalized deputy names observed across roll-call
   detail lists. `deputy_id` is derived deterministically from the normalized
   name.
+- `dim_diputados.csv` — one official 2024 deputy seat assignment, including
+  the auditable bridge from INE candidate identity to
+  `dim_gaceta_deputy.deputy_id`. Uncertain matches remain NULL.
 - `fact_gaceta_vote_summary.csv` — summary vote matrix by choice
   (A favor / En contra / Abstención) and parliamentary group for each roll-call.
   Includes Total rows/columns as reported by Gaceta.

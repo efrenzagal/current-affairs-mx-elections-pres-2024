@@ -3,8 +3,8 @@ Hemicycle Explorer — diputados MR + RP seat visualization (500 seats)
 ======================================================================
 Standalone script that:
   1. Queries MR district winners from the warehouse (300 seats).
-  2. Computes RP seat allocation (200 seats, 40 per circunscripcion)
-     using the D'Hondt method + Mexico's sobrerrepresentación cap
+  2. Can approximate RP seat allocation (200 seats, 40 per circunscripcion)
+     using natural quotient/largest remainder + Mexico's overrepresentation cap
      (COFIPE/LEGIPE: no party may hold more than 300 total seats or
      exceed its national vote share by more than 8 percentage points).
   3. Renders an interactive hemicycle with MR seats (squares) and
@@ -32,11 +32,13 @@ import plotly.graph_objects as go
 
 from aux_scripts.seat_allocations.common import (
     COALITION_TO_PARTY as _C2P,
-    dhondt,
+    largest_remainder,
     connect as _sa_connect,
 )
 from aux_scripts.seat_allocations import diputados as dip_mod
 from aux_scripts.seat_allocations import senadores as sen_mod
+from ingestion.diputados_ingest import diputado_id_for_row
+from ui.person_names import display_person_name
 
 DB_PATH  = "election_data.db"
 OUT_PATH = "aux_scripts/seat_allocations/hemicycle_explorer.html"
@@ -127,6 +129,7 @@ PARTY_COLORS: dict[str, str] = {
     "PAS":              "#795548",
     "PASC":             "#607D8B",
     "IND":              "#888888",
+    "CAND_INDEPENDIENTE": "#888888",
 }
 
 COALITION_TO_PARTY: dict[str, str] = _C2P
@@ -141,10 +144,10 @@ def party_color(key: str) -> str:
     return PARTY_COLORS.get(key, _fallback_color(key))
 
 
-# Official INTEGRACION_CARGOS files — if present, use these as ground truth
-# instead of computing D'Hondt (they reflect INE's final seat assignment).
+# Official INTEGRACION_CARGOS files are the dashboard's ground truth.
 INTEGRACION_PATHS: dict[str, str] = {
     "DIP_MR_2024": "data/electoral_data_raw/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
+    "SEN_MR_2024": "data/electoral_data_raw/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv",
 }
 
 COMPOSICION_DIP = "data/composicion/diputados.csv"
@@ -157,7 +160,9 @@ def _year(election_id: str) -> int:
 
 def load_composicion_dip(election_id: str, conn: sqlite3.Connection) -> pd.DataFrame:
     """
-    Build 500 seat rows from Wikipedia-sourced composicion CSV.
+    Legacy reference loader, retained for historical research only.
+
+    Build 500 seat rows from the local composicion CSV.
     MR seats reuse warehouse district winners for geography/tooltips.
     RP seats are generated from reference counts.
     """
@@ -243,11 +248,11 @@ def load_composicion_dip(election_id: str, conn: sqlite3.Connection) -> pd.DataF
 
 
 def load_composicion_sen(election_id: str, conn: sqlite3.Connection) -> pd.DataFrame:
-    """Build 128 senate seat rows from Wikipedia-sourced composicion CSV.
+    """Legacy reference loader, retained for historical research only.
 
     MR/FM seats are derived from actual state-level vote order (warehouse),
     ensuring each state's FM seat always goes to its second-place party.
-    RP seat counts come from the Wikipedia composicion CSV.
+    RP seat counts come from the local composicion CSV.
     """
     year = _year(election_id)
     ref = pd.read_csv(COMPOSICION_SEN)
@@ -389,9 +394,9 @@ ELECTION_BLOCS: dict[str, list[tuple[str, list[str]]]] = {
     ],
     # Senate blocs — actor names returned by sen_mod.mr_actor_seats
     "SEN_MR_2024": [
-        ("Sigamos Haciendo Historia", ["Sigamos Haciendo Historia"]),
-        ("Fuerza y Corazon por Mexico", ["Fuerza y Corazon por Mexico"]),
-        ("Movimiento Ciudadano", ["MC", "Movimiento Ciudadano"]),
+        ("Sigamos Haciendo Historia", ["MORENA", "PVEM", "PT"]),
+        ("Fuerza y Corazón por México", ["PAN", "PRI", "PRD"]),
+        ("Movimiento Ciudadano", ["MC"]),
     ],
     "SEN_MR_2021": [
         ("Juntos Hacemos Historia", ["Juntos Hacemos Historia"]),
@@ -555,7 +560,7 @@ def get_elections(conn: sqlite3.Connection, prefix: str) -> list[str]:
 # ── Diputados seat rows ────────────────────────────────────────────────────────
 
 def dip_winners_from_votes(conn: sqlite3.Connection, election_id: str) -> pd.DataFrame:
-    """300 MR winners + 200 RP rows from vote data (D'Hondt). Returns per-seat DataFrame."""
+    """Return a vote-based 300 MR + 200 RP QA approximation."""
     raw = dip_mod.district_votes(conn, election_id)
     if raw.empty:
         return pd.DataFrame()
@@ -569,10 +574,10 @@ def dip_winners_from_votes(conn: sqlite3.Connection, election_id: str) -> pd.Dat
     mr["canonical_party"] = mr["party_key"].map(lambda k: COALITION_TO_PARTY.get(k, k))
     mr["seat_type"]      = "MR"
 
-    # RP: D'Hondt via seat_allocations module (per-circunscripcion when available)
+    # RP: natural quotient/largest remainder via the QA allocation module
     mr_for_rp = mr.rename(columns={"party_key": "party_key_raw"}).assign(party=mr["canonical_party"], seats=1)
     rp_counts = dip_mod.rp_allocation(conn, election_id, mr_for_rp)
-    # Fallback: if no circunscripcion data, use national D'Hondt for 200 seats
+    # Fallback: use one national largest-remainder allocation for 200 seats
     if rp_counts.empty:
         nat_votes = (
             mr.groupby("canonical_party")["votes"].sum()
@@ -581,7 +586,7 @@ def dip_winners_from_votes(conn: sqlite3.Connection, election_id: str) -> pd.Dat
         total_v = nat_votes["votes"].sum()
         qualified = nat_votes[nat_votes["votes"] / total_v >= THRESHOLD_PCT]["party"].tolist()
         vote_map = {r["party"]: float(r["votes"]) for _, r in nat_votes[nat_votes["party"].isin(qualified)].iterrows()}
-        seats_map = dhondt(vote_map, RP_SEATS_TOTAL)
+        seats_map = largest_remainder(vote_map, RP_SEATS_TOTAL)
         rp_counts = pd.DataFrame(
             [{"party": p, "seat_type": "RP", "seats": s} for p, s in seats_map.items() if s > 0]
         )
@@ -652,52 +657,73 @@ def sen_winners_from_votes(conn: sqlite3.Connection, election_id: str) -> pd.Dat
     return pd.DataFrame(rows)
 
 
-def load_from_integracion(path: str) -> pd.DataFrame:
-    """
-    Load official seat assignments from INTEGRACION_CARGOS CSV.
-    Returns a single DataFrame with all 500 seats (300 MR + 200 RP),
-    using PARTIDO_POLITICO as the actual party (not the coalition banner).
-    MR rows include geography; RP rows have circunscripcion instead.
-    """
-    df = pd.read_csv(path, encoding="latin-1")
-    df.columns = [c.replace("ï»¿", "").strip() for c in df.columns]
+def load_from_integracion(path: str, chamber: str = "DIP") -> pd.DataFrame:
+    """Load final INE seat assignments for one chamber.
 
-    dip_mr = df[df["TIPO_DE_CANDIDATURA"] == "DIP_MR"].copy()
-    dip_rp = df[df["TIPO_DE_CANDIDATURA"] == "DIP_RP"].copy()
+    ``PARTIDO_POLITICO`` is the party that owns the seat; the coalition banner
+    is retained separately.  For the Senate, list positions 1–2 are majority
+    seats and position 3 is the first-minority seat.
+    """
+    chamber = chamber.upper()
+    if chamber not in {"DIP", "SEN"}:
+        raise ValueError(f"Unsupported chamber: {chamber}")
 
+    df = pd.read_csv(path, encoding="utf-8-sig")
+    df = df[df["TIPO_DE_CANDIDATURA"].isin({f"{chamber}_MR", f"{chamber}_RP"})].copy()
     rows = []
 
-    for _, r in dip_mr.iterrows():
-        party = str(r["PARTIDO_POLITICO"]).strip()
-        rows.append({
-            "party_key":                  party,
-            "canonical_party":            COALITION_TO_PARTY.get(party, party),
-            "id_estado":                  int(r["ID_ESTADO"]) if pd.notna(r["ID_ESTADO"]) else 0,
-            "nombre_estado":              str(r["NOMBRE_ESTADO"]).strip() if pd.notna(r["NOMBRE_ESTADO"]) else "",
-            "id_distrito_federal":        int(r["ID_DISTRITO_FEDERAL"]) if pd.notna(r["ID_DISTRITO_FEDERAL"]) else 0,
-            "cabecera_distrital_federal": str(r["CABECERA_DISTRITAL_FEDERAL"]).strip() if pd.notna(r["CABECERA_DISTRITAL_FEDERAL"]) else "",
-            "candidate_name":             str(r["PERSONA_CANDIDATA"]).strip() if pd.notna(r["PERSONA_CANDIDATA"]) else "",
-            "coalition_banner":           str(r["NOMBRE_ACTOR_POLITICO"]).strip(),
-            "votes":                      float(r["VOTACION_GANADOR"]) if pd.notna(r["VOTACION_GANADOR"]) else 0,
-            "votes_total":                0,
-            "pct_winner":                 float(str(r["PORCENTAJE_VOTACION_GANADOR"]).replace("%","").strip()) if pd.notna(r["PORCENTAJE_VOTACION_GANADOR"]) else 0.0,
-            "seat_type":                  "MR",
-        })
+    for _, r in df.iterrows():
+        is_rp = r["TIPO_DE_CANDIDATURA"] == f"{chamber}_RP"
+        list_number = int(r["NUMERO_LISTA"]) if pd.notna(r["NUMERO_LISTA"]) else 0
+        if is_rp:
+            seat_type = "RP"
+        elif chamber == "SEN" and list_number == 3:
+            seat_type = "FM"
+        else:
+            seat_type = "MR"
 
-    for _, r in dip_rp.iterrows():
         party = str(r["PARTIDO_POLITICO"]).strip()
-        circ  = int(r["CIRCUNSCRIPCION"]) if pd.notna(r["CIRCUNSCRIPCION"]) else 0
+        state_name = "RP" if is_rp else str(r["NOMBRE_ESTADO"]).strip()
+        if is_rp and chamber == "DIP":
+            circ = int(r["CIRCUNSCRIPCION"]) if pd.notna(r["CIRCUNSCRIPCION"]) else 0
+            location = f"Circ. {circ} · Lista {list_number}"
+        elif is_rp:
+            location = f"Lista nacional · {list_number}"
+        elif chamber == "DIP":
+            location = str(r["CABECERA_DISTRITAL_FEDERAL"]).strip()
+        else:
+            location = state_name
+
         rows.append({
-            "party_key":                  party,
-            "canonical_party":            COALITION_TO_PARTY.get(party, party),
-            "id_estado":                  0,
-            "nombre_estado":              "RP",
-            "id_distrito_federal":        int(r["NUMERO_LISTA"]) if pd.notna(r["NUMERO_LISTA"]) else 0,
-            "cabecera_distrital_federal": f"Circ. {circ} · Lista {int(r['NUMERO_LISTA']) if pd.notna(r['NUMERO_LISTA']) else '?'}",
-            "candidate_name":             str(r["PERSONA_CANDIDATA"]).strip() if pd.notna(r["PERSONA_CANDIDATA"]) else "",
-            "coalition_banner":           str(r["NOMBRE_ACTOR_POLITICO"]).strip(),
-            "votes": 0, "votes_total": 0, "pct_winner": 0.0,
-            "seat_type":                  "RP",
+            "diputado_id": diputado_id_for_row(r) if chamber == "DIP" else None,
+            "party_key": party,
+            "canonical_party": COALITION_TO_PARTY.get(party, party),
+            "id_estado": int(r["ID_ESTADO"]) if pd.notna(r["ID_ESTADO"]) else 0,
+            "nombre_estado": state_name,
+            "id_distrito_federal": (
+                int(r["ID_DISTRITO_FEDERAL"])
+                if chamber == "DIP" and pd.notna(r["ID_DISTRITO_FEDERAL"])
+                else list_number
+            ),
+            "cabecera_distrital_federal": location,
+            "candidate_name": (
+                str(r["PERSONA_CANDIDATA"]).strip()
+                if pd.notna(r["PERSONA_CANDIDATA"])
+                else (
+                    str(r["PERSONA_CANDIDATA_SUPLENTE"]).strip()
+                    if pd.notna(r["PERSONA_CANDIDATA_SUPLENTE"])
+                    else ""
+                )
+            ),
+            "coalition_banner": str(r["NOMBRE_ACTOR_POLITICO"]).strip(),
+            "votes": float(r["VOTACION_GANADOR"]) if not is_rp and pd.notna(r["VOTACION_GANADOR"]) else 0,
+            "votes_total": 0,
+            "pct_winner": (
+                float(str(r["PORCENTAJE_VOTACION_GANADOR"]).replace("%", "").strip())
+                if not is_rp and pd.notna(r["PORCENTAJE_VOTACION_GANADOR"])
+                else 0.0
+            ),
+            "seat_type": seat_type,
         })
 
     return pd.DataFrame(rows)
@@ -792,7 +818,7 @@ def build_trace_data(
         if trace_key not in out:
             symbol = "square" if seat_type == "MR" else ("diamond" if seat_type == "FM" else "circle")
             out[trace_key] = {
-                "x": [], "y": [], "text": [],
+                "x": [], "y": [], "text": [], "customdata": [],
                 "color": party_color(key),
                 "symbol": symbol,
                 "party_key": key,
@@ -800,24 +826,47 @@ def build_trace_data(
             }
         out[trace_key]["x"].append(float(xs[i]))
         out[trace_key]["y"].append(float(ys[i]))
+        candidate = str(row.get("candidate_name", "") or "").strip()
+        location = str(row.get("cabecera_distrital_federal", "") or "").strip()
+        out[trace_key]["customdata"].append([
+            candidate,
+            str(row.get("canonical_party", key)),
+            seat_type,
+            str(row.get("nombre_estado", "")),
+            location,
+            str(row.get("diputado_id", "") or ""),
+        ])
 
         if seat_type == "MR":
-            loc = row.get("cabecera_distrital_federal") or f"D{int(row['id_distrito_federal'])}"
+            loc = location or f"D{int(row['id_distrito_federal'])}"
+            candidate_line = (
+                f"Candidatura: {display_person_name(candidate)}<br>" if candidate else ""
+            )
             out[trace_key]["text"].append(
                 f"<b>{row['nombre_estado']} · {loc}</b><br>"
-                f"Ganador: {row[color_col]}<br>"
+                f"{candidate_line}"
+                f"Partido: {row[color_col]}<br>"
                 f"Votos: {int(row['votes']):,}<br>"
                 f"% del total: {row['pct_winner']:.1f}%"
             )
         elif seat_type == "FM":
+            candidate_line = (
+                f"Candidatura: {display_person_name(candidate)}<br>" if candidate else ""
+            )
             out[trace_key]["text"].append(
                 f"<b>{row['nombre_estado']} · Primera Minoría</b><br>"
+                f"{candidate_line}"
                 f"Partido: {key}<br>"
-                f"Votos: {int(row['votes']):,}"
+                f"Votos: {int(row['votes']):,}<br>"
+                f"% del total: {row['pct_winner']:.1f}%"
             )
         else:
+            candidate_line = (
+                f"Candidatura: {display_person_name(candidate)}<br>" if candidate else ""
+            )
             out[trace_key]["text"].append(
-                f"<b>Escaño RP</b><br>"
+                f"<b>Escaño RP · {location}</b><br>"
+                f"{candidate_line}"
                 f"Partido: {key}<br>"
                 f"Asignado por representación proporcional"
             )
@@ -877,6 +926,7 @@ def build_figure(winners: pd.DataFrame, election_id: str) -> go.Figure:
     traces: list[go.Scatter] = []
     for trace_key in all_keys:
         d     = default_cfg.get(trace_key, {"x": [], "y": [], "text": [], "color": "#666",
+                                             "customdata": [],
                                              "symbol": "square", "party_key": trace_key,
                                              "seat_type": "MR", "seats": 0})
         seats = d["seats"]
@@ -897,6 +947,7 @@ def build_figure(winners: pd.DataFrame, election_id: str) -> go.Figure:
             name=label,
             hovertemplate="%{text}<extra></extra>",
             text=d["text"],
+            customdata=d["customdata"],
             visible=seats > 0,
         ))
 
@@ -904,9 +955,11 @@ def build_figure(winners: pd.DataFrame, election_id: str) -> go.Figure:
 
     # ── Helper: restyle payload for one estado ────────────────────────────────
     def restyle_args(cfg: dict, title_text: str) -> tuple[dict, dict]:
-        xs_list, ys_list, texts_list, names_list, visibles_list = [], [], [], [], []
+        xs_list, ys_list, texts_list = [], [], []
+        customdata_list, names_list, visibles_list = [], [], []
         for trace_key in all_keys:
             d     = cfg.get(trace_key, {"x": [], "y": [], "text": [], "seats": 0,
+                                         "customdata": [],
                                          "party_key": trace_key.split("__")[0], "seat_type": "MR"})
             seats = d["seats"]
             pk    = d.get("party_key", trace_key.split("__")[0])
@@ -916,10 +969,11 @@ def build_figure(winners: pd.DataFrame, election_id: str) -> go.Figure:
             xs_list.append(d["x"])
             ys_list.append(d["y"])
             texts_list.append(d["text"])
+            customdata_list.append(d["customdata"])
             names_list.append(label)
             visibles_list.append(seats > 0)
         return (
-            {"x": xs_list, "y": ys_list, "text": texts_list,
+            {"x": xs_list, "y": ys_list, "text": texts_list, "customdata": customdata_list,
              "name": names_list, "visible": visibles_list},
             {"title.text": title_text},
         )
@@ -981,26 +1035,17 @@ def build_election_html(conn: sqlite3.Connection, election_id: str) -> str:
     """Build the flex-row div (hemicycle + table) for one election."""
     print(f"\n  Building {election_id}...")
 
-    # Priority: composicion CSV (Wikipedia/official) > INTEGRACION file > computed from votes
-    if election_id.startswith("DIP"):
-        winners = load_composicion_dip(election_id, conn)
-        if winners is None or winners.empty:
-            integracion_path = INTEGRACION_PATHS.get(election_id)
-            if integracion_path and os.path.exists(integracion_path):
-                print(f"    Using INTEGRACION file")
-                winners = load_from_integracion(integracion_path)
-            else:
-                print(f"    Computing from votes (no reference data)")
-                winners = dip_winners_from_votes(conn, election_id)
-        else:
-            print(f"    Using composicion reference (Wikipedia)")
+    integracion_path = INTEGRACION_PATHS.get(election_id)
+    if integracion_path and os.path.exists(integracion_path):
+        chamber = "DIP" if election_id.startswith("DIP") else "SEN"
+        print("    Using final INE integration")
+        winners = load_from_integracion(integracion_path, chamber=chamber)
+    elif election_id.startswith("DIP"):
+        print("    Computing an unofficial vote-based approximation")
+        winners = dip_winners_from_votes(conn, election_id)
     else:
-        winners = load_composicion_sen(election_id, conn)
-        if winners is None or winners.empty:
-            print(f"    Computing from votes (no reference data)")
-            winners = sen_winners_from_votes(conn, election_id)
-        else:
-            print(f"    Using composicion reference (Wikipedia)")
+        print("    Computing an unofficial vote-based approximation")
+        winners = sen_winners_from_votes(conn, election_id)
 
     if winners is None or winners.empty:
         return ""
