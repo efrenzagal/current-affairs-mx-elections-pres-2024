@@ -1,0 +1,517 @@
+---
+title: "Brújula política"
+subtitle: "La geometría de las elecciones presidenciales en México"
+format:
+  html:
+    page-layout: article
+jupyter: python3
+---
+
+```{=html}
+<style>
+  body, .quarto-title-block, #title-block-header {
+    background-color: #ffffff !important;
+    color: #1a1a1a !important;
+  }
+  .content { max-width: 760px; }
+  .content, .content p, .content li, .content h2, .content h3,
+  .footnotes, .footnotes p, .footnotes li {
+    font-family: "Times New Roman", Times, serif;
+  }
+  .cell-output-display { max-width: 1100px; margin-left: calc(50% - 550px); }
+  @media (max-width: 1150px) {
+    .cell-output-display { max-width: 100%; margin-left: 0; }
+  }
+  p { line-height: 1.55; }
+  h2 { margin-top: 2.2em; }
+</style>
+```
+
+Como científico de datos, la idea de un [*Political compass*](https://www.politicalcompass.org) (brújula política) me
+parece fascinante. La posibilidad de representar los ideales políticos de
+alguien como coordenadas en un plano me resulta intuitiva. La
+premisa es sencilla: se realiza un *test* que mide dónde se posiciona el
+encuestado respecto a dos esferas: la social y la económica; luego, esto se
+vuelve un plano cartesiano que nos permite entender qué tan cerca o lejos
+estamos unos de otros en el espectro político. Si bien este modelo, como
+todos, termina por simplificar considerablemente un fenómeno tan complejo
+como la ideología, es un ejercicio entretenido que nos puede ofrecer una
+nueva perspectiva.
+
+En la práctica, la política mexicana es considerablemente más compleja que
+sólo dos ejes perpendiculares. Desde las elecciones de 1994, los votantes se
+han enfrentado a boletas federales incluyendo 18 partidos diferentes[^partidos], dos
+candidatos independientes y un sinfín de coaliciones, a veces entre partidos
+que en ciclos anteriores habían competido entre sí[^prd-pan]. Este panorama complica
+visualizar la tendencia política del país, caso opuesto al [sistema
+bipartidista](https://usafacts.org/articles/how-red-or-blue-is-your-state/) en Estados Unidos. ¿Cómo se puede
+representar la ideología política mexicana con este grado de complejidad?
+
+## Reduciendo la dimensionalidad
+
+Para entender cada ciclo electoral como una coordenada, tuve que simplificar
+estos datos con un par de decisiones propias. Primero, decidí asignar los
+votos de las coaliciones proporcionalmente a sus integrantes[^split]. Cuando vemos el
+total de votos a nivel nacional, identificamos que desde 1994 hasta el 2012,
+la carrera fue principalmente entre tres partidos: el PRI, PAN y PRD. El 2018
+fue el primer ciclo electoral donde MORENA participa y afianza su poder, y,
+finalmente, el 2024 vio a Movimiento Ciudadano consolidarse como la tercera
+mayor fuerza política en el país:
+
+```{python}
+#| label: fig-votos-partido
+#| fig-cap: "Votos por partido tras separar proporcionalmente las coaliciones. Fuente: INE."
+
+import sqlite3
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.io as pio
+
+pio.templates.default = "none"
+
+import sys
+sys.path.insert(0, "../..")
+
+from ui.common import (
+    CATEGORY_COLORS, COALITION_MEMBERS, IDEOLOGY_MAP, MAIN_PARTY_KEYS, TS_PARTY_COLORS,
+    classify_ternary, split_coalition_votes_by_geo, ts_base_layout,
+)
+
+DB_PATH = "../../election_data.db"
+PRE_YEARS = [1994, 2000, 2006, 2012, 2018, 2024]
+
+con = sqlite3.connect(DB_PATH)
+raw = pd.read_sql(
+    """
+    SELECT election_id, party_key, SUM(votes) AS votes
+    FROM fact_casilla_vote
+    WHERE election_id LIKE 'PRE_%'
+    GROUP BY election_id, party_key
+    """,
+    con,
+)
+con.close()
+
+NON_PARTY_KEYS = {"CAND_IND_01", "CAND_IND_02", "NO_REGISTRADOS", "NULOS"}
+raw = raw[~raw["party_key"].isin(NON_PARTY_KEYS)].copy()
+
+# Split each cycle's coalitions proportionally to their members' own direct
+# votes (same logic the app uses for the municipio ternary/trajectory view),
+# then map to a single national total per party per year.
+split_frames = []
+for eid, g in raw.groupby("election_id"):
+    g = g.assign(id_estado=0, municipio_key=0)
+    split = split_coalition_votes_by_geo(g, COALITION_MEMBERS)
+    split["election_id"] = eid
+    split_frames.append(split)
+
+votes_split = pd.concat(split_frames, ignore_index=True)
+
+# Movimiento Ciudadano ran under different party_key spellings across
+# cycles (Convergencia pre-2011, "MOVIMIENTO CIUDADANO" in 2018's raw
+# data); canonicalize to "MC" so its votes aren't silently dropped.
+#
+# A. CAM. (2000), A. MEX. (2000), APM (2006), and PBT (2006) are
+# coalitions with no member-level vote data in the source (so they can't
+# be split proportionally, unlike 2012/2018/2024's coalitions). Their
+# smaller partners were marginal, so their full vote count is attributed
+# to the lead party — consistent with IDEOLOGY_MAP's bloc assignment for
+# these same coalitions (A. CAM.=Derecha=PAN, A. MEX.=Izquierda=PRD,
+# APM=Centro=PRI, PBT=Izquierda=PRD).
+votes_split["party_key"] = votes_split["party_key"].replace({
+    "MOVIMIENTO CIUDADANO": "MC", "CONVERGENCIA": "MC",
+    "A. CAM.": "PAN", "A. MEX.": "PRD", "APM": "PRI", "PBT": "PRD",
+})
+votes_split = votes_split.groupby(
+    [c for c in votes_split.columns if c != "votes"], as_index=False
+)["votes"].sum()
+votes_split["year"] = votes_split["election_id"].str.replace("PRE_", "", regex=False).astype(int)
+
+party_totals = (
+    votes_split[votes_split["party_key"].isin(MAIN_PARTY_KEYS)]
+    .groupby(["year", "party_key"], as_index=False)["votes"].sum()
+)
+
+fig = go.Figure()
+for party in MAIN_PARTY_KEYS:
+    d = party_totals[party_totals["party_key"] == party].sort_values("year")
+    if d.empty:
+        continue
+    fig.add_trace(go.Scatter(
+        x=d["year"], y=d["votes"], mode="lines+markers", name=party,
+        line=dict(color=TS_PARTY_COLORS[party], width=2.5),
+        marker=dict(size=8, color=TS_PARTY_COLORS[party], line=dict(width=1.5, color="white")),
+        hovertemplate=f"<b>{party}</b><br>%{{x}}: %{{y:,.0f}} votos<extra></extra>",
+    ))
+
+# MORENA founded as a political party on 2014-08-01
+morena_founding = 2014 + (pd.Timestamp("2014-08-01") - pd.Timestamp("2014-01-01")).days / 365
+fig.add_vline(
+    x=morena_founding, line_dash="dot", line_color="rgba(80,80,80,0.6)", line_width=1.5,
+)
+fig.add_annotation(
+    x=morena_founding, y=0.98, yref="paper", yanchor="top", xanchor="left", xshift=6,
+    text="MORENA se funda<br>(1 ago 2014)", showarrow=False, align="left",
+    font=dict(size=10, family="IBM Plex Mono", color="rgba(80,80,80,0.9)"),
+)
+
+fig.update_layout(**ts_base_layout("Votos por partido — Presidencial", "Votos", PRE_YEARS, height=440))
+fig.update_layout(title=None, margin=dict(t=30))
+fig.show()
+```
+
+La segunda suposición es más delicada. Asignar qué proyecto político
+mexicano representa a la "izquierda" o "derecha" es virtualmente imposible,
+pues es difícil encontrar una consistencia ideológica más que las
+coaliciones concurrentes. Una simplificación razonable es que el PRD y
+MORENA pueden ser entendidos como el proyecto político socialdemócrata,
+mientras que el PAN es un partido conservador liberal[^pan-prd-alianza]. Para fines del
+ejercicio, colocaremos todos los partidos que no pertenezcan claramente a
+estos dos movimientos como "centro". Si bien los proyectos nacionales del
+PRI de los 2000's no coinciden particularmente con aquellos de Movimiento
+Ciudadano en 2024, me parecen al menos distintos a los otros dos[^clasificacion]. Una
+posible visualización geométrica de estas tres ideologías es una gráfica
+ternaria:
+
+```{python}
+#| label: fig-ternaria
+#| fig-cap: "Distribución nacional del voto presidencial entre los bloques Izquierda / Centro / Derecha, 1994–2024."
+
+VERTEX_COLORS = {"L": "#8B0000", "R": "#1E90FF", "C": "#006847"}
+YEAR_COLORS = {
+    1994: "#B0C4DE", 2000: "#88AACC", 2006: "#5590C0",
+    2012: "#2B7BB0", 2018: "#0D5FA0", 2024: "#C84B31",
+}
+_S32 = np.sqrt(3) / 2
+
+
+def _ternary_xy(pct_l, pct_r, pct_c):
+    total = pct_l + pct_r + pct_c
+    l, r, c = pct_l / total, pct_r / total, pct_c / total
+    return r + c * 0.5, c * _S32
+
+
+bloc_rows = []
+for eid, g in votes_split.groupby("election_id"):
+    g = g.copy()
+    g["bloc"] = g["party_key"].map(IDEOLOGY_MAP)
+    tot = g.groupby("bloc")["votes"].sum()
+    l, r, c = tot.get("L", 0), tot.get("R", 0), tot.get("C", 0)
+    total = l + r + c
+    bloc_rows.append({
+        "year": int(eid.replace("PRE_", "")),
+        "pct_L": l / total * 100, "pct_R": r / total * 100, "pct_C": c / total * 100,
+    })
+
+df_bloc = pd.DataFrame(bloc_rows).sort_values("year").reset_index(drop=True)
+df_bloc["tx"], df_bloc["ty"] = zip(*df_bloc.apply(
+    lambda r: _ternary_xy(r["pct_L"], r["pct_R"], r["pct_C"]), axis=1))
+df_bloc["category"] = df_bloc.apply(
+    lambda r: classify_ternary(r["pct_L"], r["pct_R"], r["pct_C"]), axis=1)
+
+fig = go.Figure()
+
+# Triangle outline
+fig.add_trace(go.Scatter(
+    x=[0, 1, 0.5, 0], y=[0, 0, _S32, 0],
+    mode="lines", line=dict(color="rgba(20,20,20,0.9)", width=2),
+    hoverinfo="skip", showlegend=False,
+))
+
+# No-majority zone (medial triangle)
+mid_lr, mid_rc, mid_lc = (0.5, 0.0), (0.75, _S32 / 2), (0.25, _S32 / 2)
+fig.add_trace(go.Scatter(
+    x=[mid_lr[0], mid_rc[0], mid_lc[0], mid_lr[0]],
+    y=[mid_lr[1], mid_rc[1], mid_lc[1], mid_lr[1]],
+    mode="lines", fill="toself", fillcolor="rgba(150,150,150,0.07)",
+    line=dict(color="rgba(200,200,200,0.35)", width=1, dash="dash"),
+    hoverinfo="skip", showlegend=False,
+))
+
+# Empate zone (circle around 33/33/33)
+cx0, cy0 = _ternary_xy(1, 1, 1)
+theta = np.linspace(0, 2 * np.pi, 60)
+r = 8 / 100
+fig.add_trace(go.Scatter(
+    x=cx0 + r * np.cos(theta), y=cy0 + r * np.sin(theta),
+    mode="lines", fill="toself", fillcolor="rgba(170,170,170,0.14)",
+    line=dict(color="rgba(170,170,170,0.5)", width=1, dash="dot"),
+    hoverinfo="skip", showlegend=False,
+))
+
+# Grid lines parallel to each side at 1/3 and 2/3
+for f in (1 / 3, 2 / 3):
+    fig.add_trace(go.Scatter(
+        x=[f * 0.5, f * 0.5 + (1 - f)], y=[f * _S32, f * _S32],
+        mode="lines", line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+        hoverinfo="skip", showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        x=[f, f + (1 - f) * 0.5], y=[0, (1 - f) * _S32],
+        mode="lines", line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+        hoverinfo="skip", showlegend=False,
+    ))
+    fig.add_trace(go.Scatter(
+        x=[1 - f, (1 - f) * 0.5], y=[0, (1 - f) * _S32],
+        mode="lines", line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+        hoverinfo="skip", showlegend=False,
+    ))
+
+# Centroid cross
+fig.add_trace(go.Scatter(
+    x=[cx0], y=[cy0], mode="markers",
+    marker=dict(symbol="cross", size=9, color="rgba(160,160,160,0.5)",
+                line=dict(width=1.5, color="rgba(160,160,160,0.7)")),
+    hoverinfo="skip", showlegend=False,
+))
+
+# Trajectory line + arrowheads
+fig.add_trace(go.Scatter(
+    x=df_bloc["tx"], y=df_bloc["ty"], mode="lines",
+    line=dict(color="rgba(90,90,90,0.45)", width=1.8, dash="dot"),
+    hoverinfo="skip", showlegend=False,
+))
+for (_, a), (_, b) in zip(df_bloc.iloc[:-1].iterrows(), df_bloc.iloc[1:].iterrows()):
+    fig.add_annotation(
+        x=b["tx"], y=b["ty"], ax=a["tx"], ay=a["ty"],
+        xref="x", yref="y", axref="x", ayref="y",
+        showarrow=True, arrowhead=3, arrowsize=1,
+        arrowwidth=1.6, arrowcolor="rgba(90,90,90,0.6)", standoff=10,
+    )
+
+# Year points, colored by ternary-zone category (Base/Plural/Contenciosa/Empate)
+seen_categories = set()
+for _, row in df_bloc.iterrows():
+    yr = int(row["year"])
+    cat_color = CATEGORY_COLORS[row["category"]]
+    fig.add_trace(go.Scatter(
+        x=[row["tx"]], y=[row["ty"]], mode="markers+text",
+        marker=dict(size=10, color=cat_color, opacity=0.95,
+                    line=dict(width=1.5, color="white")),
+        text=[str(yr)], textposition="top center",
+        textfont=dict(size=11, family="IBM Plex Mono", color=cat_color),
+        hovertemplate=(
+            f"<b>{yr}</b> · {row['category']}<br>"
+            f"Izquierda: {row['pct_L']:.1f}%<br>"
+            f"Derecha:   {row['pct_R']:.1f}%<br>"
+            f"Centro:    {row['pct_C']:.1f}%<extra></extra>"
+        ),
+        showlegend=False,
+    ))
+    seen_categories.add(row["category"])
+
+# Category legend (only entries actually present)
+for category in sorted(seen_categories):
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None], mode="markers",
+        marker=dict(size=10, color=CATEGORY_COLORS[category]),
+        name=category, showlegend=True,
+    ))
+
+# Vertex labels
+fig.add_trace(go.Scatter(
+    x=[-0.015, 1.015, 0.5], y=[-0.018, -0.018, _S32 + 0.018],
+    mode="text", text=["<b>Izquierda</b>", "<b>Derecha</b>", "<b>Centro</b>"],
+    textfont=dict(size=12, family="IBM Plex Mono",
+                  color=[VERTEX_COLORS["L"], VERTEX_COLORS["R"], VERTEX_COLORS["C"]]),
+    hoverinfo="skip", showlegend=False,
+))
+
+fig.update_layout(
+    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    font_family="IBM Plex Sans", font_color="#444",
+    xaxis=dict(visible=False, range=[-0.04, 1.04]),
+    yaxis=dict(visible=False, range=[-0.035, _S32 + 0.045], scaleanchor="x", scaleratio=1),
+    height=560,
+    legend=dict(orientation="h", yanchor="top", y=-0.02, xanchor="center", x=0.5,
+                font=dict(size=11, family="IBM Plex Mono")),
+    margin=dict(l=10, r=10, t=50, b=40),
+)
+fig.show()
+```
+
+## La geometría de las Elecciones Presidenciales
+
+En ella, el centro del triángulo representaría un empate con el 33.3% de los
+votos para cada movimiento político y cada vértice obtener el 100% para el
+respectivo partido. Vemos cómo los votantes se inclinaron a la derecha para
+principios del milenio, mientras que el 2006 termina mínimamente a la
+izquierda, como consecuencia de sumar los votos del PRD (apróximadamente
+36.1% del total) con los de la Alternativa Socialdemócrata y Campesina
+(2.8%), lo cuál supera a los votos obtenidos por el PAN (36.7%). También
+llama la atención como los puntos correspondientes al 2018 y 2024 están tan
+cercanos, consistente a los índices de aprobación de Andrés Manuel López
+Obrador. [Oraculus](https://oraculus.mx/aprobacion-presidencial/) compiló un archivo histórico que muestra que AMLO empezó
+con una popularidad similar a la que arrancó, cercana al 70%.
+
+```{python}
+#| label: fig-aprobacion
+#| fig-cap: "Aprobación presidencial por sexenio, con mediana mensual de encuestas. Fuente: Oraculus."
+
+import re
+import zipfile
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+APPROVAL_DIR = Path("../../aux_scripts/approval_rates")
+RECENT_PATH = APPROVAL_DIR / "table-aprobacion.xlsx"
+ARCHIVE_PATH = APPROVAL_DIR / "table-aprobacion_archivo.xlsx"
+
+PRESIDENT_COLORS = {
+    "EZPL": "#2E7D32", "VFQ": "#1565C0", "FCH": "#1E90FF",
+    "EPN": "#C62828", "AMLO": "#8B0000", "Sheinbaum": "#C84B31",
+}
+PRESIDENT_LABELS = {
+    "EZPL": "Zedillo", "VFQ": "Fox", "FCH": "Calderón",
+    "EPN": "Peña Nieto", "AMLO": "AMLO", "Sheinbaum": "Sheinbaum",
+}
+PRESIDENT_ORDER = list(PRESIDENT_LABELS)
+
+
+def _col_to_idx(cell_ref):
+    letters = "".join(ch for ch in cell_ref if ch.isalpha())
+    idx = 0
+    for ch in letters:
+        idx = idx * 26 + ord(ch.upper()) - 64
+    return idx - 1
+
+
+def _read_xlsx_first_sheet(path):
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    with zipfile.ZipFile(path) as zf:
+        root = ET.fromstring(zf.read("xl/worksheets/sheet1.xml"))
+    rows = []
+    for row in root.findall(".//m:sheetData/m:row", ns):
+        cells = {}
+        for cell in row.findall("m:c", ns):
+            idx = _col_to_idx(cell.attrib["r"])
+            node = cell.find("m:is/m:t", ns) if cell.attrib.get("t") == "inlineStr" else cell.find("m:v", ns)
+            cells[idx] = node.text if node is not None and node.text is not None else ""
+        if cells:
+            rows.append([cells.get(i, "") for i in range(max(cells) + 1)])
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows[1:], columns=rows[0])
+
+
+archive = _read_xlsx_first_sheet(ARCHIVE_PATH)
+archive["source"] = "archive"
+
+recent = _read_xlsx_first_sheet(RECENT_PATH)
+recent["fecha"] = pd.to_datetime(recent["Mes"], format="%b %Y", errors="coerce")
+recent["Presidente"] = recent["fecha"].apply(
+    lambda x: "Sheinbaum" if pd.notna(x) and x >= pd.Timestamp("2024-10-01") else "AMLO"
+)
+recent["source"] = "recent"
+
+df_appr = pd.concat([archive, recent], ignore_index=True, sort=False)
+df_appr["fecha"] = pd.to_datetime(df_appr["Mes"], format="%b %Y", errors="coerce")
+df_appr["Aprueba"] = pd.to_numeric(df_appr["Aprueba"], errors="coerce")
+df_appr = df_appr[df_appr["Presidente"] != "Sheinbaum"].copy()
+df_appr["Presidente"] = pd.Categorical(df_appr["Presidente"], categories=PRESIDENT_ORDER, ordered=True)
+df_appr = df_appr.dropna(subset=["fecha", "Aprueba"]).sort_values("fecha")
+
+trend = (
+    df_appr.groupby(["Presidente", "fecha"], observed=True)
+    .agg(mediana=("Aprueba", "median"), n=("Aprueba", "size"))
+    .reset_index()
+    .query("n >= 2")
+)
+
+fig = go.Figure()
+for president in PRESIDENT_ORDER:
+    sub = df_appr[df_appr["Presidente"].astype(str) == president]
+    if sub.empty:
+        continue
+    fig.add_trace(go.Scatter(
+        x=sub["fecha"], y=sub["Aprueba"], mode="markers", name=PRESIDENT_LABELS[president],
+        marker=dict(color=PRESIDENT_COLORS[president], size=5, opacity=0.55),
+        customdata=sub["Encuestadora"],
+        hovertemplate=(
+            f"<b>{PRESIDENT_LABELS[president]}</b><br>%{{x|%b %Y}}: %{{y:.0f}}%"
+            "<br>Encuestadora: %{customdata}<extra></extra>"
+        ),
+    ))
+for president in PRESIDENT_ORDER:
+    sub = trend[trend["Presidente"].astype(str) == president]
+    if sub.empty:
+        continue
+    fig.add_trace(go.Scatter(
+        x=sub["fecha"], y=sub["mediana"], mode="lines",
+        line=dict(width=3, color=PRESIDENT_COLORS[president]),
+        showlegend=False,
+        hovertemplate=f"<b>{PRESIDENT_LABELS[president]} · mediana</b><br>%{{x|%b %Y}}: %{{y:.0f}}%<extra></extra>",
+    ))
+
+fig.update_layout(
+    height=520,
+    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="IBM Plex Sans", color="#444"),
+    yaxis=dict(title="Aprobación (%)", range=[0, 100], dtick=20, ticksuffix="%",
+               showticklabels=True, tickfont=dict(family="IBM Plex Mono", size=11, color="#444"),
+               gridcolor="rgba(150,150,150,0.25)"),
+    xaxis=dict(showticklabels=True, tickfont=dict(family="IBM Plex Mono", size=11, color="#444"),
+               gridcolor="rgba(150,150,150,0.25)"),
+    legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5),
+)
+fig.show()
+```
+
+El movimiento más drástico en los índices de aprobación fue el declive de
+Enrique Peña Nieto, que coincide con el desplazamiento más drástico del 2012
+al 2018 en la gráfica ternaria. Además, vemos que posterior a la elección de
+Vicente Fox en el 2000, cada punto se desplaza más lejos del vértice de la
+derecha. Viendo la siguiente gráfica a través del tiempo, notamos este
+constante decrecimiento:
+
+```{python}
+#| label: fig-tendencia
+#| fig-cap: "Tendencia del voto por bloque ideológico a través del tiempo."
+
+fig = go.Figure()
+for col, color, label in [
+    ("pct_L", VERTEX_COLORS["L"], "Izquierda"),
+    ("pct_R", VERTEX_COLORS["R"], "Derecha"),
+    ("pct_C", VERTEX_COLORS["C"], "Centro"),
+]:
+    fig.add_trace(go.Scatter(
+        x=df_bloc["year"], y=df_bloc[col], mode="lines+markers", name=label,
+        line=dict(color=color, width=2.5),
+        marker=dict(size=8, color=color, line=dict(width=1.5, color="white")),
+        hovertemplate=f"<b>{label}</b>: %{{y:.1f}}%<extra></extra>",
+    ))
+
+fig.update_layout(
+    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    font_family="IBM Plex Sans", font_color="#444",
+    xaxis=dict(title="Año", tickvals=PRE_YEARS, tickfont=dict(family="IBM Plex Mono"),
+               gridcolor="rgba(150,150,150,0.15)", linecolor="rgba(150,150,150,0.3)"),
+    yaxis=dict(title="% votos (entre L+D+C)", range=[0, 100], gridcolor="rgba(150,150,150,0.15)"),
+    legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+    hovermode="x unified",
+    height=520, margin=dict(l=50, r=20, t=50, b=60),
+)
+fig.show()
+```
+
+Si bien esta representación es útil y parece direccionalmente correcta, es
+importante recordar sus limitaciones: las elecciones presidenciales ocurren
+cada seis años, lo que produce un tamaño de muestra pequeño, incluso si se
+consideran todas las elecciones de la era democrática moderna. Además, los
+votantes no eligen 'ideologías' en las boletas, sino candidatos. Un
+aspirante presidencial poco popular en un ciclo electoral o una estrategia
+de [voto útil](https://es.wikipedia.org/wiki/Voto_útil) podrían sesgar el análisis.
+
+[^partidos]: Partido Acción Nacional (PAN) (1994, 2000, 2006, 2012, 2018, 2024); Partido Revolucionario Institucional (PRI) (1994, 2000, 2006, 2012, 2018, 2024); Partido Verde Ecologista de México (PVEM) (1994, 2000, 2006, 2012, 2018, 2024); Partido de la Revolución Democrática (PRD) (1994, 2000, 2006, 2012, 2018, 2024); Partido del Trabajo (PT) (1994, 2000, 2006, 2012, 2018, 2024); Movimiento Ciudadano (antes Convergencia) (MC) (2000, 2006, 2012, 2018, 2024); Partido Nueva Alianza (PANAL) (2006, 2012, 2018); Movimiento Regeneración Nacional (MORENA) (2018, 2024); Partido Auténtico de la Revolución Mexicana (PARM) (1994, 2000); Alternativa Socialdemócrata y Campesina (ASDC) (2006); Partido Alianza Social (PAS) (2000); Partido Centro Democrático (PCD) (2000); Partido Democracia Social (DSPPN) (2000); Partido Demócrata Mexicano (PDM) (1994); Partido Encuentro Social (PES) (2018); Partido Popular Socialista (PPS) (1994); Partido de la Sociedad Nacionalista (PSN) (2000); Partido del Frente Cardenista de Reconstrucción Nacional (PFCRN) (1994)
+
+[^prd-pan]: Quizás el ejemplo más flagrante de esto es el PRD y el PAN aliándose en 2024, después de tener la contienda más ajustada en la historia de la democracia mexicana en 2006, donde Felipe Calderón superó por menos de un punto porcentual a Andrés Manuel López Obrador.
+
+[^split]: Esto quiere decir que si la coalición del Partido 1 tuviera 60 votos, el Partido 2 40 y su coalición 10, entonces dividimos estos últimos 60%, 40% respectivamente. La asignación final sería 66 votos para el primer partido y 44 para el segundo.
+
+[^pan-prd-alianza]: Lo cuál hace aún más indescifrable la alianza entre el PRD y el PAN en 2024.
+
+[^clasificacion]: La clasificación extensiva es:\
+    **Izquierda**: Partido de la Revolución Democrática, Partido del Trabajo, Movimiento Regeneración Nacional, Partido Auténtico de la Revolución Mexicana, Alternativa Socialdemócrata y Campesina, Partido Alianza Social, Partido Popular Socialista, Partido de la Sociedad Nacionalista, Partido del Frente Cardenista de Reconstrucción Nacional.\
+    **Centro**: Partido Revolucionario Institucional, Partido Verde Ecologista de México, Movimiento Ciudadano, Partido Nueva Alianza, Partido Centro Democrático, Partido Democracia Social.\
+    **Derecha**: Partido Acción Nacional, Partido Demócrata Mexicano, Partido Encuentro Social.

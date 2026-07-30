@@ -1,0 +1,16 @@
+project:
+  type: default
+
+lang: es
+
+format:
+  html:
+    theme: flatly
+    toc: false
+    embed-resources: true
+    code-fold: true
+    code-tools: true
+
+execute:
+  echo: false
+  warning: false
