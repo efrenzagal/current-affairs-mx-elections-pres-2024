@@ -410,7 +410,7 @@ def _calendar_grid_figure(df: pd.DataFrame, year_col: str, year_levels: list,
                     marker=dict(size=marker_size, symbol="square", color=VOTE_COLORS[vote_level],
                                 line=dict(width=0.4, color="white")),
                     name=vote_level, legendgroup=vote_level, showlegend=(i == 1),
-                    customdata=s[["tooltip"]],
+                    customdata=s[["tooltip", "gaceta_vote_id"]],
                     hovertemplate="%{customdata[0]}<extra></extra>",
                 ),
                 row=i, col=1,
@@ -439,6 +439,23 @@ def _calendar_grid_figure(df: pd.DataFrame, year_col: str, year_levels: list,
 
 # ── Sub-page renderers ─────────────────────────────────────────────────────────
 
+def render_vote_links(
+    *, legislature: int, gaceta_date: str | None, title_raw: str | None, source_url: str | None,
+) -> None:
+    """Tabla de votos / Gaceta del día / Iniciativa PDF link buttons for a vote."""
+    col_tabla, col_gaceta, col_pdf = st.columns(3)
+    if source_url and pd.notna(source_url):
+        col_tabla.link_button("Tabla de votos ↗", source_url)
+
+    issue_url = gaceta_issue_url(legislature, gaceta_date)
+    if issue_url:
+        col_gaceta.link_button("Gaceta del día ↗", issue_url)
+
+    anexo = find_gaceta_document(legislature, gaceta_date, title_raw) if gaceta_date and pd.notna(gaceta_date) else None
+    if anexo:
+        col_pdf.link_button("Iniciativa (PDF) ↗", anexo[0])
+
+
 def render_vote_detail(
     votes_df: pd.DataFrame, vote_id: str, database_version: tuple[tuple[int, int], ...]
 ):
@@ -458,6 +475,27 @@ def render_vote_detail(
     st.markdown(f"##### Gaceta Parlamentaria · Cámara de Diputados · Legislatura {int(vote['legislature'])}")
     st.subheader(full_title)
     st.caption(date_caption)
+
+    classification = load_classification(database_version)
+    clf_matches = classification[classification["gaceta_vote_id"] == vote_id]
+    if not clf_matches.empty:
+        clf = clf_matches.iloc[0]
+        badges = [
+            (label, clf[col])
+            for col, label in CLASSIFICATION_FILTER_COLUMNS.items()
+            if pd.notna(clf[col])
+        ]
+        if badges:
+            st.caption(
+                "**Clasificación:** "
+                + " · ".join(f"{label}: {_format_label(value)}" for label, value in badges)
+            )
+        render_vote_links(
+            legislature=int(clf["legislature"]),
+            gaceta_date=clf.get("gaceta_date"),
+            title_raw=clf.get("title"),
+            source_url=clf.get("source_url"),
+        )
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("A favor", f"{int(vote['favor']):,}")
@@ -515,6 +553,7 @@ def render_vote_detail(
 def render_deputy_view(
     leg_sel: int,
     database_version: tuple[tuple[int, int], ...],
+    votes_df: pd.DataFrame,
     requested_name: str | None = None,
     requested_deputy_id: str | None = None,
     show_selector: bool = True,
@@ -624,12 +663,28 @@ def render_deputy_view(
         f"deputy_calendar_{leg_sel}_{deputy_id}_"
         f"{len(calendar)}_{first_vote}_{last_vote}"
     )
-    st.plotly_chart(
+    event = st.plotly_chart(
         fig,
         use_container_width=True,
+        on_select="rerun",
+        selection_mode="points",
         key=chart_key,
         config={"displayModeBar": False, "scrollZoom": False},
     )
+
+    points = (event.get("selection") or {}).get("points", []) if event else []
+    st.markdown("---")
+    if not points:
+        st.caption("Selecciona una votación en el calendario para ver su detalle y clasificación.")
+        return True
+
+    custom = points[0].get("customdata")
+    if not custom or len(custom) < 2:
+        return True
+    vote_id = custom[1]
+    if len(points) > 1:
+        st.caption(f"{len(points)} votaciones seleccionadas — mostrando detalle de la primera.")
+    render_vote_detail(votes_df, vote_id, database_version)
     return True
 
 
@@ -848,23 +903,10 @@ def render_consensus_scatter(
     if not custom:
         return
     vote_id, date_str, legislature, title_clean = custom[0], custom[1], custom[2], custom[3]
-    source_url, gaceta_date, title_raw = custom[8], custom[9], custom[10]
     if len(points) > 1:
         st.caption(f"{len(points)} votaciones seleccionadas — mostrando detalle de la primera.")
 
     st.markdown(f"**`{vote_id}`** · {date_str} · L{legislature} — {title_clean}")
-    col_tabla, col_gaceta, col_pdf = st.columns(3)
-    if source_url:
-        col_tabla.link_button("Tabla de votos ↗", source_url)
-
-    issue_url = gaceta_issue_url(legislature, gaceta_date)
-    if issue_url:
-        col_gaceta.link_button("Gaceta del día ↗", issue_url)
-
-    anexo = find_gaceta_document(legislature, gaceta_date, title_raw) if gaceta_date else None
-    if anexo:
-        col_pdf.link_button("Iniciativa (PDF) ↗", anexo[0])
-
     st.markdown("---")
     render_vote_detail(votes_df, vote_id, database_version)
 
@@ -921,6 +963,7 @@ def render_gaceta(
             render_deputy_view(
                 target_legislature,
                 database_version,
+                votes_df,
                 requested_name=mapped_name,
                 requested_deputy_id=mapped["gaceta_deputy_id"],
                 show_selector=False,
@@ -940,7 +983,7 @@ def render_gaceta(
             format_func=lambda x: f"Legislatura {x}",
             key="dep_legislature",
         )
-        render_deputy_view(leg_sel, database_version)
+        render_deputy_view(leg_sel, database_version, votes_df)
     elif view == "Clasificación":
         render_classification_view(votes_df, database_version)
     else:
