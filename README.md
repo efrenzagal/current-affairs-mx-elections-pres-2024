@@ -43,7 +43,7 @@ python -m ingestion.electoral_materialize
 Run the app:
 
 ```bash
-streamlit run ine_explorer_v2.py
+python3 run_streamlit.py
 ```
 
 ## Dashboard at a Glance
@@ -373,6 +373,18 @@ Start with `documentation/table_dictionaries/overview.csv` for row grain,
 primary keys, joins, and purpose. Use the other CSVs in
 `documentation/table_dictionaries/` for column-level details.
 
+> **Join pitfall:** `dim_geography` is grained per **sección**, not per
+> state — thousands of rows share the same `id_estado` within an
+> `election_id`. Joining `fact_casilla_vote`/`dim_casilla` to
+> `dim_geography` on `id_estado + election_id` fans out every vote row
+> to every sección in that state (a cartesian blowup), which silently
+> turns a few-second query into one that never finishes. To get
+> `id_estado` for vote rows, join `dim_casilla` on `casilla_id +
+> election_id` (it already carries `id_estado`) and skip `dim_geography`
+> entirely. If you need `nombre_estado`, fetch it separately with
+> `SELECT DISTINCT id_estado, nombre_estado FROM dim_geography WHERE
+> election_id = ?` rather than joining it into the vote query.
+
 Rebuild the deputy identity bridge after refreshing either the official INE
 integration or the Gaceta warehouse:
 
@@ -396,7 +408,7 @@ Usually open:
 Then run:
 
 ```bash
-streamlit run ine_explorer_v2.py
+python3 run_streamlit.py
 ```
 
 ### Fix map joins or missing municipios
@@ -409,7 +421,7 @@ Then run:
 
 ```bash
 python -m ingestion.electoral_materialize views --force
-streamlit run ine_explorer_v2.py
+python3 run_streamlit.py
 ```
 
 ### Fix historical party time series
