@@ -25,7 +25,7 @@ from ui.trajectory import render_trajectory
 
 st.set_page_config(
     page_title="INE · Explorador Electoral",
-    page_icon="🗳️",
+    page_icon=Path("assets/favicon.svg"),
     layout="wide",
     initial_sidebar_state="collapsed",
 )
