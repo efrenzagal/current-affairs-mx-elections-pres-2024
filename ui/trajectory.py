@@ -158,6 +158,34 @@ def _display_party_key(party_key: str) -> str:
     return party_key.replace("_", " + ")
 
 
+_PARTY_ABBREV = {
+    "MOVIMIENTO CIUDADANO": "MC",
+    "NUEVA ALIANZA": "PANAL",
+}
+
+
+def _display_party_key_short(party_key: str) -> str:
+    """Abbreviated form of _display_party_key for hover text, where space is tight."""
+    if party_key.startswith("CAND_IND_"):
+        return f"Ind. {party_key.rsplit('_', 1)[-1]}"
+    if party_key in _PARTY_ABBREV:
+        return _PARTY_ABBREV[party_key]
+    if party_key.startswith("C_"):
+        return "Coalición " + party_key[2:].replace("_", " + ")
+    return party_key.replace("_", " + ")
+
+
+def _display_party_list_short(keys: tuple[str, ...], limit: int = 3) -> str:
+    """Compact party listing for hover text — full list lives in the table below
+    the chart (render_vertex_members); the hover just needs a quick summary."""
+    names = [_display_party_key_short(key) for key in keys]
+    if not names:
+        return "—"
+    if len(names) <= limit:
+        return ", ".join(names)
+    return f"{', '.join(names[:limit])} +{len(names) - limit} más"
+
+
 def render_vertex_members(years: list[int]) -> None:
     """Show the exact L/R/C assignment used for every plotted election cycle."""
     st.markdown("<div class='section-label'>Vértices por ciclo</div>", unsafe_allow_html=True)
@@ -330,7 +358,7 @@ def _build_ternary(df: pd.DataFrame, mun_sel: str, show_bubbles: bool = True,
         cat_color = CATEGORY_COLORS[category]
         members = load_vertex_members(yr)
         assignments = "<br>".join(
-            f"{label}: {', '.join(_display_party_key(key) for key in members[bloc]) or '—'}"
+            f"{label}: {_display_party_list_short(members[bloc])}"
             for bloc, label in (("L", "Izquierda"), ("C", "Centro"), ("R", "Derecha"))
         )
         if show_bubbles:
