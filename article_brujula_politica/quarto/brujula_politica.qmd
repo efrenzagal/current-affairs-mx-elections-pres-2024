@@ -38,14 +38,14 @@ jupyter: python3
 
 ## El problema de simplificar la política a un plano
 
-Como científico de datos, la idea de un [*Political compass*](https://www.politicalcompass.org) (brújula política) me
+Como científico de datos, la idea de un [*Political compass*](https://www.politicalcompass.org/analysis2) (brújula política) me
 parece fascinante, pues ofrece una representación geométrica de algo tan complejo como la ideología. La
 premisa es sencilla: se realiza un *test* que mide dónde se posiciona el
-encuestado respecto a dos esferas: la social y la económica; luego, esta información se
-vuelve un plano cartesiano que nos permite entender qué tan cerca o lejos
+encuestado respecto a dos esferas; la social y la económica, luego, esta información se
+grafica en un plano cartesiano que nos permite entender qué tan cerca o lejos
 estamos unos de otros en el espectro político. Si bien este modelo, como
-todos, termina por simplificar considerablemente un fenómeno tan complicado, es un ejercicio entretenido que nos puede ofrecer
-perspectivas interesantes.
+todos, termina por simplificar considerablemente el fenómeno en cuestión, es un ejercicio entretenido que nos puede ofrecer
+perspectivas reveladoras.
 
 En la práctica, la política mexicana es considerablemente más compleja que
 sólo dos ejes perpendiculares. Desde las elecciones de 1994, los votantes se
@@ -54,14 +54,14 @@ que en ciclos anteriores habían competido entre sí[^prd-pan]. Este panorama co
 visualizar la tendencia política del país, caso opuesto al [sistema
 bipartidista](https://usafacts.org/articles/how-red-or-blue-is-your-state/) en Estados Unidos. ¿Cómo se puede
 representar la ideología política mexicana con este grado de complejidad? Un posible punto de partida 
-son los resultados electorales y en particular, las votaciones presidenciales. De 1994 a 2024, estas elección han sido 
+son los resultados electorales y en particular, las votaciones presidenciales. De 1994 a 2024, estas elecciones han sido 
 las más populares, con un promedio cercano a los 45 millones de votantes, alcanzando su máximo en las más recientes, 
 donde se registraron más de 58 millones de papeletas. 
 
 ## Reduciendo las dimensiones
 
 Para entender cada ciclo electoral como una coordenada, tuve que simplificar
-estos datos con un par de decisiones propias. Primero, decidí asignar los
+estos datos con un par de supuestos. Primero, decidí asignar los
 votos de las coaliciones proporcionalmente a sus integrantes[^split]. Cuando vemos el
 total de votos a nivel nacional, identificamos que desde 1994 hasta el 2012,
 la carrera fue principalmente entre tres partidos: el PRI, PAN y PRD. El 2018
@@ -240,10 +240,11 @@ después del 2012 fueron opuestos, pues la derecha disminuyó su popularidad en 
 posterior y la izquierda se afianzó como la ideología dominante en el país después del sexenio de Enrique Peña Nieto. 
 
 ## La geometría de las elecciones presidenciales
+
 Si bien el análisis ya deja ver las principales tendencias políticas en México en los últimos años, esta configuración permite 
 una representación más ambiciosa: una gráfica ternaria. En lugar de tener un plano cartesiano con abscisas y ordenadas, los puntos 
 se colocarán en un triángulo equilátero, cuyo centro representa un empate con el 33.3% de los
-votos para cada movimiento y cada vértice obtener el 100% para el movimiento correspondiente. 
+votos para cada movimiento y cada vértice obtener el 100% para el movimiento correspondiente.[^simplex]
 
 ```{python}
 #| label: fig-ternaria
@@ -380,11 +381,13 @@ fig.show()
 
  Podemos notar cómo los votantes se inclinaron a la derecha para
 principios del milenio, mientras que el 2006 termina mínimamente a la
-izquierda, como consecuencia de sumar los votos del PRD (apróximadamente
+izquierda, como consecuencia de sumar los votos del PRD (aproximadamente
 36.1% del total) con los de la Alternativa Socialdemócrata y Campesina
 (2.8%), lo cuál supera a los votos obtenidos por el PAN (36.7%). También
-llama la atención la distancia recorrida en cada sexenio. Vemos que el más drástico movimiento más drástico
- fue del 2012 al 2018, mientras que los dos puntos más recientes ocupan prácticamete el mismo espacio. 
+llama la atención la distancia recorrida en cada sexenio. Vemos que el movimiento más drástico
+ fue del 2012 al 2018, mientras que los dos puntos más recientes ocupan prácticamente el mismo espacio. 
+
+## Mirando con lupa
 
 La lectura nacional esconde, sin embargo, diferencias considerables entre estados. Para ilustrarlo, tomamos la elección de 2024 (la más reciente y la que
 motiva esta clasificación) y ubicamos en el mismo triángulo a los 32 estados, con el tamaño de cada burbuja proporcional a sus votos emitidos. Los `{python} TOP_N_HIGHLIGHT`
@@ -578,129 +581,28 @@ fig.update_layout(
 fig.show()
 ```
 
-## Una segunda lectura: la aprobación presidencial
+Bajo esta clasificación, todos los estados se encuentran más cercanos al vértice 
+representando la izquierda que a los otros dos, pero con algunas diferencias. 
+La base de la derecha actualmente son tres estados del bajío: Guanajuato, Querétaro 
+y Aguascalientes, siendo este último el único estado de la república donde Xóchitl Gálvez 
+obtuvo más votos que Claudia Sheinbaum. 
 
-Una explicación consistente a los índices de aprobación de Andrés Manuel López
-Obrador. [Oraculus](https://oraculus.mx/aprobacion-presidencial/) compiló un archivo histórico que muestra que AMLO empezó
-con una popularidad similar a la que arrancó, cercana al 70%. , consistente a los índices de aprobación de Andrés Manuel López
-Obrador. [Oraculus](https://oraculus.mx/aprobacion-presidencial/) compiló un archivo histórico que muestra que AMLO empezó
-con una popularidad similar a la que arrancó, cercana al 70%.
+Quizás los dos casos más llamativos que muestra la gráfica son Jalisco y Nuevo León,
+estados clave para el panorama nacional y los más cercanos al centro del triángulo, 
+indicando una virtual paridad entre las tres corrientes ideológicas. Nuevo León, en particular, 
+probablemente será el estado con elecciones más parejas *a priori* para las elecciones gobernamentales 
+del 2027[^san-luis-potosi]. 
 
+En cuanto a la izquierda, vemos un grupo más homogéneo formado por el Estado de México, Chiapas, 
+Michoacán y Veracruz, entre otros. Tabasco, estado natal de Andrés Manuel López Obrador, es prácticamente 
+un *outlier*, con un aplastante dominio por parte de MORENA. Destaca que la Ciudad de México
+está más cercana a Guanajuato que al Estado de México. Aquí, Xóchitl Gálvez obtuvo la mayoría de votos en dos 
+importantes delegaciones: Miguel Hidalgo y Benito Juárez, por lo que podría ser un territorio en contienda para 
+las siguientes elecciones federales. 
 
-```{python}
-#| label: fig-aprobacion
-#| fig-cap: "Aprobación presidencial por sexenio, con mediana mensual de encuestas. Fuente: Oraculus."
+## Conclusión 
 
-import re
-import zipfile
-import xml.etree.ElementTree as ET
-from pathlib import Path
-
-APPROVAL_DIR = Path("../../aux_scripts/approval_rates")
-RECENT_PATH = APPROVAL_DIR / "table-aprobacion.xlsx"
-ARCHIVE_PATH = APPROVAL_DIR / "table-aprobacion_archivo.xlsx"
-
-PRESIDENT_COLORS = {
-    "EZPL": "#2E7D32", "VFQ": "#1565C0", "FCH": "#1E90FF",
-    "EPN": "#C62828", "AMLO": "#8B0000", "Sheinbaum": "#C84B31",
-}
-PRESIDENT_LABELS = {
-    "EZPL": "Zedillo", "VFQ": "Fox", "FCH": "Calderón",
-    "EPN": "Peña Nieto", "AMLO": "AMLO", "Sheinbaum": "Sheinbaum",
-}
-PRESIDENT_ORDER = list(PRESIDENT_LABELS)
-
-
-def _col_to_idx(cell_ref):
-    letters = "".join(ch for ch in cell_ref if ch.isalpha())
-    idx = 0
-    for ch in letters:
-        idx = idx * 26 + ord(ch.upper()) - 64
-    return idx - 1
-
-
-def _read_xlsx_first_sheet(path):
-    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-    with zipfile.ZipFile(path) as zf:
-        root = ET.fromstring(zf.read("xl/worksheets/sheet1.xml"))
-    rows = []
-    for row in root.findall(".//m:sheetData/m:row", ns):
-        cells = {}
-        for cell in row.findall("m:c", ns):
-            idx = _col_to_idx(cell.attrib["r"])
-            node = cell.find("m:is/m:t", ns) if cell.attrib.get("t") == "inlineStr" else cell.find("m:v", ns)
-            cells[idx] = node.text if node is not None and node.text is not None else ""
-        if cells:
-            rows.append([cells.get(i, "") for i in range(max(cells) + 1)])
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows[1:], columns=rows[0])
-
-
-archive = _read_xlsx_first_sheet(ARCHIVE_PATH)
-archive["source"] = "archive"
-
-recent = _read_xlsx_first_sheet(RECENT_PATH)
-recent["fecha"] = pd.to_datetime(recent["Mes"], format="%b %Y", errors="coerce")
-recent["Presidente"] = recent["fecha"].apply(
-    lambda x: "Sheinbaum" if pd.notna(x) and x >= pd.Timestamp("2024-10-01") else "AMLO"
-)
-recent["source"] = "recent"
-
-df_appr = pd.concat([archive, recent], ignore_index=True, sort=False)
-df_appr["fecha"] = pd.to_datetime(df_appr["Mes"], format="%b %Y", errors="coerce")
-df_appr["Aprueba"] = pd.to_numeric(df_appr["Aprueba"], errors="coerce")
-df_appr = df_appr[df_appr["Presidente"] != "Sheinbaum"].copy()
-df_appr["Presidente"] = pd.Categorical(df_appr["Presidente"], categories=PRESIDENT_ORDER, ordered=True)
-df_appr = df_appr.dropna(subset=["fecha", "Aprueba"]).sort_values("fecha")
-
-trend = (
-    df_appr.groupby(["Presidente", "fecha"], observed=True)
-    .agg(mediana=("Aprueba", "median"), n=("Aprueba", "size"))
-    .reset_index()
-    .query("n >= 2")
-)
-
-fig = go.Figure()
-for president in PRESIDENT_ORDER:
-    sub = df_appr[df_appr["Presidente"].astype(str) == president]
-    if sub.empty:
-        continue
-    fig.add_trace(go.Scatter(
-        x=sub["fecha"], y=sub["Aprueba"], mode="markers", name=PRESIDENT_LABELS[president],
-        marker=dict(color=PRESIDENT_COLORS[president], size=5, opacity=0.55),
-        customdata=sub["Encuestadora"],
-        hovertemplate=(
-            f"<b>{PRESIDENT_LABELS[president]}</b><br>%{{x|%b %Y}}: %{{y:.0f}}%"
-            "<br>Encuestadora: %{customdata}<extra></extra>"
-        ),
-    ))
-for president in PRESIDENT_ORDER:
-    sub = trend[trend["Presidente"].astype(str) == president]
-    if sub.empty:
-        continue
-    fig.add_trace(go.Scatter(
-        x=sub["fecha"], y=sub["mediana"], mode="lines",
-        line=dict(width=3, color=PRESIDENT_COLORS[president]),
-        showlegend=False,
-        hovertemplate=f"<b>{PRESIDENT_LABELS[president]} · mediana</b><br>%{{x|%b %Y}}: %{{y:.0f}}%<extra></extra>",
-    ))
-
-fig.update_layout(
-    height=520,
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="IBM Plex Sans", color="#444"),
-    yaxis=dict(title="Aprobación (%)", range=[0, 100], dtick=20, ticksuffix="%",
-               showticklabels=True, tickfont=dict(family="IBM Plex Mono", size=11, color="#444"),
-               gridcolor="rgba(150,150,150,0.25)"),
-    xaxis=dict(showticklabels=True, tickfont=dict(family="IBM Plex Mono", size=11, color="#444"),
-               gridcolor="rgba(150,150,150,0.25)"),
-    legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="center", x=0.5),
-)
-fig.show()
-```
-
-Si bien esta representación es útil y parece direccionalmente correcta, es
+Si bien esta representación parece direccionalmente correcta, es
 importante recordar sus limitaciones: las elecciones presidenciales ocurren
 cada seis años, lo que produce un tamaño de muestra pequeño, incluso si se
 consideran todas las elecciones de la era democrática moderna. Además, los
@@ -708,9 +610,11 @@ votantes no eligen 'ideologías' en las boletas, sino candidatos. Un
 aspirante presidencial poco popular en un ciclo electoral o una estrategia
 de [voto útil](https://es.wikipedia.org/wiki/Voto_útil) podrían sesgar el análisis.
 
-
-
-
+El estadístico británico George Box dijo que "todos los modelos son erróneos,
+pero algunos son útiles". Creo que este espectro político prueba ser útil al simplificar
+un problema complejo en una clasificación entre los territorios del país: ninguna geometría
+puede capturar del todo la complejidad ideológica de México, pero saber aproximadamente
+hacia dónde apunta ya es, en sí mismo, un ejercicio revelador.
 
 [^partidos]: Partido Acción Nacional (PAN) (1994, 2000, 2006, 2012, 2018, 2024); Partido Revolucionario Institucional (PRI) (1994, 2000, 2006, 2012, 2018, 2024); Partido Verde Ecologista de México (PVEM) (1994, 2000, 2006, 2012, 2018, 2024); Partido de la Revolución Democrática (PRD) (1994, 2000, 2006, 2012, 2018, 2024); Partido del Trabajo (PT) (1994, 2000, 2006, 2012, 2018, 2024); Movimiento Ciudadano (antes Convergencia) (MC) (2000, 2006, 2012, 2018, 2024); Partido Nueva Alianza (PANAL) (2006, 2012, 2018); Movimiento Regeneración Nacional (MORENA) (2018, 2024); Partido Auténtico de la Revolución Mexicana (PARM) (1994, 2000); Alternativa Socialdemócrata y Campesina (ASDC) (2006); Partido Alianza Social (PAS) (2000); Partido Centro Democrático (PCD) (2000); Partido Democracia Social (DSPPN) (2000); Partido Demócrata Mexicano (PDM) (1994); Partido Encuentro Social (PES) (2018); Partido Popular Socialista (PPS) (1994); Partido de la Sociedad Nacionalista (PSN) (2000); Partido del Frente Cardenista de Reconstrucción Nacional (PFCRN) (1994)
 
@@ -724,3 +628,11 @@ de [voto útil](https://es.wikipedia.org/wiki/Voto_útil) podrían sesgar el an�
     **Izquierda**: Partido de la Revolución Democrática, Partido del Trabajo, Movimiento Regeneración Nacional, Partido Auténtico de la Revolución Mexicana, Alternativa Socialdemócrata y Campesina, Partido Alianza Social, Partido Popular Socialista, Partido de la Sociedad Nacionalista, Partido del Frente Cardenista de Reconstrucción Nacional.\
     **Centro**: Partido Revolucionario Institucional, Partido Verde Ecologista de México, Movimiento Ciudadano, Partido Nueva Alianza, Partido Centro Democrático, Partido Democracia Social.\
     **Derecha**: Partido Acción Nacional, Partido Demócrata Mexicano, Partido Encuentro Social.
+
+[^simplex]: Aunque los datos en esta clasificación implican tres dimensiones, 
+la restricción de que los votos de las tres deben sumar 100% permite esta representación. Esto 
+no funcionaría en caso de tener cuatro o más ideologías en el modelo.
+
+[^san-luis-potosi]: Otro caso particularmente curioso es San Luis Potosí, donde el segundo
+partido más votado fue el Partido Verde (PVEM). Si bien hay que recordar que este partido 
+se alió con Morena para las elecciones, ningún otro estado muestra un apoyo similar. 
