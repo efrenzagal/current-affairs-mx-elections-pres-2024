@@ -14,15 +14,18 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 import plotly.io as pio
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "data" / "cache" / "hemicycles"
+DB_PATH = REPO_ROOT / "election_data.db"
 
 # ``python aux_scripts/build_hemicycle_cache.py`` puts aux_scripts/ on
 # sys.path, while the allocation modules are imported from the repo package.
@@ -30,8 +33,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-def load_winners(election_id: str):
-    """Load final seats from the official INE integration file."""
+def load_winners(election_id: str, view: str = "electoral"):
+    """Load stable INE seats, optionally overlaid by the latest roster."""
     from aux_scripts.seat_allocations.hemicycle_explorer import (
         INTEGRACION_PATHS,
         load_from_integracion,
@@ -39,7 +42,70 @@ def load_winners(election_id: str):
 
     source_path = REPO_ROOT / INTEGRACION_PATHS[election_id]
     chamber = "DIP" if election_id.startswith("DIP_") else "SEN"
-    return load_from_integracion(str(source_path), chamber=chamber)
+    winners = load_from_integracion(str(source_path), chamber=chamber)
+    winners["election_candidate_name"] = winners["candidate_name"]
+    winners["election_party"] = winners["canonical_party"]
+    # Both current and electoral figures must place each constitutional seat
+    # at the same coordinate. Current affiliation changes only its color/text.
+    winners["layout_party"] = winners["election_party"]
+    winners["roster_status"] = "electoral"
+    if view == "electoral":
+        winners["vote_person_id"] = ""
+        return winners
+    if view != "current":
+        raise ValueError(f"Unknown hemicycle view: {view}")
+
+    id_column = "diputado_id" if chamber == "DIP" else "senador_seat_id"
+    with sqlite3.connect(DB_PATH) as conn:
+        current = pd.read_sql_query(
+            """
+            SELECT r.seat_id, r.current_name, r.current_party, r.member_status,
+                   r.vote_person_id, s.observed_at, s.source_url
+            FROM fact_congress_roster_seat r
+            JOIN dim_congress_roster_snapshot s USING(snapshot_id)
+            WHERE r.chamber = ?
+              AND s.observed_at = (
+                  SELECT MAX(observed_at) FROM dim_congress_roster_snapshot WHERE chamber = ?
+              )
+            """,
+            conn,
+            params=(chamber, chamber),
+        )
+    if len(current) != len(winners):
+        raise ValueError(
+            f"{election_id}: current roster overlay has {len(current)} seats; expected {len(winners)}"
+        )
+    winners = winners.merge(current, left_on=id_column, right_on="seat_id", validate="one_to_one")
+    winners["candidate_name"] = winners["current_name"].fillna("Vacante")
+    winners["party_key"] = winners["current_party"]
+    winners["canonical_party"] = winners["current_party"]
+    winners["roster_status"] = winners["member_status"]
+    winners["vote_person_id"] = winners["vote_person_id"].fillna("")
+    return winners
+
+
+def load_roster_manifest() -> dict:
+    if not DB_PATH.exists():
+        return {}
+    with sqlite3.connect(DB_PATH) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='dim_congress_roster_snapshot'"
+        ).fetchone()
+        if not exists:
+            return {}
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT chamber, observed_at, source_url, source_sha256, roster_row_count,
+                   constitutional_seats
+            FROM dim_congress_roster_snapshot s
+            WHERE observed_at = (
+                SELECT MAX(observed_at) FROM dim_congress_roster_snapshot WHERE chamber = s.chamber
+            )
+            ORDER BY chamber
+            """
+        ).fetchall()
+    return {row["chamber"]: dict(row) for row in rows}
 
 
 def write_text(path: Path, content: str) -> None:
@@ -47,6 +113,19 @@ def write_text(path: Path, content: str) -> None:
     temporary_path = path.with_suffix(f"{path.suffix}.tmp")
     temporary_path.write_text(content, encoding="utf-8")
     temporary_path.replace(path)
+
+
+def seat_coordinates(figure, chamber: str) -> dict[str, tuple[float, float]]:
+    """Return stable-seat coordinates from the figure's click metadata."""
+    seat_index = 5 if chamber == "DIP" else 6
+    coordinates: dict[str, tuple[float, float]] = {}
+    for trace in figure.data:
+        for x, y, customdata in zip(trace.x, trace.y, trace.customdata):
+            seat_id = str(customdata[seat_index])
+            if not seat_id:
+                raise ValueError(f"{chamber}: figure point is missing its stable seat ID")
+            coordinates[seat_id] = (float(x), float(y))
+    return coordinates
 
 
 def main() -> None:
@@ -66,36 +145,61 @@ def main() -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
     completed_ids: list[str] = []
+    roster_manifest = load_roster_manifest()
+    views = ["current", "electoral"] if set(roster_manifest) == {"DIP", "SEN"} else ["electoral"]
 
     for election_id in sorted(INTEGRACION_PATHS):
         print(f"Building {election_id}...")
-        winners = load_winners(election_id)
         expected_seats = 500 if election_id.startswith("DIP_") else 128
-        if len(winners) != expected_seats:
-            raise SystemExit(
-                f"{election_id}: expected {expected_seats} official seats, found {len(winners)}"
+        chamber = "DIP" if election_id.startswith("DIP_") else "SEN"
+        figures_by_view = {}
+        for view in views:
+            winners = load_winners(election_id, view=view)
+            if len(winners) != expected_seats:
+                raise SystemExit(
+                    f"{election_id}: expected {expected_seats} official seats, found {len(winners)}"
+                )
+            figure = build_figure(winners, election_id)
+            figures_by_view[view] = figure
+            write_text(
+                output_dir / f"{election_id}.{view}.figure.json",
+                pio.to_json(figure, validate=False, pretty=False),
             )
-
-        figure = build_figure(winners, election_id)
-        write_text(
-            output_dir / f"{election_id}.figure.json",
-            pio.to_json(figure, validate=False, pretty=False),
-        )
-        write_text(
-            output_dir / f"{election_id}.summary.html",
-            build_summary_html(winners, election_id),
-        )
+            write_text(
+                output_dir / f"{election_id}.{view}.summary.html",
+                build_summary_html(winners, election_id),
+            )
+            # Preserve the original cache contract as the electoral baseline.
+            if view == "electoral":
+                write_text(output_dir / f"{election_id}.figure.json", pio.to_json(figure, validate=False))
+                write_text(output_dir / f"{election_id}.summary.html", build_summary_html(winners, election_id))
+        if {"current", "electoral"}.issubset(figures_by_view):
+            current_coordinates = seat_coordinates(figures_by_view["current"], chamber)
+            electoral_coordinates = seat_coordinates(figures_by_view["electoral"], chamber)
+            if current_coordinates != electoral_coordinates:
+                changed = sum(
+                    current_coordinates.get(seat_id) != coordinate
+                    for seat_id, coordinate in electoral_coordinates.items()
+                )
+                raise ValueError(
+                    f"{election_id}: {changed} seats move between current and electoral views"
+                )
         completed_ids.append(election_id)
-        print(f"  Saved {len(winners)} seats.")
+        print(f"  Saved {expected_seats} seats in {', '.join(views)} view(s).")
 
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "methodology": "Final seat assignments published by INE; no inferred or simulated seats.",
+        "methodology": (
+            "Stable seats and electoral origin from INE; current occupants and parliamentary "
+            "groups from dated official chamber directories."
+        ),
         "source": {
             "name": "INE · Integración de diputaciones y senadurías, PEF 2023–2024",
             "url": "https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/",
             "local_file": INTEGRACION_PATHS["DIP_MR_2024"],
         },
+        "views": views,
+        "rosters": roster_manifest,
         "elections": completed_ids,
     }
     write_text(output_dir / "manifest.json", json.dumps(manifest, indent=2) + "\n")

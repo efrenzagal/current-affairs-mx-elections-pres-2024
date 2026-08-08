@@ -1,0 +1,13 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+votacion_id,INTEGER,Primary key,"Identificador de la votación publicado por el Senado.","Vote identifier published by the Senate.","Positive integer.","Natural source identifier used by the vote-detail pages."
+legislature,INTEGER,Required attribute,"Número de legislatura del Senado.","Senate legislature number.","66 in current data.","Added by ingestion to scope the scraped source."
+url,TEXT,Source reference,"URL completa de la votación en senado.gob.mx.","Full URL of the vote on senado.gob.mx.","HTTPS URL or NULL.","Primary lineage reference for the roll call."
+vote_date,TEXT,Source attribute,"Fecha de la votación.","Date of the vote.","ISO date text or NULL.","Current loaded coverage begins in September 2024."
+period_type,TEXT,Source attribute,"Tipo de periodo legislativo.","Type of legislative period.","Source text or NULL.","For example an ordinary or extraordinary period."
+ordinal_period,TEXT,Source attribute,"Ordinal o identificación del periodo.","Ordinal or identifier of the period.","Source text or NULL.","Preserved from the source index."
+exercise_year,TEXT,Source attribute,"Año de ejercicio legislativo reportado.","Reported legislative exercise year.","Source text or NULL.","Not necessarily identical to the calendar year."
+description,TEXT,Source attribute,"Descripción del asunto sometido a votación.","Description of the matter put to a vote.","Text or NULL.","Primary human-readable vote label."
+vote_type,TEXT,Source attribute,"Tipo de votación reportado por la fuente.","Vote type reported by the source.","Source text or NULL.","Preserved without imposing Cámara terminology."
+en_pro,INTEGER,Reported measure,"Total de votos en pro mostrado por el Senado.","Total votes in favor reported by the Senate.","Non-negative integer or NULL.","Summary value used for source reconciliation."
+en_contra,INTEGER,Reported measure,"Total de votos en contra mostrado por el Senado.","Total votes against reported by the Senate.","Non-negative integer or NULL.","Summary value used for source reconciliation."
+abstencion,INTEGER,Reported measure,"Total de abstenciones mostrado por el Senado.","Total abstentions reported by the Senate.","Non-negative integer or NULL.","Summary value used for source reconciliation."

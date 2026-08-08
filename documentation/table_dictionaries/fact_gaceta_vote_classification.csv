@@ -1,0 +1,12 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+gaceta_vote_id,TEXT,Primary key; foreign key,"Votación de Gaceta clasificada.","Classified Gaceta vote.","References dim_gaceta_vote.gaceta_vote_id.","At most one current classification is stored per vote."
+origen,TEXT,Required classification,"Origen legislativo o procedimental inferido para la votación.","Inferred legislative or procedural origin of the vote.","Controlled model-output label.","Defined by the classification schema and prompt version."
+etapa_votacion,TEXT,Required classification,"Etapa del procedimiento legislativo inferida.","Inferred stage of the legislative procedure.","Controlled model-output label.","Interpret together with tipo_instrumento and evidencia."
+tipo_instrumento,TEXT,Required classification,"Tipo de instrumento legislativo inferido.","Inferred type of legislative instrument.","Controlled model-output label.","Model-produced value rather than a scraped source field."
+tema_politica,TEXT,Required classification,"Tema de política pública principal inferido.","Inferred primary public-policy topic.","Controlled model-output label.","Used by the Gaceta analysis interface."
+confianza,REAL,Required QA measure,"Confianza asignada por el clasificador.","Confidence assigned by the classifier.","0.0-1.0.","A model score; not an empirical probability guarantee."
+requiere_revision,INTEGER,Required QA flag,"Indica si la clasificación requiere revisión humana.","Whether the classification requires human review.","0 = no, 1 = yes.","Derived from the structured model output."
+evidencia,TEXT,Required audit attribute,"Evidencia textual breve que sustenta la clasificación.","Brief textual evidence supporting the classification.","Non-empty text.","Retained for review and interpretability."
+model,TEXT,Required lineage attribute,"Modelo utilizado para producir la clasificación.","Model used to produce the classification.","Model identifier.","Supports reproducibility and comparison across classification runs."
+prompt_version,TEXT,Required lineage attribute,"Versión del prompt o esquema de clasificación.","Version of the classification prompt or schema.","Version identifier.","Use with model when auditing changes."
+classified_at,TEXT,Required lineage attribute,"Marca temporal registrada al clasificar.","Timestamp recorded when classification occurred.","Timestamp text.","Produced by the classification pipeline."

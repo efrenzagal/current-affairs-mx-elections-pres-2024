@@ -13,3 +13,4 @@ review_status,TEXT,Review flag,Estado de revision para nombres no resueltos o am
 suggested_cvegeo,TEXT,Review aid,Mejor sugerencia por similitud de nombre.,Best name-similarity suggestion.,Five-digit CVEGEO or NULL.,Not applied automatically.
 suggested_municipio,TEXT,Review aid,Nombre INEGI asociado a la sugerencia.,INEGI name associated with the suggestion.,Text or NULL.,Not applied automatically.
 similarity,REAL,Review aid,Puntaje de similitud de nombre.,Name-similarity score.,0-1 or NULL.,For review prioritization only; not a confidence guarantee.
+created_at,TIMESTAMP,System field,Marca de tiempo de insercion generada por SQLite.,SQLite-generated insertion timestamp.,CURRENT_TIMESTAMP default.,Warehouse-only field.

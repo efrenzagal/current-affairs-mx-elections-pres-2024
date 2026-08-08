@@ -376,7 +376,8 @@ def _tile_grid_figure(df: pd.DataFrame, facet_col: str, facet_col_wrap: int | No
 
 
 def _calendar_grid_figure(df: pd.DataFrame, year_col: str, year_levels: list,
-                           columns: int, marker_size: int = 16, row_px: int = 24):
+                           columns: int, marker_size: int = 16, row_px: int = 24,
+                           id_col: str = "gaceta_vote_id"):
     """Year-faceted tile grid sized so squares never overlap, regardless of how
     many votes fall in a given year (each grid row gets a fixed pixel height)."""
     row_counts = {
@@ -410,7 +411,7 @@ def _calendar_grid_figure(df: pd.DataFrame, year_col: str, year_levels: list,
                     marker=dict(size=marker_size, symbol="square", color=VOTE_COLORS[vote_level],
                                 line=dict(width=0.4, color="white")),
                     name=vote_level, legendgroup=vote_level, showlegend=(i == 1),
-                    customdata=s[["tooltip", "gaceta_vote_id"]],
+                    customdata=s[["tooltip", id_col]],
                     hovertemplate="%{customdata[0]}<extra></extra>",
                 ),
                 row=i, col=1,
@@ -917,6 +918,7 @@ def render_gaceta(
     view: str,
     *,
     diputado_id: str | None = None,
+    gaceta_deputy_id: str | None = None,
     candidate_name: str | None = None,
     randomize_deputy: bool = False,
 ):
@@ -934,6 +936,16 @@ def render_gaceta(
     all_legs = sorted(votes_df["legislature"].unique(), reverse=True)
 
     if view == "Diputado":
+        if gaceta_deputy_id is not None:
+            render_deputy_view(
+                66,
+                database_version,
+                votes_df,
+                requested_name=candidate_name,
+                requested_deputy_id=gaceta_deputy_id,
+                show_selector=False,
+            )
+            return
         if diputado_id is not None:
             mapping = load_dim_diputado(diputado_id, database_version)
             if mapping.empty:

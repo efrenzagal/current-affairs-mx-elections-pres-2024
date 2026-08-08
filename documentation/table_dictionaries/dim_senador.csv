@@ -1,0 +1,3 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+senador_id,INTEGER,Primary key,"Identificador de la identidad senatorial observada en las votaciones del Senado.","Identifier for a senator identity observed in Senate roll calls.","Positive integer.","Derived from the scraped Senado vote-detail data."
+senador_name,TEXT,Required attribute,"Nombre de la senadora o el senador tal como se normaliza desde la fuente.","Senator name as normalized from the source.","Non-empty text.","dim_senadores provides the audited bridge from official INE seats to this observed identity domain."

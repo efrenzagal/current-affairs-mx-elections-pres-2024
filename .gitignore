@@ -19,3 +19,6 @@ data/*
 
 .RData
 .Rhistory
+
+# Stray lockfile from running npx in the repo root (the Node project is web/)
+/package-lock.json

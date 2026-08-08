@@ -1,0 +1,6 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+votacion_id,INTEGER,Composite primary key; logical foreign key,"Votación del Senado en la que se observó el voto individual.","Senate vote on which the individual vote was observed.","Values from dim_senado_vote.votacion_id.","Part of the composite primary key."
+senador_id,INTEGER,Composite primary key; logical foreign key,"Identidad senatorial observada en la lista de detalle.","Senator identity observed in the detail list.","Values from dim_senador.senador_id.","Part of the composite primary key."
+grupo_parlamentario,TEXT,Time-varying attribute,"Grupo parlamentario reportado para la persona en esta votación.","Parliamentary group reported for the person on this vote.","Source label or NULL.","Stored on the fact because affiliation can change over time."
+voto,TEXT,Measure,"Voto individual normalizado.","Normalized individual vote.","PRO, CONTRA, ABSTENCIÓN, AUSENTE, or NULL.","The ingestion QA flags unexpected values."
+voto_detail,TEXT,Source attribute,"Texto detallado del voto conservado desde la fuente.","Detailed vote text retained from the source.","Source text or NULL.","Supports auditing of the normalized voto value."

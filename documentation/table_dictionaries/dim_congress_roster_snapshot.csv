@@ -1,0 +1,10 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+snapshot_id,TEXT,Primary key,"Identificador de una observación fechada del directorio oficial.","Identifier for one dated official-directory observation.","DIP_/SEN_ timestamp and hash.","Append-only snapshot key."
+chamber,TEXT,Required attribute,"Cámara observada.","Observed chamber.","DIP or SEN.","Namespaces the two official sources."
+legislature,INTEGER,Required attribute,"Legislatura del directorio.","Directory legislature.","66.","Current prototype covers LXVI."
+observed_at,TEXT,Required lineage,"Momento UTC de la consulta.","UTC observation timestamp.","ISO-8601.","First-observed time; not necessarily the legal effective date of a change."
+source_url,TEXT,Required lineage,"Directorio oficial consultado.","Official directory consulted.","Official Cámara or Senado URL.","Roll-call pages are not used as the primary roster source."
+source_sha256,TEXT,Required lineage,"Hash del HTML fuente.","SHA-256 of the source HTML.","64 hexadecimal characters.","Supports reproducibility and change detection."
+roster_row_count,INTEGER,QA measure,"Personas publicadas por el directorio.","People published by the directory.","500 Cámara; up to 128 Senado.","Can be below constitutional seats when the official in-office directory has a vacancy."
+constitutional_seats,INTEGER,Required attribute,"Escaños constitucionales de la cámara.","Constitutional chamber seats.","500 or 128.","Used to reconcile explicit vacancies."
+created_at,TIMESTAMP,System field,"Marca de creación local.","Local creation timestamp.","SQLite CURRENT_TIMESTAMP.","Warehouse provenance."

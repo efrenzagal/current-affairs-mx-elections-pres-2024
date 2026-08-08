@@ -38,6 +38,7 @@ from aux_scripts.seat_allocations.common import (
 from aux_scripts.seat_allocations import diputados as dip_mod
 from aux_scripts.seat_allocations import senadores as sen_mod
 from ingestion.diputados_ingest import diputado_id_for_row
+from ingestion.senadores_ingest import senador_id_for_row
 from ui.person_names import display_person_name
 
 DB_PATH  = "election_data.db"
@@ -130,6 +131,8 @@ PARTY_COLORS: dict[str, str] = {
     "PASC":             "#607D8B",
     "IND":              "#888888",
     "CAND_INDEPENDIENTE": "#888888",
+    "SG":                "#777777",
+    "VACANTE":           "#454545",
 }
 
 COALITION_TO_PARTY: dict[str, str] = _C2P
@@ -696,6 +699,7 @@ def load_from_integracion(path: str, chamber: str = "DIP") -> pd.DataFrame:
 
         rows.append({
             "diputado_id": diputado_id_for_row(r) if chamber == "DIP" else None,
+            "senador_seat_id": senador_id_for_row(r) if chamber == "SEN" else None,
             "party_key": party,
             "canonical_party": COALITION_TO_PARTY.get(party, party),
             "id_estado": int(r["ID_ESTADO"]) if pd.notna(r["ID_ESTADO"]) else 0,
@@ -779,9 +783,14 @@ def sorted_winners(
     color_col = "party_key" if view_mode == "coalition" else "canonical_party"
 
     if sort_by == "partido":
-        seat_counts = df.groupby(color_col)["id_distrito_federal"].count().sort_values(ascending=False)
+        # ``layout_party`` is the immutable election-time anchor used by the
+        # current-composition cache.  Colors may change with parliamentary
+        # affiliation, but a constitutional seat must never jump coordinates
+        # when the user switches views.
+        layout_col = "layout_party" if "layout_party" in df.columns else color_col
+        seat_counts = df.groupby(layout_col)["id_distrito_federal"].count().sort_values(ascending=False)
         order = {k: i for i, k in enumerate(seat_counts.index)}
-        df["_sort_key"] = df[color_col].map(order)
+        df["_sort_key"] = df[layout_col].map(order)
         # MR seats before RP seats within each party
         df["_type_order"] = (df["seat_type"] == "RP").astype(int)
         df = df.sort_values(["_sort_key", "_type_order", "id_estado", "id_distrito_federal"])
@@ -835,7 +844,21 @@ def build_trace_data(
             str(row.get("nombre_estado", "")),
             location,
             str(row.get("diputado_id", "") or ""),
+            str(row.get("senador_seat_id", "") or ""),
+            str(row.get("vote_person_id", "") or ""),
+            str(row.get("roster_status", "electoral") or "electoral"),
+            str(row.get("election_candidate_name", candidate) or ""),
+            str(row.get("election_party", row.get("canonical_party", key)) or ""),
         ])
+
+        status = str(row.get("roster_status", "electoral") or "electoral")
+        status_line = "" if status == "electoral" else f"<br>Estatus: {status.replace('_', ' ').title()}"
+        election_party = str(row.get("election_party", "") or "")
+        origin_line = (
+            f"<br>Partido electoral: {election_party}"
+            if status != "electoral" and election_party and election_party != str(row[color_col])
+            else ""
+        )
 
         if seat_type == "MR":
             loc = location or f"D{int(row['id_distrito_federal'])}"
@@ -848,6 +871,7 @@ def build_trace_data(
                 f"Partido: {row[color_col]}<br>"
                 f"Votos: {int(row['votes']):,}<br>"
                 f"% del total: {row['pct_winner']:.1f}%"
+                f"{status_line}{origin_line}"
             )
         elif seat_type == "FM":
             candidate_line = (
@@ -859,6 +883,7 @@ def build_trace_data(
                 f"Partido: {key}<br>"
                 f"Votos: {int(row['votes']):,}<br>"
                 f"% del total: {row['pct_winner']:.1f}%"
+                f"{status_line}{origin_line}"
             )
         else:
             candidate_line = (
@@ -869,6 +894,7 @@ def build_trace_data(
                 f"{candidate_line}"
                 f"Partido: {key}<br>"
                 f"Asignado por representación proporcional"
+                f"{status_line}{origin_line}"
             )
 
     for k in out:

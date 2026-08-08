@@ -1,7 +1,8 @@
 # Current affairs mx 
 
 This repository builds a normalized warehouse of Mexican federal election
-results and serves analysis-ready files through a Streamlit dashboard.
+results and legislative roll-call votes, and serves analysis-ready files
+through a Streamlit dashboard.
 
 The most useful way to understand the project is as a three-stage pipeline:
 
@@ -13,6 +14,13 @@ official INE/raw files
   -> ingestion/electoral_materialize.py builds Streamlit parquet/GeoJSON artifacts
   -> ine_explorer_v2.py renders the app
 ```
+
+Roll-call votes for both chambers run on a parallel track into the same
+warehouse. Those pipelines have their own documentation:
+
+- `documentation/diputados_infra.md` — Cámara de Diputados / Gaceta
+  Parlamentaria (legislatures 58–66).
+- `documentation/senado_infra.md` — Senado de la República (legislature 66).
 
 ## Quick Start
 
@@ -55,10 +63,13 @@ The Streamlit dashboard has five sections in a segmented navigation control:
   turnout metrics, charts, and municipal winner maps.
 - **Aprobación** — presidential approval observations, monthly medians, and
   pollster house-effect views from Zedillo through Sheinbaum.
-- **Congreso · Composición** — official 2024 Chamber of Deputies and Senate
-  seat assignments from INE, shown as pre-built hemicycles and summaries.
-  Selecting a deputy seat opens that person's Gaceta voting history below the
-  composition charts when a reliable cross-source name match exists.
+- **Congreso · Composición** — official Chamber of Deputies and Senate seat
+  assignments from INE, shown side by side as pre-built hemicycles and
+  summaries, with a radio selector for any electoral year present in both
+  chambers' caches. Selecting a seat opens that person's roll-call history
+  below the composition charts when a reliable cross-source identity match
+  exists: deputy seats drill into the Gaceta Parlamentaria history, senator
+  seats into the Senado.gob.mx history.
 - **Congreso · Votos por diputado** — a deputy-level Cámara de Diputados
   roll-call voting calendar. Each new visit starts with a random
   deputy/legislature pair; selectors remain available for deliberate lookup.
@@ -79,8 +90,9 @@ available cycle.
 - Federal election results originate in official **INE** files, then pass
   through the cycle-specific converters and the normalized warehouse.
 - Municipality geometry originates in the **INEGI Marco Geoestadístico 2024**.
-- Legislative roll calls originate in the Cámara de Diputados’ **Gaceta
-  Parlamentaria**; individual vote pages retain their source URLs.
+- Cámara de Diputados roll calls originate in the **Gaceta Parlamentaria**;
+  Senado roll calls originate in **Senado.gob.mx**. Individual vote pages
+  retain their source URLs in both cases.
 - Presidential approval data is stored locally from **Oraculus**-compiled
   spreadsheets and is analyzed here as a secondary series, not collected by
   the app in real time.
@@ -113,6 +125,9 @@ Open only the files needed for the task:
 - Metric cards and badges used by the current app, plus reusable scorecard and
   results-table components retained for future views: `ui/tables.py`
 - Gaceta Parlamentaria section: `ui/gaceta.py`
+- Senado roll-call section: `ui/senado.py`
+- Congressional composition hemicycles and seat drill-down: `ui/hemicycle.py`
+- Person-name normalization and cross-source matching: `ui/person_names.py`
 - Shared constants and pure helpers: `ui/common.py`
 - Streamlit-ready parquet and GeoJSON generation: `ingestion/electoral_materialize.py`
 - Clean parquet to SQLite ingestion: `ingestion/electoral_ingest.py`
@@ -120,7 +135,10 @@ Open only the files needed for the task:
   `ingestion/raw_electoral_data_converters/`
 - Warehouse schema meaning: `documentation/table_dictionaries/overview.csv`
 - Column-level table dictionaries: `documentation/table_dictionaries/*.csv`
+- Roll-call pipeline detail: `documentation/diputados_infra.md`,
+  `documentation/senado_infra.md`
 - Validation/reference scripts: `aux_scripts/`
+- Unit tests: `tests/`
 
 Avoid reading large `data/` artifacts unless the task explicitly requires
 debugging data values, joins, row counts, or generated output.
@@ -161,6 +179,18 @@ The render functions are split across focused modules:
 - `ui/gaceta.py` — the entire Gaceta Parlamentaria section: the deputy voting
   calendar and the LLM-classified vote explorer (filters, topic/consensus
   charts, vote-detail drilldown). Call `render_gaceta()` from the main app.
+- `ui/senado.py` — the Senado de la República roll-call section: senator vote
+  calendar and party-grid vote detail. Self-contained loaders and controls,
+  but reuses `ui/gaceta.py`'s tile/calendar grid helpers rather than
+  re-deriving the same layout math. Call `render_senado()`.
+- `ui/hemicycle.py` — the **Congreso · Composición** section: loads the
+  pre-built hemicycle figures from `data/cache/hemicycles/`, renders both
+  chambers side by side, and routes a seat click into `render_gaceta()` or
+  `render_senado()`. Call `render_hemicycle_composition()`.
+- `ui/person_names.py` — normalization, display formatting, and
+  order-independent token matching for person names. Used by both identity
+  bridges to reconcile INE's "given names + surnames" ordering against the
+  chambers' "surnames + given names" ordering. No streamlit dependency.
 
 ### `ingestion/electoral_materialize.py`
 
@@ -263,6 +293,23 @@ documented in `documentation/table_dictionaries/`.
   counts and deputy-level roll-call rows.
 - `parse_gaceta_vote_batch.py` — batch version; walks cached metadata and
   produces parquet outputs ready for warehouse ingestion.
+- `classify_gaceta_votes.py` — optional LLM topic/stage classification via the
+  OpenAI Batch API (`prepare` → `submit` → `retrieve` → `apply`).
+
+Full detail: `documentation/diputados_infra.md`.
+
+### `aux_scripts/senado_votes/`
+
+Scrapes and parses Senado de la República roll-call votes for legislature 66,
+the only legislature senado.gob.mx publishes structured vote pages for.
+
+- `crawl_senado_votes.py` — fetches the legislature's vote list, each vote
+  page, and the AJAX endpoint that serves the senator-by-senator breakdown.
+  Same cautious cache/backoff pattern as the Gaceta crawler; the default run
+  only fetches a handful of votes, use `--all-votes` for the full legislature.
+  Writes CSVs to `data/clean_senado_votes/`.
+
+Full detail: `documentation/senado_infra.md`.
 
 ### `aux_scripts/qa_reports/`
 
@@ -358,7 +405,7 @@ The normalized warehouse uses these tables:
 - `dim_candidatos`: candidate catalog rows where available.
 - `fact_casilla_vote`: long-format vote totals by election/casilla/party.
 
-**Legislative roll-call votes (Gaceta Parlamentaria)**
+**Cámara de Diputados roll-call votes (Gaceta Parlamentaria)**
 
 - `dim_gaceta_vote`: one row per Gaceta roll-call vote page (metadata, URL,
   legislature, chamber).
@@ -368,6 +415,30 @@ The normalized warehouse uses these tables:
 - `fact_gaceta_vote_summary`: summary vote counts by choice and parliamentary
   group for each roll-call vote.
 - `fact_gaceta_deputy_vote`: individual deputy vote records per roll-call vote.
+- `fact_gaceta_vote_classification`: LLM-assigned topic, origin, and stage
+  labels per vote, with model/prompt provenance.
+
+**Senado de la República roll-call votes (Senado.gob.mx)**
+
+- `dim_senado_vote`: one row per Senado roll-call vote page.
+- `dim_senador`: normalized senator names observed across roll-call lists.
+- `dim_senadores`: 128 official 2024 senator seat assignments and the identity
+  bridge to `dim_senador`.
+- `fact_senador_vote`: individual senator vote records per roll-call vote.
+
+**Current Congreso rosters**
+
+- `dim_congress_roster_snapshot`: provenance and cutoff for each official
+  Cámara/Senado directory snapshot.
+- `fact_congress_roster_seat`: all 500/128 constitutional seats at that
+  cutoff, including the current occupant/group or an explicit vacancy.
+
+These tables do not replace the INE dimensions. They keep current tenure and
+parliamentary affiliation separate from the person and party elected in 2024.
+
+The two chambers are separate namespaces end to end — vote IDs, identity
+tables, and vote-choice vocabularies do not overlap. Never merge or aggregate
+across them.
 
 Start with `documentation/table_dictionaries/overview.csv` for row grain,
 primary keys, joins, and purpose. Use the other CSVs in
@@ -385,12 +456,20 @@ primary keys, joins, and purpose. Use the other CSVs in
 > `SELECT DISTINCT id_estado, nombre_estado FROM dim_geography WHERE
 > election_id = ?` rather than joining it into the vote query.
 
-Rebuild the deputy identity bridge after refreshing either the official INE
-integration or the Gaceta warehouse:
+Rebuild the identity bridges after refreshing either the official INE
+integration or a chamber's roll-call warehouse:
 
 ```bash
 python -m ingestion.diputados_ingest
+python -m ingestion.senadores_ingest
 ```
+
+Both bridges are strict: they refuse to commit unless every official seat
+resolves, IDs are unique, and no seat maps to more than one roll-call
+identity. Manually verified aliases live in `AUDITED_GACETA_NAME_OVERRIDES`
+in `ingestion/diputados_ingest.py`, each annotated with why. Do not loosen
+the global fuzzy-match threshold to absorb a one-off — that risks linking two
+different legislators with similar names.
 
 ## Common Workflows
 
@@ -403,6 +482,8 @@ Usually open:
 - `ui/charts.py` — for bar chart, ternary, or timeseries changes
 - `ui/tables.py` — for scorecards or results table changes
 - `ui/gaceta.py` — for anything in the Gaceta Parlamentaria section
+- `ui/senado.py` — for anything in the Senado roll-call section
+- `ui/hemicycle.py` — for the composition hemicycles or seat drill-down
 - `ui/common.py` — for constants like `CYCLE_BLOCS`, `PARTY_GROUPS`, colors
 
 Then run:
@@ -470,17 +551,22 @@ python3 aux_scripts/seat_allocations/hemicycle_explorer.py
 This opens an interactive hemicycle in the browser. Use `diputados.py` or
 `senadores.py` directly for tabular seat counts or QA against official results.
 
-To refresh the pre-built assets used by the **Congreso · Composición** tab:
+To refresh the official rosters and pre-built assets used by the
+**Congreso · Composición** tab (no vote recrawl is involved):
 
 ```bash
+python3 aux_scripts/congress_rosters/crawl_congress_rosters.py --refresh
+python3 -m ingestion.congress_roster_ingest
 python3 aux_scripts/build_hemicycle_cache.py
 ```
 
-The command reads the local copy of INE's
+The roster collector downloads only the official member directories. The
+cache builder combines their latest audited snapshot with the local copy of INE's
 `INTEGRACION_CARGOS_PEF_2024.csv` and writes ignored files under
-`data/cache/hemicycles/`. It refuses to build unless it finds exactly 500
-deputy seats and 128 senate seats. Streamlit only loads and visualizes those
-official assignments; it does not calculate or infer seats. Source:
+`data/cache/hemicycles/`. Streamlit offers separate current-composition and
+2024-electoral-result views. Vacancies and directory entries marked as on
+leave remain explicit rather than being silently assigned to an old occupant.
+Source for the electoral baseline:
 [INE · Integración de diputaciones y senadurías, PEF 2023–2024](https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/).
 
 ### Scrape and ingest Gaceta roll-call votes
@@ -504,6 +590,28 @@ python3 ingestion/gaceta_ingest.py
 python3 ingestion/gaceta_materialize.py --force
 ```
 
+### Scrape and ingest Senado roll-call votes
+
+Usually open:
+
+- `aux_scripts/senado_votes/crawl_senado_votes.py`
+- `ingestion/senado_ingest.py`
+
+Then run:
+
+```bash
+# Crawl + parse in one step (cache/backoff included; omit --all-votes to sample)
+python3 aux_scripts/senado_votes/crawl_senado_votes.py --all-votes
+
+# Load parsed CSVs into the warehouse, then rebuild the identity bridge
+/usr/bin/python3 ingestion/senado_ingest.py
+python -m ingestion.senadores_ingest
+```
+
+There is no Senado equivalent of `gaceta_materialize.py` yet — alignment,
+cohesion, and classification metrics exist for the Cámara only. See
+`documentation/senado_infra.md`.
+
 ### Update warehouse schema
 
 Usually open:
@@ -512,6 +620,45 @@ Usually open:
 - `ingestion/electoral_materialize.py`
 - `documentation/table_dictionaries/*.csv`
 - `ine_explorer_v2.py` only if app-facing columns changed
+
+## Tests
+
+`tests/` holds unit tests for pure logic that is expensive to verify by
+running the pipeline — currently the identity-bridge resolution rules in
+`ingestion/diputados_ingest.py`.
+
+```bash
+/usr/bin/python3 -m unittest discover tests
+```
+
+## `web/` — Brújula Legislativa (prototype)
+
+`web/` is a separate, **prototype-stage** Next.js single-page app that
+presents the legislature-66 roll-call data as an interactive hemicycle for
+both chambers. It is not part of the Streamlit pipeline and does not run in
+this repo's Python environment.
+
+It is a **static snapshot** application: `web/scripts/export_gaceta_web.py`
+reads `election_data.db` plus the INE integration CSV and materializes two
+JSON files under `web/public/data/`. The browser loads those directly — there
+is no live database at runtime.
+
+```bash
+python3 web/scripts/export_gaceta_web.py   # refresh snapshots from the warehouse
+cd web && npm test                          # production build + data invariants
+```
+
+It deploys to **Cloudflare Workers** (`npm run deploy`). It was originally
+scaffolded onto OpenAI Sites; that coupling has been removed.
+
+Read `web/README.md` before changing anything there: it documents the export
+shape, the interaction invariants, and the deploy steps. Two things that
+matter from outside `web/`:
+
+- Changing warehouse schema for the deputy/senator seat, vote, or
+  classification tables can break the exporter. Rerun it and `npm test`.
+- A Cloudflare deploy is public — there is no login gate. Publishing is a
+  deliberate choice, not a default.
 
 ## Git and Data Policy
 
@@ -528,10 +675,20 @@ The intended code review surface is usually:
 If Git says a path under `data/` is ignored, existing tracked files can still
 record modifications, but new ignored files require `git add -f`.
 
+`web/` carries its own `.gitignore` (`node_modules/`, `dist/`, `.wrangler/`).
+Its generated snapshots under `web/public/data/` are several MB of derived
+JSON — treat them like other materialized artifacts and stage them only when
+deliberately refreshed.
+
 ## Notes for AI Assistants
 
 - Prefer reading this README, `documentation/table_dictionaries/overview.csv`,
   and the specific target file before scanning the repo broadly.
+- For roll-call work, read `documentation/diputados_infra.md` or
+  `documentation/senado_infra.md` first — they are more specific than this
+  file. For `web/`, read `web/README.md`.
+- Never traverse `web/node_modules/`; it is ~30k files. Use `web/`'s own
+  source paths listed in `web/README.md`.
 - Do not open `data/materialized/*.parquet` or large raw files unless the task
   is explicitly about data debugging.
 - For generated GeoJSON diffs, use summary commands (`git diff --stat`,
