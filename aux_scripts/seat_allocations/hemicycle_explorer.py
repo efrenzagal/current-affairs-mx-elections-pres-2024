@@ -133,6 +133,7 @@ PARTY_COLORS: dict[str, str] = {
     "CAND_INDEPENDIENTE": "#888888",
     "SG":                "#777777",
     "VACANTE":           "#454545",
+    "LICENCIA":          "#8A6D3B",
 }
 
 COALITION_TO_PARTY: dict[str, str] = _C2P
@@ -161,9 +162,13 @@ def _year(election_id: str) -> int:
     return int(election_id.rsplit("_", 1)[-1])
 
 
-def load_composicion_dip(election_id: str, conn: sqlite3.Connection) -> pd.DataFrame:
+def _legacy_load_composicion_dip(election_id: str, conn: sqlite3.Connection) -> pd.DataFrame:
     """
-    Legacy reference loader, retained for historical research only.
+    Deprecated reference loader retained only to reproduce earlier research.
+
+    This is deliberately private and is never used by Streamlit because its
+    quota-fill party reassignment does not identify the owner of a particular
+    constitutional seat.
 
     Build 500 seat rows from the local composicion CSV.
     MR seats reuse warehouse district winners for geography/tooltips.
@@ -250,8 +255,8 @@ def load_composicion_dip(election_id: str, conn: sqlite3.Connection) -> pd.DataF
     return pd.concat([mr_geo.reset_index(drop=True), df_rp], ignore_index=True)
 
 
-def load_composicion_sen(election_id: str, conn: sqlite3.Connection) -> pd.DataFrame:
-    """Legacy reference loader, retained for historical research only.
+def _legacy_load_composicion_sen(election_id: str, conn: sqlite3.Connection) -> pd.DataFrame:
+    """Deprecated reference loader retained only to reproduce earlier research.
 
     MR/FM seats are derived from actual state-level vote order (warehouse),
     ensuring each state's FM seat always goes to its second-place party.
@@ -849,14 +854,21 @@ def build_trace_data(
             str(row.get("roster_status", "electoral") or "electoral"),
             str(row.get("election_candidate_name", candidate) or ""),
             str(row.get("election_party", row.get("canonical_party", key)) or ""),
+            str(row.get("reported_current_party", "") or ""),
         ])
 
         status = str(row.get("roster_status", "electoral") or "electoral")
         status_line = "" if status == "electoral" else f"<br>Estatus: {status.replace('_', ' ').title()}"
         election_party = str(row.get("election_party", "") or "")
+        reported_current_party = str(row.get("reported_current_party", "") or "")
         origin_line = (
             f"<br>Partido electoral: {election_party}"
             if status != "electoral" and election_party and election_party != str(row[color_col])
+            else ""
+        )
+        directory_party_line = (
+            f"<br>Grupo parlamentario registrado: {reported_current_party}"
+            if status == "licencia" and reported_current_party
             else ""
         )
 
@@ -871,7 +883,7 @@ def build_trace_data(
                 f"Partido: {row[color_col]}<br>"
                 f"Votos: {int(row['votes']):,}<br>"
                 f"% del total: {row['pct_winner']:.1f}%"
-                f"{status_line}{origin_line}"
+                f"{status_line}{origin_line}{directory_party_line}"
             )
         elif seat_type == "FM":
             candidate_line = (
@@ -883,7 +895,7 @@ def build_trace_data(
                 f"Partido: {key}<br>"
                 f"Votos: {int(row['votes']):,}<br>"
                 f"% del total: {row['pct_winner']:.1f}%"
-                f"{status_line}{origin_line}"
+                f"{status_line}{origin_line}{directory_party_line}"
             )
         else:
             candidate_line = (
@@ -894,7 +906,7 @@ def build_trace_data(
                 f"{candidate_line}"
                 f"Partido: {key}<br>"
                 f"Asignado por representación proporcional"
-                f"{status_line}{origin_line}"
+                f"{status_line}{origin_line}{directory_party_line}"
             )
 
     for k in out:
@@ -1057,7 +1069,9 @@ def build_figure(winners: pd.DataFrame, election_id: str) -> go.Figure:
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
-def build_election_html(conn: sqlite3.Connection, election_id: str) -> str:
+def build_election_html(
+    conn: sqlite3.Connection, election_id: str, *, allow_vote_approximation: bool = False
+) -> str:
     """Build the flex-row div (hemicycle + table) for one election."""
     print(f"\n  Building {election_id}...")
 
@@ -1066,6 +1080,9 @@ def build_election_html(conn: sqlite3.Connection, election_id: str) -> str:
         chamber = "DIP" if election_id.startswith("DIP") else "SEN"
         print("    Using final INE integration")
         winners = load_from_integracion(integracion_path, chamber=chamber)
+    elif not allow_vote_approximation:
+        print("    Skipping: no final INE integration (vote approximation not enabled)")
+        return ""
     elif election_id.startswith("DIP"):
         print("    Computing an unofficial vote-based approximation")
         winners = dip_winners_from_votes(conn, election_id)

@@ -33,7 +33,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 
-def load_winners(election_id: str, view: str = "electoral"):
+def load_winners(election_id: str, view: str = "electoral", as_of: str | None = None):
     """Load stable INE seats, optionally overlaid by the latest roster."""
     from aux_scripts.seat_allocations.hemicycle_explorer import (
         INTEGRACION_PATHS,
@@ -65,11 +65,12 @@ def load_winners(election_id: str, view: str = "electoral"):
             JOIN dim_congress_roster_snapshot s USING(snapshot_id)
             WHERE r.chamber = ?
               AND s.observed_at = (
-                  SELECT MAX(observed_at) FROM dim_congress_roster_snapshot WHERE chamber = ?
+                  SELECT MAX(observed_at) FROM dim_congress_roster_snapshot
+                  WHERE chamber = ? AND (? IS NULL OR observed_at < ?)
               )
             """,
             conn,
-            params=(chamber, chamber),
+            params=(chamber, chamber, as_of, f"{as_of}T23:59:59.999999+00:00" if as_of else None),
         )
     if len(current) != len(winners):
         raise ValueError(
@@ -77,11 +78,92 @@ def load_winners(election_id: str, view: str = "electoral"):
         )
     winners = winners.merge(current, left_on=id_column, right_on="seat_id", validate="one_to_one")
     winners["candidate_name"] = winners["current_name"].fillna("Vacante")
-    winners["party_key"] = winners["current_party"]
-    winners["canonical_party"] = winners["current_party"]
+    winners["reported_current_party"] = winners["current_party"]
+    display_party = winners["current_party"].copy()
+    display_party = display_party.mask(winners["member_status"].eq("licencia"), "LICENCIA")
+    display_party = display_party.mask(winners["member_status"].eq("vacante"), "VACANTE")
+    winners["party_key"] = display_party
+    winners["canonical_party"] = display_party
     winners["roster_status"] = winners["member_status"]
     winners["vote_person_id"] = winners["vote_person_id"].fillna("")
     return winners
+
+
+def load_composition_dates() -> list[str]:
+    """Dates for which both chambers have an official directory snapshot."""
+    if not DB_PATH.exists():
+        return []
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT chamber, substr(observed_at, 1, 10) AS observed_date
+            FROM dim_congress_roster_snapshot
+            GROUP BY chamber, observed_date
+            """
+        ).fetchall()
+    by_chamber = {
+        chamber: {date for row_chamber, date in rows if row_chamber == chamber}
+        for chamber in ("DIP", "SEN")
+    }
+    return sorted(by_chamber["DIP"] & by_chamber["SEN"])
+
+
+def load_temporal_history() -> dict:
+    """Serialize compact observed seat and vote-party histories for UI drill-down."""
+    with sqlite3.connect(DB_PATH) as conn:
+        occupancy = pd.read_sql_query(
+            """
+            SELECT chamber, seat_id, occupant_name, party_key, status,
+                   valid_from, valid_to, vote_person_id
+            FROM fact_congress_seat_occupancy
+            ORDER BY chamber, seat_id, valid_from
+            """,
+            conn,
+        )
+        membership = pd.read_sql_query(
+            """
+            SELECT chamber, person_id, party_key, valid_from, valid_to,
+                   observations, conflicting_observations
+            FROM fact_congress_party_membership
+            WHERE source_type = 'vote_reported'
+            ORDER BY chamber, person_id, valid_from
+            """,
+            conn,
+        )
+        electoral_people = pd.read_sql_query(
+            """
+            SELECT 'DIP' AS chamber, diputado_id AS seat_id,
+                   gaceta_deputy_id AS person_id
+            FROM dim_diputados
+            WHERE gaceta_deputy_id IS NOT NULL
+            UNION ALL
+            SELECT 'SEN' AS chamber, senador_seat_id AS seat_id,
+                   CAST(senador_id AS TEXT) AS person_id
+            FROM dim_senadores
+            WHERE senador_id IS NOT NULL
+            """,
+            conn,
+        )
+    occupancy_by_seat: dict[str, dict[str, list[dict]]] = {"DIP": {}, "SEN": {}}
+    for (chamber, seat_id), rows in occupancy.groupby(["chamber", "seat_id"], sort=False):
+        occupancy_by_seat[str(chamber)][str(seat_id)] = rows.drop(
+            columns=["chamber", "seat_id"]
+        ).where(pd.notna(rows.drop(columns=["chamber", "seat_id"])), None).to_dict("records")
+    party_by_person: dict[str, dict[str, list[dict]]] = {"DIP": {}, "SEN": {}}
+    for (chamber, person_id), rows in membership.groupby(["chamber", "person_id"], sort=False):
+        party_by_person[str(chamber)][str(person_id)] = rows.drop(
+            columns=["chamber", "person_id"]
+        ).where(pd.notna(rows.drop(columns=["chamber", "person_id"])), None).to_dict("records")
+    electoral_person_by_seat: dict[str, dict[str, str]] = {"DIP": {}, "SEN": {}}
+    for record in electoral_people.to_dict("records"):
+        electoral_person_by_seat[str(record["chamber"])][str(record["seat_id"])] = str(
+            record["person_id"]
+        )
+    return {
+        "occupancy_by_seat": occupancy_by_seat,
+        "party_by_person": party_by_person,
+        "electoral_person_by_seat": electoral_person_by_seat,
+    }
 
 
 def load_roster_manifest() -> dict:
@@ -147,30 +229,43 @@ def main() -> None:
     completed_ids: list[str] = []
     roster_manifest = load_roster_manifest()
     views = ["current", "electoral"] if set(roster_manifest) == {"DIP", "SEN"} else ["electoral"]
+    composition_dates = load_composition_dates() if "current" in views else []
+    temporal_history = load_temporal_history() if "current" in views else {
+        "occupancy_by_seat": {}, "party_by_person": {}, "electoral_person_by_seat": {}
+    }
+    write_text(
+        output_dir / "temporal_history.json",
+        json.dumps(temporal_history, ensure_ascii=False, separators=(",", ":")),
+    )
 
     for election_id in sorted(INTEGRACION_PATHS):
         print(f"Building {election_id}...")
         expected_seats = 500 if election_id.startswith("DIP_") else 128
         chamber = "DIP" if election_id.startswith("DIP_") else "SEN"
         figures_by_view = {}
-        for view in views:
-            winners = load_winners(election_id, view=view)
+        view_specs = [(view, view, None) for view in views]
+        view_specs.extend(
+            (f"asof-{observed_date}", "current", observed_date)
+            for observed_date in composition_dates
+        )
+        for asset_view, data_view, observed_date in view_specs:
+            winners = load_winners(election_id, view=data_view, as_of=observed_date)
             if len(winners) != expected_seats:
                 raise SystemExit(
                     f"{election_id}: expected {expected_seats} official seats, found {len(winners)}"
                 )
             figure = build_figure(winners, election_id)
-            figures_by_view[view] = figure
+            figures_by_view[asset_view] = figure
             write_text(
-                output_dir / f"{election_id}.{view}.figure.json",
+                output_dir / f"{election_id}.{asset_view}.figure.json",
                 pio.to_json(figure, validate=False, pretty=False),
             )
             write_text(
-                output_dir / f"{election_id}.{view}.summary.html",
+                output_dir / f"{election_id}.{asset_view}.summary.html",
                 build_summary_html(winners, election_id),
             )
             # Preserve the original cache contract as the electoral baseline.
-            if view == "electoral":
+            if asset_view == "electoral":
                 write_text(output_dir / f"{election_id}.figure.json", pio.to_json(figure, validate=False))
                 write_text(output_dir / f"{election_id}.summary.html", build_summary_html(winners, election_id))
         if {"current", "electoral"}.issubset(figures_by_view):
@@ -184,6 +279,12 @@ def main() -> None:
                 raise ValueError(
                     f"{election_id}: {changed} seats move between current and electoral views"
                 )
+            for asset_view, historical_figure in figures_by_view.items():
+                if not asset_view.startswith("asof-"):
+                    continue
+                historical_coordinates = seat_coordinates(historical_figure, chamber)
+                if historical_coordinates != electoral_coordinates:
+                    raise ValueError(f"{election_id}: seats move in {asset_view}")
         completed_ids.append(election_id)
         print(f"  Saved {expected_seats} seats in {', '.join(views)} view(s).")
 
@@ -199,6 +300,8 @@ def main() -> None:
             "local_file": INTEGRACION_PATHS["DIP_MR_2024"],
         },
         "views": views,
+        "composition_dates": composition_dates,
+        "temporal_history": "temporal_history.json",
         "rosters": roster_manifest,
         "elections": completed_ids,
     }

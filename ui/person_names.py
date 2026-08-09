@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Iterable, Sequence
 
 
 _LOWERCASE_PARTICLES = {"de", "del", "la", "las", "los", "y"}
@@ -44,12 +45,51 @@ def person_name_similarity(left: object, right: object) -> float:
     return len(left_tokens & right_tokens) / len(union) if union else 0.0
 
 
+def _pair_initials(left: Sequence[str], right: Sequence[str]) -> bool:
+    """Can every leftover token pair as an initial standing for a full token?
+
+    Backtracking rather than a greedy sweep: with two leftovers per side a greedy
+    pass can consume the wrong pair first and report a false miss. Name tails are
+    tiny, so the search space never matters.
+    """
+    if not left:
+        return not right
+    head, rest = left[0], left[1:]
+    for index, other in enumerate(right):
+        initial_match = (len(head) == 1 and other.startswith(head)) or (
+            len(other) == 1 and head.startswith(other)
+        )
+        if initial_match and _pair_initials(rest, [*right[:index], *right[index + 1 :]]):
+            return True
+    return False
+
+
+def tokens_match_with_initials(left: Sequence[str], right: Sequence[str]) -> bool:
+    """Token-set equality once a single letter may stand for a full given name.
+
+    The Gaceta abbreviates trailing given names ("José G." for "José Guadalupe")
+    while the chamber directories spell them out. That is the same person, but
+    the token sets differ, and the Jaccard fallback scores it around 0.6 — under
+    any threshold loose enough to be safe. Matching the initial explicitly is
+    both stricter and more accurate than lowering that threshold.
+    """
+    shared = Counter(left) & Counter(right)
+    left_rest = sorted((Counter(left) - shared).elements())
+    right_rest = sorted((Counter(right) - shared).elements())
+    if len(left_rest) != len(right_rest):
+        return False
+    return _pair_initials(left_rest, right_rest)
+
+
 def match_person_name(query: object, candidates: Iterable[object]) -> tuple[str | None, str]:
     """Match differently ordered names without accepting ambiguous fuzzy hits.
 
     Exact token-set matches handle the INE ``given names + surnames`` order
-    versus the Gaceta ``surnames + given names`` order. A conservative Jaccard
-    fallback covers initials and omitted middle names.
+    versus the Gaceta ``surnames + given names`` order. Abbreviated given names
+    are then resolved against their initial, and a conservative Jaccard fallback
+    covers omitted middle names. Each looser tier must resolve to exactly one
+    candidate; ambiguity stops the search instead of falling through to a tier
+    that would guess.
     """
     candidate_names = [str(candidate) for candidate in candidates]
     query_tokens = person_name_tokens(query)
@@ -63,6 +103,16 @@ def match_person_name(query: object, candidates: Iterable[object]) -> tuple[str 
     ]
     if exact:
         return exact[0], "exact"
+
+    by_initials = [
+        candidate
+        for candidate in candidate_names
+        if tokens_match_with_initials(person_name_tokens(candidate), query_tokens)
+    ]
+    if len(by_initials) == 1:
+        return by_initials[0], "initials"
+    if by_initials:
+        return None, "ambiguous"
 
     scored = []
     for candidate in candidate_names:

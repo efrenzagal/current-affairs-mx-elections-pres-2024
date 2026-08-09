@@ -1,0 +1,11 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+membership_id,TEXT,Primary key,"Identificador determinista del episodio partidista.","Deterministic party-episode identifier.",MEM_ key,
+chamber,TEXT,Required partition,"Cámara de la persona.","Person's chamber.",DIP or SEN,
+person_id,TEXT,Person key,"Identidad parlamentaria.","Parliamentary person identity.",Deputy hash / Senate ID / profile fallback,
+party_key,TEXT,Observed party,"Partido o grupo observado.","Observed party or parliamentary group.",Canonical party key,"Never overwrites election_party."
+valid_from,TEXT,Interval start,"Primera observación del episodio.","First observation in the episode.",ISO date or datetime,
+valid_to,TEXT,Interval end,"Inicio exclusivo del episodio siguiente.","Exclusive start of the next episode.",ISO date/datetime or NULL,
+source_type,TEXT,Source series,"Serie que produjo el episodio.","Source series producing the episode.",official_directory / vote_reported,"Intervals from different source series may overlap."
+observations,INTEGER,Evidence count,"Número de observaciones que sostienen el episodio.","Number of supporting observations.",Positive integer,
+conflicting_observations,INTEGER,QA count,"Observaciones del mismo día que discrepan de la moda.","Same-day observations disagreeing with the mode.",Nonnegative integer,"Useful for detecting source/parser anomalies."
+source_ref,TEXT,Lineage,"Referencia de una observación fuente.","Reference to a source observation.",Snapshot/vote ID,

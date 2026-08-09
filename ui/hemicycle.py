@@ -48,6 +48,133 @@ def load_prebuilt_hemicycle(election_id: str, view: str, cache_version: tuple[in
     return pio.from_json(figure_path.read_text(encoding="utf-8")), table_path.read_text(encoding="utf-8")
 
 
+@st.cache_data(show_spinner=False)
+def load_temporal_history(cache_version: tuple[int, int]) -> dict:
+    path = HEMICYCLE_CACHE_DIR / "temporal_history.json"
+    if not path.exists():
+        return {
+            "occupancy_by_seat": {},
+            "party_by_person": {},
+            "electoral_person_by_seat": {},
+        }
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def electoral_affiliation_note(
+    parties: list[dict], election_party: str, person_name: str
+) -> str | None:
+    """Explain a general election-party/observed-group mismatch conservatively."""
+    if not parties or not election_party:
+        return None
+    election_party = str(election_party).strip().upper()
+    observed_parties = [
+        str(episode.get("party_key") or "").strip().upper()
+        for episode in parties
+        if episode.get("party_key")
+    ]
+    if not observed_parties:
+        return None
+    first = parties[0]
+    first_party = observed_parties[0]
+    if not first_party or first_party == election_party:
+        return None
+    first_date = str(first.get("valid_from") or "")[:10] or "fecha no disponible"
+    unique_observed = list(dict.fromkeys(observed_parties))
+    observation_count = sum(int(episode.get("observations") or 0) for episode in parties)
+    person = display_person_name(person_name)
+    heading = "**Partido electoral distinto del grupo parlamentario observado.** "
+
+    if election_party not in unique_observed and len(unique_observed) == 1:
+        votes = (
+            f"En las {observation_count} votaciones nominales descargadas"
+            if observation_count
+            else "En todas las votaciones nominales descargadas"
+        )
+        evidence = (
+            f"{votes}, {person} figura siempre en el grupo parlamentario "
+            f"{first_party}, desde la primera observación ({first_date}); no aparece "
+            f"registrada bajo {election_party}."
+        )
+    elif election_party not in unique_observed:
+        evidence = (
+            f"{person} figura primero en {first_party} ({first_date}) y después en "
+            f"{', '.join(unique_observed[1:])}; ninguna observación aparece registrada "
+            f"bajo {election_party}."
+        )
+    else:
+        evidence = (
+            f"{person} figura primero en {first_party} ({first_date}). La cronología "
+            "inferior muestra cuándo aparece después el grupo electoral."
+        )
+
+    return (
+        f"{heading}El INE atribuyó electoralmente el escaño a {election_party}. "
+        f"{evidence} Esto compara la etiqueta del grupo parlamentario impresa en las "
+        "votaciones, no la coincidencia del sentido de sus votos con otro partido, y no "
+        "demuestra por sí solo una fecha de cambio de militancia."
+    )
+
+
+def render_seat_timeline(
+    history: dict,
+    chamber: str,
+    seat_id: str,
+    vote_person_id: str,
+    *,
+    use_electoral_bridge: bool = False,
+    election_party: str = "",
+    person_name: str = "",
+) -> None:
+    occupancy = history.get("occupancy_by_seat", {}).get(chamber, {}).get(seat_id, [])
+    timeline_person_id = vote_person_id
+    if use_electoral_bridge and not timeline_person_id:
+        timeline_person_id = (
+            history.get("electoral_person_by_seat", {}).get(chamber, {}).get(seat_id, "")
+        )
+    parties = history.get("party_by_person", {}).get(chamber, {}).get(timeline_person_id, [])
+    if not occupancy and not parties:
+        return
+    note = electoral_affiliation_note(parties, election_party, person_name)
+    if note:
+        st.info(note)
+    with st.expander("Cronología observada del escaño y la afiliación"):
+        if occupancy:
+            st.caption(
+                "Ocupación según cortes guardados del directorio; las fechas son límites de "
+                "observación, no fechas legales inferidas retroactivamente."
+            )
+            for episode in occupancy:
+                start = str(episode.get("valid_from", ""))[:10]
+                end = episode.get("valid_to")
+                interval = (
+                    f"desde {start} hasta antes de {str(end)[:10]}"
+                    if end
+                    else f"desde {start} · último estado observado"
+                )
+                name = display_person_name(episode.get("occupant_name") or "Vacante")
+                st.markdown(
+                    f"- `{interval}` · "
+                    f"{name} · {episode.get('status', '')} · {episode.get('party_key', '')}"
+                )
+        if parties:
+            st.caption("Afiliación impresa en las votaciones nominales de esta persona.")
+            for episode in parties:
+                start = str(episode.get("valid_from", ""))[:10]
+                end = episode.get("valid_to")
+                interval = (
+                    f"desde {start} hasta antes de {str(end)[:10]}"
+                    if end
+                    else f"desde {start} · último grupo observado"
+                )
+                conflicts = int(episode.get("conflicting_observations") or 0)
+                conflict_note = f" · {conflicts} conflictos del mismo día" if conflicts else ""
+                st.markdown(
+                    f"- `{interval}` · "
+                    f"{episode.get('party_key', '')} · {episode.get('observations', 0)} observaciones"
+                    f"{conflict_note}"
+                )
+
+
 def render_hemicycle_summary(table_html: str) -> None:
     components.html(
         f"""<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -68,6 +195,7 @@ def render_hemicycle_composition() -> None:
 
     cache_version = get_hemicycle_cache_version()
     manifest = load_hemicycle_manifest(cache_version)
+    temporal_history = load_temporal_history(cache_version)
     elections = manifest.get("elections", [])
     dip_years = {e.rsplit("_", 1)[-1] for e in elections if e.startswith("DIP_MR_")}
     sen_years = {e.rsplit("_", 1)[-1] for e in elections if e.startswith("SEN_MR_")}
@@ -79,9 +207,13 @@ def render_hemicycle_composition() -> None:
 
     source = manifest.get("source", {})
     available_views = manifest.get("views", ["electoral"])
+    composition_dates = manifest.get("composition_dates", [])
+    if composition_dates:
+        available_views = [*available_views, "historical"]
     view_labels = {
         "current": "Composición actual",
         "electoral": "Resultado electoral 2024",
+        "historical": "Composición en fecha",
     }
     view = st.radio(
         "Vista",
@@ -90,7 +222,18 @@ def render_hemicycle_composition() -> None:
         horizontal=True,
         key="comp_view",
     )
-    if view == "current":
+    selected_composition_date = None
+    asset_view = view
+    if view == "historical":
+        selected_composition_date = st.selectbox(
+            "Fecha del directorio oficial",
+            composition_dates,
+            index=len(composition_dates) - 1,
+            key="comp_snapshot_date",
+        )
+        asset_view = f"asof-{selected_composition_date}"
+
+    if view in {"current", "historical"}:
         rosters = manifest.get("rosters", {})
         cutoffs = []
         for meta in rosters.values():
@@ -103,10 +246,11 @@ def render_hemicycle_composition() -> None:
             if cutoff not in cutoffs:
                 cutoffs.append(cutoff)
         cutoffs.sort()
-        cutoff = ", ".join(cutoffs) if cutoffs else "sin fecha"
+        cutoff = selected_composition_date or (", ".join(cutoffs) if cutoffs else "sin fecha")
         st.caption(
-            f"Personas en funciones y grupos parlamentarios según los directorios oficiales · "
-            f"corte {cutoff}. El partido electoral se conserva en cada escaño como referencia."
+            f"Directorio oficial observado al corte {cutoff}. Licencias y vacantes se muestran "
+            "como estados separados y no se suman al grupo parlamentario. El partido electoral "
+            "se conserva como referencia."
         )
     else:
         st.caption(
@@ -124,8 +268,8 @@ def render_hemicycle_composition() -> None:
 
     dip_id = f"DIP_MR_{year_tab_sel}"
     sen_id = f"SEN_MR_{year_tab_sel}"
-    dip_fig, dip_table = load_prebuilt_hemicycle(dip_id, view, cache_version)
-    sen_fig, sen_table = load_prebuilt_hemicycle(sen_id, view, cache_version)
+    dip_fig, dip_table = load_prebuilt_hemicycle(dip_id, asset_view, cache_version)
+    sen_fig, sen_table = load_prebuilt_hemicycle(sen_id, asset_view, cache_version)
 
     dip_event = None
     sen_event = None
@@ -183,16 +327,39 @@ def render_hemicycle_composition() -> None:
         diputado_id = selected_data[5] if len(selected_data) > 5 else ""
         vote_person_id = selected_data[7] if len(selected_data) > 7 else ""
         member_status = selected_data[8] if len(selected_data) > 8 else "electoral"
+        election_name = selected_data[9] if len(selected_data) > 9 else ""
+        election_party = selected_data[10] if len(selected_data) > 10 else ""
+        reported_current_party = selected_data[11] if len(selected_data) > 11 else ""
         if not candidate_name:
             st.info("Este escaño no tiene un nombre de candidatura asociado.")
             return
 
         st.markdown(f"### Historial de votaciones · {display_person_name(candidate_name)}")
         st.caption(f"Escaño {seat_type} · {party} · {member_status.replace('_', ' ').title()} · Legislatura 66")
+        if view != "electoral" and election_name:
+            st.caption(
+                f"Origen electoral: {display_person_name(election_name)} · {election_party}. "
+                + (f"Grupo registrado: {reported_current_party}." if reported_current_party else "")
+            )
+        render_seat_timeline(
+            temporal_history,
+            "DIP",
+            diputado_id,
+            vote_person_id,
+            use_electoral_bridge=view == "electoral",
+            election_party=election_party,
+            person_name=candidate_name,
+        )
         if member_status == "vacante":
             st.info("Este escaño figura vacante en el directorio oficial consultado.")
             return
-        if view == "current" and not vote_person_id:
+        if member_status == "licencia":
+            st.info(
+                "El directorio marca a esta persona con licencia. No se atribuye el escaño "
+                "a un grupo activo hasta identificar una suplencia en una fuente oficial."
+            )
+            return
+        if view in {"current", "historical"} and not vote_person_id:
             st.info("Esta persona aún no tiene votaciones nominales enlazadas en la base local.")
             return
         render_gaceta(
@@ -210,16 +377,33 @@ def render_hemicycle_composition() -> None:
     senador_seat_id = selected_data[6] if len(selected_data) > 6 else ""
     vote_person_id = selected_data[7] if len(selected_data) > 7 else ""
     member_status = selected_data[8] if len(selected_data) > 8 else "electoral"
+    election_name = selected_data[9] if len(selected_data) > 9 else ""
+    election_party = selected_data[10] if len(selected_data) > 10 else ""
+    reported_current_party = selected_data[11] if len(selected_data) > 11 else ""
     if not candidate_name:
         st.info("Este escaño no tiene un nombre de candidatura asociado.")
         return
 
     st.markdown(f"### Historial de votaciones · {display_person_name(candidate_name)}")
     st.caption(f"Escaño {seat_type} · {party} · {member_status.replace('_', ' ').title()} · Legislatura 66")
+    if view != "electoral" and election_name:
+        st.caption(
+            f"Origen electoral: {display_person_name(election_name)} · {election_party}. "
+            + (f"Grupo registrado: {reported_current_party}." if reported_current_party else "")
+        )
+    render_seat_timeline(
+        temporal_history,
+        "SEN",
+        senador_seat_id,
+        vote_person_id,
+        use_electoral_bridge=view == "electoral",
+        election_party=election_party,
+        person_name=candidate_name,
+    )
     if member_status == "vacante":
         st.info("Este escaño figura vacante en el directorio oficial consultado.")
         return
-    if view == "current" and not vote_person_id:
+    if view in {"current", "historical"} and not vote_person_id:
         st.info("Esta persona aún no tiene votaciones nominales enlazadas en la base local.")
         return
     render_senado(

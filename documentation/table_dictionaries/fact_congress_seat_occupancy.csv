@@ -1,0 +1,16 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+occupancy_id,TEXT,Primary key,"Identificador determinista del episodio de ocupación.","Deterministic occupancy-episode identifier.",OCC_ key,"Derived from chamber, seat, start, and person."
+chamber,TEXT,Required partition,"Cámara del escaño.","Seat chamber.",DIP or SEN,
+seat_id,TEXT,Stable seat key,"Identificador constitucional estable.","Stable constitutional seat identifier.",DIP_/SEN_ key,"Does not change with occupant."
+person_id,TEXT,Nullable identity,"Persona vinculada durante el episodio.","Person linked during the episode.",Vote identity or official-profile fallback,"NULL for a vacancy."
+member_source_id,TEXT,Nullable lineage,"Identificador del perfil oficial.","Official profile identifier.",Numeric text or NULL,
+vote_person_id,TEXT,Nullable bridge,"Identidad disponible en las votaciones.","Identity available in roll calls.",Deputy hash / Senate ID / NULL,
+occupant_name,TEXT,Nullable attribute,"Nombre publicado para el episodio.","Name published for the episode.",Text or NULL,
+party_key,TEXT,Observed attribute,"Grupo publicado por el directorio.","Group published by the directory.",Canonical party / VACANTE,"License status is stored separately."
+status,TEXT,Required state,"Estado de ocupación.","Occupancy state.",en_funciones / licencia / vacante,
+valid_from,TEXT,Interval start,"Inicio observado inclusivo.","Inclusive observed start.",ISO datetime,"This is an observation boundary, not a retroactively inferred legal date."
+valid_to,TEXT,Interval end,"Fin observado exclusivo.","Exclusive observed end.",ISO datetime or NULL,"NULL denotes the latest known episode."
+first_snapshot_id,TEXT,Lineage,"Primer corte del episodio.","First snapshot in the episode.",Snapshot ID,
+last_snapshot_id,TEXT,Lineage,"Último corte sin cambio.","Last unchanged snapshot.",Snapshot ID,
+match_method,TEXT,QA attribute,"Método de enlace del ocupante.","Occupant matching method.",Controlled text,
+match_score,REAL,QA measure,"Similitud del enlace cuando aplica.","Match similarity where applicable.",0-1 or NULL,
