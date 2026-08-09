@@ -28,7 +28,7 @@ gaceta.diputados.gob.mx (HTML pages)
 | `aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py` | Walks cached pages, applies `parse_gaceta_vote.py`, writes per-legislature parquet under `data/gaceta_votes/clean/by_legislature/`. |
 | `ingestion/gaceta_ingest.py` | Loads the per-legislature parquet into `election_data.db`, deduplicates deputies across legislatures, runs hard/soft QA (referential integrity, duplicate keys, unexpected vote-choice values, summary/detail reconciliation). |
 | `ingestion/diputados_ingest.py` | Builds `dim_diputados`: matches all 500 official 2024 INE seats to `dim_gaceta_deputy` identities. |
-| `aux_scripts/gaceta_votes/classify_gaceta_votes.py` | LLM classification via OpenAI Batch API: `prepare` (local, no network) → `submit` → `retrieve BATCH_ID` → `apply classifications.csv`. Writes `fact_gaceta_vote_classification`. |
+| `aux_scripts/gaceta_votes/classify_gaceta_votes.py` | Legislatura 66 classification via OpenAI Batch API: `prepare` (local, no network) → `submit` → `retrieve BATCH_ID` → `review` → `apply classifications_reviewed.csv`. Writes `fact_gaceta_vote_classification`. |
 | `ingestion/gaceta_materialize.py` | Computes alignment/cohesion/correlation metrics from the warehouse and writes Streamlit-ready parquet to `data/materialized/`. |
 | `ui/gaceta.py` | Deputy voting-calendar view and LLM-classification explorer. Entry point: `render_gaceta()`. |
 
@@ -41,7 +41,7 @@ gaceta.diputados.gob.mx (HTML pages)
 | `dim_diputados` | one official 2024 seat | 500 | Bridges INE seat/candidate identity to `dim_gaceta_deputy`. See "Identity bridge" below. |
 | `fact_gaceta_vote_summary` | `(gaceta_vote_id, vote_choice, party_key)` | 291,252 | Summary matrix as shown on the Gaceta page, including `Total` rows/columns. |
 | `fact_gaceta_deputy_vote` | `(gaceta_vote_id, deputy_id)` | 2,603,711 | Individual deputy vote choices. `party_key` is recorded per-fact because affiliation is time-specific. |
-| `fact_gaceta_vote_classification` | one row per vote | 5,245 | LLM-assigned `origen`, `etapa_votacion`, `tipo_instrumento`, `tema_politica`, `confianza`, `requiere_revision`, `evidencia`, plus `model`/`prompt_version`/`classified_at` provenance. |
+| `fact_gaceta_vote_classification` | one row per vote | 5,245 | `origen`, `etapa_votacion`, `tipo_instrumento`, `tema_politica`, `requiere_revision`, `evidencia`, local `review_status`/`review_notes`, plus model/prompt/timestamp provenance. The current workflow updates Legislatura 66 only. |
 
 Column-level detail: `documentation/table_dictionaries/*.csv`, starting with `overview.csv`.
 
@@ -86,6 +86,20 @@ seat IDs. MR seats use state+district; RP seats use audited titular/suplente
 identity matching. Directory `LICENCIA` markers are preserved. This workflow
 does not fetch or rebuild any roll-call votes.
 
+Two temporal facts are rebuilt from those append-only snapshots:
+
+- `fact_congress_seat_occupancy` collapses unchanged snapshots into non-overlapping
+  occupant/status intervals per stable seat.
+- `fact_congress_party_membership` keeps official-directory and vote-reported
+  affiliation episodes as separate source series. It never overwrites the
+  immutable INE `election_party`.
+
+`data/congress_reconciliation.csv` compares the latest official directory with
+the electoral origin and the latest roll-call episode. A `LICENCIA` seat remains
+attached to its published profile for provenance, but the current hemicycle
+shows it as `LICENCIA` rather than counting it as an active party seat until an
+official acting substitute is resolved.
+
 ## Materialized outputs (`data/materialized/`)
 
 | File | Content |
@@ -112,9 +126,13 @@ zero-filled. Deputies need ≥10 active votes to appear in alignment output.
   `KNOWN_SOURCE_DATE_TYPOS` holds case-by-case verified corrections where
   Gaceta's own source text has an internally inconsistent date (verified
   against weekday text and vote title, never applied speculatively).
-- **`confianza`/`requiere_revision` measure model certainty, not correctness.**
-  Review `requiere_revision = true` rows and spot-check a hand-labelled
-  sample before treating classification labels as ground truth.
+- **Model self-confidence is deliberately excluded.** Reliability comes from
+  literal source hints, related-roll-call consistency, deterministic local
+  checks, `review_status`, textual evidence, and a human-audited sample.
+  `submit` refuses stale requests or a manifest whose row count no longer
+  matches the complete target legislature. `apply` refuses unresolved
+  `needs_review` rows unless the operator explicitly retains them with
+  `--allow-needs-review`.
 
 ## Refresh
 
@@ -133,7 +151,10 @@ python -m ingestion.diputados_ingest
 python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py prepare
 python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py submit
 python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py retrieve BATCH_ID
-python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py apply data/gaceta_vote_classification/classifications.csv
+python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py review
+# Resolve needs_review rows, then:
+python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py apply \
+  data/gaceta_vote_classification/classifications_reviewed.csv
 
 # 5. Rebuild Streamlit-ready parquet
 python3 ingestion/gaceta_materialize.py --force

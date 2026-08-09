@@ -167,13 +167,21 @@ def load_dim_diputado(
 @st.cache_data
 def load_classification(database_version: tuple[tuple[int, int], ...]) -> pd.DataFrame:
     conn = get_connection(database_version)
+    classification_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(fact_gaceta_vote_classification)")
+    }
+    review_columns = (
+        "c.review_status, c.review_notes"
+        if {"review_status", "review_notes"}.issubset(classification_columns)
+        else "'legacy_model_only' AS review_status, '' AS review_notes"
+    )
     df = pd.read_sql_query(
-        """
+        f"""
         SELECT
             v.gaceta_vote_id, v.legislature, v.vote_date, v.title, v.source_url, v.gaceta_date,
             r.favor, r.contra, r.abstencion, r.ausente, r.total,
             c.origen, c.etapa_votacion, c.tipo_instrumento, c.tema_politica,
-            c.confianza, c.requiere_revision, c.evidencia
+            c.requiere_revision, c.evidencia, {review_columns}
         FROM dim_gaceta_vote AS v
         LEFT JOIN (
             SELECT
@@ -491,6 +499,14 @@ def render_vote_detail(
                 "**Clasificación:** "
                 + " · ".join(f"{label}: {_format_label(value)}" for label, value in badges)
             )
+        if pd.notna(clf.get("review_status")):
+            st.caption(f"Estado de revisión: {_format_label(clf['review_status'])}")
+        if clf.get("evidencia") or clf.get("review_notes"):
+            with st.expander("Evidencia y revisión de la clasificación"):
+                if clf.get("evidencia"):
+                    st.write(clf["evidencia"])
+                if clf.get("review_notes"):
+                    st.caption(clf["review_notes"])
         render_vote_links(
             legislature=int(clf["legislature"]),
             gaceta_date=clf.get("gaceta_date"),
@@ -965,7 +981,10 @@ def render_gaceta(
                 return
             target_legislature = int(mapped["legislature"])
             if mapped["source_name_role"] == "suplente":
-                st.caption("La integración oficial no publica titular; se enlaza la suplencia registrada.")
+                st.caption(
+                    "El historial nominal corresponde a la suplencia registrada que aparece "
+                    "en las votaciones; el titular electoral se conserva en el escaño."
+                )
             if mapped["match_method"] == "approximate_tokens":
                 st.caption(
                     f"Correspondencia auditada: {display_person_name(mapped_name)} → "
