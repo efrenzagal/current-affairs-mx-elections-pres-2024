@@ -7,9 +7,9 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "Brújula Legislativa — Así vota el pleno";
+  const title = "current affairs mx — asuntos públicos de México, con datos";
   const description =
-    "Explora el hemiciclo, el historial de cada diputación y las votaciones nominales de la Cámara de Diputados.";
+    "Visualizaciones interactivas, artículos de análisis y el diccionario del almacén de datos que los sostiene. Todo a partir de fuentes oficiales, con la fecha de corte a la vista.";
 
   return {
     metadataBase: new URL(origin),
