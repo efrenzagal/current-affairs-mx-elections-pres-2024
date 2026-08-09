@@ -4,7 +4,7 @@ This folder documents the normalized tables in `election_data.db`, the clean
 electoral parquet inputs used to build them, and representative raw INE source
 layouts.
 
-Start with `overview.csv`. It lists all 18 normalized tables currently present
+Start with `overview.csv`. It lists all 22 normalized tables currently present
 in the SQLite warehouse, including their primary keys, row grains, purposes,
 and important joins. The table-specific CSVs define columns and domains.
 
@@ -20,6 +20,25 @@ regenerate the viewer from the repository root:
 ```bash
 python3 documentation/table_dictionaries/build_viewer.py
 ```
+
+That one command writes two renderings of the same payload: this offline
+`viewer.html`, and `web/public/data/dictionary.json`, which backs the public
+`/diccionario` route on the Brújula Legislativa site. Building both from a
+single run is what keeps them from drifting apart, so regenerate after any
+dictionary edit and redeploy the site if the change should be public. Pass
+`--no-json` to rebuild only the offline viewer, or `--json PATH` to send the
+snapshot somewhere else.
+
+Note that the website renders these CSVs in Spanish, but only
+`Description (SPA)` exists in Spanish. Table purposes, notes and
+`Values / Domain` are English-only, and appear that way on the site.
+
+**Close other readers of `election_data.db` before regenerating.** A concurrent
+holder — a running `streamlit run ine_explorer_v2.py` is the usual one — can
+make the read-only sample query come back empty, which once produced a
+dictionary with every example value blank. The build now fails loudly instead
+of writing that, so if you see the "yielded no column examples" error, stop the
+other process and rerun.
 
 When `election_data.db` is present, the overview also derives its federal
 election coverage matrix from `dim_election` and shows up to five distinct,
@@ -124,9 +143,9 @@ through LXVI** (2000-2026 coverage dates in the current snapshot).
   parliamentary group.
 - `fact_gaceta_deputy_vote.csv` — one deputy observation per roll call, with
   time-specific parliamentary affiliation on the fact row.
-- `fact_gaceta_vote_classification.csv` — one model-produced topical and
-  procedural classification per classified Gaceta vote, including confidence,
-  review flag, evidence, model, and prompt lineage.
+- `fact_gaceta_vote_classification.csv` — one topical and procedural
+  classification per classified Gaceta vote, including deterministic review
+  status, review notes, evidence, model, and prompt lineage.
 
 ### Senado de la República Roll Calls
 

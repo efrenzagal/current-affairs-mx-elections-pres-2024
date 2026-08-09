@@ -15,6 +15,7 @@ from pathlib import Path
 DICTIONARY_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = DICTIONARY_DIR.parents[1]
 DEFAULT_OUTPUT = DICTIONARY_DIR / "viewer.html"
+DEFAULT_JSON = PROJECT_ROOT / "web" / "public" / "data" / "dictionary.json"
 DEFAULT_DB = PROJECT_ROOT / "election_data.db"
 SAMPLE_SIZE = 5
 SAMPLE_SCAN_LIMIT = 500
@@ -46,10 +47,13 @@ TABLE_GROUPS: OrderedDict[str, list[str]] = OrderedDict(
             "dim_senador",
             "dim_senadores",
             "fact_senador_vote",
+            "fact_senado_vote_classification",
         ],
         "Current Congreso Rosters": [
             "dim_congress_roster_snapshot",
             "fact_congress_roster_seat",
+            "fact_congress_seat_occupancy",
+            "fact_congress_party_membership",
         ],
     }
 )
@@ -132,6 +136,18 @@ def load_table_examples(
                 table_examples[column_name] = distinct
             examples[table_name] = table_examples
     return examples
+
+
+def warehouse_tables(db_path: Path) -> set[str]:
+    """Names of the tables that actually exist in the warehouse right now."""
+    if not db_path.exists():
+        return set()
+    uri = f"file:{db_path.resolve()}?mode=ro"
+    with sqlite3.connect(uri, uri=True) as conn:
+        return {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
 
 
 def raw_row_examples(metadata: dict[str, str]) -> dict[str, list[str]]:
@@ -277,6 +293,43 @@ def build_payload(db_path: Path) -> dict[str, object]:
     table_examples = load_table_examples(db_path, tables)
     for table_name, examples in table_examples.items():
         tables[table_name]["examples"] = examples
+
+    # A table can be documented before it is built. That is a normal state to be
+    # in, but readers should not be shown an empty Examples column with no
+    # explanation, so record it rather than hiding it.
+    present = warehouse_tables(db_path)
+    pending: list[str] = []
+    for table_name, table in tables.items():
+        if table["raw"]:
+            continue
+        exists = not present or table_name in present
+        table["inWarehouse"] = exists
+        if not exists:
+            pending.append(table_name)
+    if pending:
+        print(
+            "Note: documented but not yet in the warehouse: " + ", ".join(sorted(pending))
+        )
+
+    # Reading the warehouse can come back empty even when the file is right
+    # there -- a concurrent writer holding SQLite is enough to do it. That used
+    # to pass silently and ship an example-less dictionary to the website, so
+    # an unexplained empty read is now a hard failure. Missing database is
+    # still fine: that path is documented and drops examples on purpose.
+    if db_path.exists():
+        sampled = sum(
+            1
+            for table in tables.values()
+            if not table["raw"] and any((table.get("examples") or {}).values())
+        )
+        if not sampled:
+            raise RuntimeError(
+                f"{db_path} exists but yielded no column examples. Something is "
+                "holding the warehouse (a running Streamlit app will do it). "
+                "Refusing to write a dictionary with every example blank -- "
+                "close the other reader and rerun, or pass --db /dev/null to "
+                "build without examples deliberately."
+            )
 
     assigned = {name for names in TABLE_GROUPS.values() for name in names}
     missing_from_groups = [name for name in overview if name not in assigned]
@@ -460,6 +513,17 @@ def render_html(payload: dict[str, object]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument(
+        "--json",
+        type=Path,
+        default=DEFAULT_JSON,
+        help="Payload snapshot consumed by the /diccionario route on the website.",
+    )
+    parser.add_argument(
+        "--no-json",
+        action="store_true",
+        help="Build only the standalone viewer, leaving the website snapshot alone.",
+    )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     args = parser.parse_args()
 
@@ -470,6 +534,16 @@ def main() -> None:
         f"Wrote {args.output} with {payload['warehouseTableCount']} warehouse tables "
         f"and {payload['rawReferenceCount']} raw references."
     )
+
+    # The standalone viewer and the website render the same payload; writing both
+    # from one run is what keeps them from drifting apart.
+    if not args.no_json:
+        args.json.parent.mkdir(parents=True, exist_ok=True)
+        args.json.write_text(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        print(f"Wrote {args.json} ({args.json.stat().st_size / 1024:.0f} KB)")
 
 
 if __name__ == "__main__":

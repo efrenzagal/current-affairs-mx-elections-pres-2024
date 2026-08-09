@@ -65,11 +65,12 @@ The Streamlit dashboard has five sections in a segmented navigation control:
   pollster house-effect views from Zedillo through Sheinbaum.
 - **Congreso · Composición** — official Chamber of Deputies and Senate seat
   assignments from INE, shown side by side as pre-built hemicycles and
-  summaries, with a radio selector for any electoral year present in both
-  chambers' caches. Selecting a seat opens that person's roll-call history
-  below the composition charts when a reliable cross-source identity match
-  exists: deputy seats drill into the Gaceta Parlamentaria history, senator
-  seats into the Senado.gob.mx history.
+  summaries. Electoral, latest-directory, and dated-directory views retain the
+  same stable seat coordinates. Licenses and vacancies are shown separately
+  from active parliamentary groups. Selecting a seat opens the occupant's
+  roll-call history when a reliable date-appropriate identity match exists:
+  deputy seats drill into Gaceta Parlamentaria and senator seats into
+  Senado.gob.mx.
 - **Congreso · Votos por diputado** — a deputy-level Cámara de Diputados
   roll-call voting calendar. Each new visit starts with a random
   deputy/legislature pair; selectors remain available for deliberate lookup.
@@ -293,8 +294,9 @@ documented in `documentation/table_dictionaries/`.
   counts and deputy-level roll-call rows.
 - `parse_gaceta_vote_batch.py` — batch version; walks cached metadata and
   produces parquet outputs ready for warehouse ingestion.
-- `classify_gaceta_votes.py` — optional LLM topic/stage classification via the
-  OpenAI Batch API (`prepare` → `submit` → `retrieve` → `apply`).
+- `classify_gaceta_votes.py` — optional Legislatura 66 topic/stage
+  classification via the OpenAI Batch API (`prepare` → `submit` → `retrieve`
+  → local rule `review` → `apply`). The model does not emit a confidence score.
 
 Full detail: `documentation/diputados_infra.md`.
 
@@ -607,6 +609,13 @@ python3 aux_scripts/senado_votes/crawl_senado_votes.py --all-votes
 /usr/bin/python3 ingestion/senado_ingest.py
 python -m ingestion.senadores_ingest
 ```
+
+For optional Senado semantic classification, use `prepare` → `submit` →
+`retrieve` → `review` → `apply`. The review step preserves the raw model CSV
+and writes `data/senado_vote_classification/classifications_reviewed.csv` with
+documented audited corrections. Applied classifications appear under the
+Senado switch in **Congreso · Clasificación de votos** and as filters on senator
+vote calendars.
 
 There is no Senado equivalent of `gaceta_materialize.py` yet — alignment,
 cohesion, and classification metrics exist for the Cámara only. See
