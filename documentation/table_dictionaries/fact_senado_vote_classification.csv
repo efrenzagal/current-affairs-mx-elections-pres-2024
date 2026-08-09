@@ -1,0 +1,12 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+votacion_id,INTEGER,Primary key; foreign key,"Votación nominal del Senado clasificada.","Classified Senate roll-call vote.",References dim_senado_vote.votacion_id,"At most one current classification per vote."
+origen,TEXT,Required classification,"Origen legislativo o procedimental inferido.","Inferred legislative or procedural origin.",Controlled Senate taxonomy,"Distinguishes a Cámara de Diputados minute from a Senate commission report."
+etapa_votacion,TEXT,Required classification,"Etapa inferida de la votación.","Inferred voting stage.",Controlled taxonomy,"vote_type is the preferred source signal; missing values must not be guessed."
+tipo_instrumento,TEXT,Required classification,"Tipo de instrumento sustantivo inferido.","Inferred substantive instrument type.",Controlled taxonomy,"Model-produced value."
+tema_politica,TEXT,Required classification,"Tema principal de política pública inferido.","Inferred primary public-policy topic.",Controlled taxonomy,"Model-produced value."
+confianza,REAL,Required QA measure,"Confianza asignada por el clasificador.","Classifier-assigned confidence.",0.0-1.0,"Not an empirically calibrated probability."
+requiere_revision,INTEGER,Required QA flag,"Indica necesidad de revisión humana.","Whether human review is required.",0 or 1,"Review these rows before analytical use."
+evidencia,TEXT,Required audit attribute,"Evidencia textual breve para la clasificación.","Brief textual evidence for the classification.",Non-empty text,"Restricted to the supplied Senate record."
+model,TEXT,Required lineage,"Modelo que produjo la clasificación.","Model that produced the classification.",Model identifier,
+prompt_version,TEXT,Required lineage,"Versión del prompt y esquema.","Prompt and schema version.",senado-v1,
+classified_at,TEXT,Required lineage,"Fecha de aplicación de la clasificación.","Classification application timestamp.",ISO timestamp,

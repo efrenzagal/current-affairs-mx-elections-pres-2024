@@ -129,9 +129,24 @@ def parse_vote_page(vote_id: int, html: str) -> dict[str, object]:
     if body_div is not None:
         parts = [p.strip() for p in body_div.get_text("\n", strip=True).split("\n") if p.strip()]
         if parts:
-            description = parts[0]
-        if len(parts) > 1:
-            vote_type = parts[-1]
+            # Some pages wrap one description across source lines, while others
+            # contain several matters in a single roll call. The old first/last
+            # split truncated both layouts and occasionally put another bill in
+            # vote_type. A genuine stage starts with one of these Senate labels;
+            # subsequent lines belong to that stage text.
+            stage_index = next(
+                (
+                    index
+                    for index, part in enumerate(parts)
+                    if re.match(r"^(?:VOTACI[ÓO]N\b|EN\s+LO\b)", part, re.IGNORECASE)
+                ),
+                None,
+            )
+            if stage_index is None:
+                description = "\n".join(parts)
+            else:
+                description = "\n".join(parts[:stage_index]) or None
+                vote_type = "\n".join(parts[stage_index:]) or None
 
     en_pro = en_contra = abstencion = None
     footer = soup.select_one("table.table tfoot")

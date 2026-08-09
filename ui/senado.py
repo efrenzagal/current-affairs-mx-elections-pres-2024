@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from ui.gaceta import _add_tile_coords, _calendar_grid_figure, _tile_grid_figure
+from ui.gaceta import _add_tile_coords, _calendar_grid_figure, _format_label, _tile_grid_figure
 from ui.person_names import display_person_name
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,16 +107,59 @@ def load_senador_calendar(
     senador_id: int, database_version: tuple[tuple[int, int], ...]
 ) -> pd.DataFrame:
     conn = get_senado_connection(database_version)
+    classified = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='fact_senado_vote_classification'"
+    ).fetchone()
+    classification_join = (
+        "LEFT JOIN fact_senado_vote_classification AS c "
+        "ON c.votacion_id = v.votacion_id"
+        if classified else ""
+    )
+    classification_columns = (
+        "c.origen, c.etapa_votacion, c.tipo_instrumento, c.tema_politica, "
+        "c.requiere_revision"
+        if classified else
+        "NULL AS origen, NULL AS etapa_votacion, NULL AS tipo_instrumento, "
+        "NULL AS tema_politica, NULL AS requiere_revision"
+    )
     return pd.read_sql_query(
-        """
+        f"""
         SELECT v.votacion_id, v.vote_date, v.description, v.vote_type,
-               f.grupo_parlamentario, f.voto
+               f.grupo_parlamentario, f.voto, {classification_columns}
         FROM fact_senador_vote AS f
         JOIN dim_senado_vote AS v ON v.votacion_id = f.votacion_id
+        {classification_join}
         WHERE f.senador_id = ?
         ORDER BY v.vote_date, v.votacion_id
         """,
         conn, params=(int(senador_id),),
+    )
+
+
+@st.cache_data
+def load_senado_classification(
+    database_version: tuple[tuple[int, int], ...]
+) -> pd.DataFrame:
+    conn = get_senado_connection(database_version)
+    classified = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='fact_senado_vote_classification'"
+    ).fetchone()
+    if not classified:
+        return pd.DataFrame()
+    return pd.read_sql_query(
+        """
+        SELECT v.votacion_id, v.vote_date, v.description, v.vote_type,
+               v.en_pro, v.en_contra, v.abstencion,
+               c.origen, c.etapa_votacion, c.tipo_instrumento,
+               c.tema_politica, c.confianza, c.requiere_revision,
+               c.evidencia, c.model, c.prompt_version, c.classified_at
+        FROM dim_senado_vote AS v
+        JOIN fact_senado_vote_classification AS c USING(votacion_id)
+        ORDER BY v.vote_date, v.votacion_id
+        """,
+        conn,
     )
 
 
@@ -142,9 +185,34 @@ def load_vote_meta(
     votacion_id: int, database_version: tuple[tuple[int, int], ...]
 ) -> pd.DataFrame:
     conn = get_senado_connection(database_version)
+    classified = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='fact_senado_vote_classification'"
+    ).fetchone()
+    if classified:
+        return pd.read_sql_query(
+            """
+            SELECT v.*, c.origen, c.etapa_votacion, c.tipo_instrumento,
+                   c.tema_politica, c.confianza, c.requiere_revision,
+                   c.evidencia, c.model, c.prompt_version, c.classified_at
+            FROM dim_senado_vote v
+            LEFT JOIN fact_senado_vote_classification c USING(votacion_id)
+            WHERE v.votacion_id = ?
+            """,
+            conn,
+            params=(int(votacion_id),),
+        )
     return pd.read_sql_query(
-        "SELECT * FROM dim_senado_vote WHERE votacion_id = ?",
-        conn, params=(int(votacion_id),),
+        """
+        SELECT v.*, NULL AS origen, NULL AS etapa_votacion,
+               NULL AS tipo_instrumento, NULL AS tema_politica,
+               NULL AS confianza, NULL AS requiere_revision,
+               NULL AS evidencia, NULL AS model, NULL AS prompt_version,
+               NULL AS classified_at
+        FROM dim_senado_vote v WHERE v.votacion_id = ?
+        """,
+        conn,
+        params=(int(votacion_id),),
     )
 
 
@@ -165,6 +233,21 @@ def render_vote_detail(votacion_id: int, database_version: tuple[tuple[int, int]
     if vote["vote_type"]:
         st.caption(vote["vote_type"])
     st.caption(f"Votación registrada el {date_str}" if date_str != "s/f" else "Fecha de votación no disponible")
+    if pd.notna(vote["tema_politica"]):
+        tags = [
+            ("Origen", vote["origen"]),
+            ("Etapa", vote["etapa_votacion"]),
+            ("Instrumento", vote["tipo_instrumento"]),
+            ("Tema", vote["tema_politica"]),
+        ]
+        st.caption(
+            " · ".join(f"{label}: {_format_label(str(value))}" for label, value in tags)
+        )
+        review = " · requiere revisión" if bool(vote["requiere_revision"]) else ""
+        st.caption(f"Confianza del clasificador: {float(vote['confianza']):.0%}{review}")
+        if vote["evidencia"]:
+            with st.expander("Evidencia de la clasificación"):
+                st.write(vote["evidencia"])
     if vote["url"]:
         st.link_button("Ver en senado.gob.mx ↗", vote["url"])
 
@@ -295,22 +378,51 @@ def render_senador_view(
 
     st.markdown("---")
 
-    year_levels = sorted(calendar["year"].unique(), reverse=True)
-    calendar["year"] = pd.Categorical(calendar["year"], categories=year_levels)
-    calendar = calendar.sort_values(["year", "vote_date", "votacion_id"])
-    calendar_columns = 20
-    calendar = _add_tile_coords(calendar, "year", columns=calendar_columns)
-    calendar["tooltip"] = (
-        calendar["vote_date"].dt.date.astype(str)
-        + " · " + calendar["vote_display"].astype(str)
-    )
+    calendar_view = calendar.copy()
+    classified_calendar = calendar_view["tema_politica"].notna().any()
+    if classified_calendar:
+        with st.expander("Filtrar calendario por clasificación", expanded=False):
+            filter_cols = st.columns(2)
+            topic_options = sorted(calendar_view["tema_politica"].dropna().unique())
+            stage_options = sorted(calendar_view["etapa_votacion"].dropna().unique())
+            selected_topics = filter_cols[0].multiselect(
+                "Tema de política", topic_options, format_func=_format_label,
+                key=f"sen_topic_filter_{senador_id}",
+            )
+            selected_stages = filter_cols[1].multiselect(
+                "Etapa de votación", stage_options, format_func=_format_label,
+                key=f"sen_stage_filter_{senador_id}",
+            )
+        if selected_topics:
+            calendar_view = calendar_view[calendar_view["tema_politica"].isin(selected_topics)]
+        if selected_stages:
+            calendar_view = calendar_view[calendar_view["etapa_votacion"].isin(selected_stages)]
+        if calendar_view.empty:
+            st.info("Ninguna votación coincide con los filtros de clasificación.")
+            return True
+        st.caption(f"Mostrando {len(calendar_view):,} de {len(calendar):,} votaciones.")
 
-    fig = _calendar_grid_figure(calendar, year_col="year", year_levels=year_levels,
+    year_levels = sorted(calendar_view["year"].unique(), reverse=True)
+    calendar_view["year"] = pd.Categorical(calendar_view["year"], categories=year_levels)
+    calendar_view = calendar_view.sort_values(["year", "vote_date", "votacion_id"])
+    calendar_columns = 20
+    calendar_view = _add_tile_coords(calendar_view, "year", columns=calendar_columns)
+    calendar_view["tooltip"] = (
+        calendar_view["vote_date"].dt.date.astype(str)
+        + " · " + calendar_view["vote_display"].astype(str)
+    )
+    if classified_calendar:
+        calendar_view["tooltip"] += (
+            "<br>Tema: " + calendar_view["tema_politica"].fillna("sin clasificación").map(_format_label)
+            + "<br>Etapa: " + calendar_view["etapa_votacion"].fillna("sin clasificación").map(_format_label)
+        )
+
+    fig = _calendar_grid_figure(calendar_view, year_col="year", year_levels=year_levels,
                                  columns=calendar_columns, marker_size=38, row_px=48,
                                  id_col="votacion_id")
     chart_key = (
         f"senador_calendar_{senador_id}_"
-        f"{len(calendar)}_{first_vote}_{last_vote}"
+        f"{len(calendar_view)}_{first_vote}_{last_vote}"
     )
     event = st.plotly_chart(
         fig,
@@ -337,6 +449,78 @@ def render_senador_view(
     return True
 
 
+CLASSIFICATION_FILTER_COLUMNS = {
+    "origen": "Origen",
+    "etapa_votacion": "Etapa",
+    "tipo_instrumento": "Instrumento",
+    "tema_politica": "Tema",
+}
+
+
+def render_classification_view(database_version: tuple[tuple[int, int], ...]) -> None:
+    """Filter and inspect the applied Senate classification warehouse table."""
+    df = load_senado_classification(database_version)
+    if df.empty:
+        st.info(
+            "No hay clasificaciones del Senado aplicadas. Ejecuta el comando `apply` "
+            "del clasificador antes de abrir esta vista."
+        )
+        return
+    df["vote_date"] = pd.to_datetime(df["vote_date"], errors="coerce")
+
+    with st.expander("Filtros", expanded=True):
+        cols = st.columns(len(CLASSIFICATION_FILTER_COLUMNS))
+        selections: dict[str, list[str]] = {}
+        for widget_col, (field, label) in zip(cols, CLASSIFICATION_FILTER_COLUMNS.items()):
+            options = sorted(df[field].dropna().unique())
+            selections[field] = widget_col.multiselect(
+                label, options, format_func=_format_label, key=f"sen_clf_{field}"
+            )
+        only_review = st.checkbox("Solo clasificaciones que requieren revisión", value=False)
+
+    filtered = df.copy()
+    for field, selected in selections.items():
+        if selected:
+            filtered = filtered[filtered[field].isin(selected)]
+    if only_review:
+        filtered = filtered[filtered["requiere_revision"].astype(bool)]
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Votaciones", f"{len(filtered):,}")
+    m2.metric("Temas", f"{filtered['tema_politica'].nunique():,}")
+    m3.metric(
+        "Requieren revisión",
+        f"{filtered['requiere_revision'].astype(bool).sum():,}",
+    )
+    if filtered.empty:
+        st.info("Ninguna votación coincide con los filtros actuales.")
+        return
+
+    topic_counts = (
+        filtered.assign(tema=filtered["tema_politica"].map(_format_label))
+        .groupby("tema").size().sort_values(ascending=False).rename("Votaciones")
+    )
+    st.markdown("##### Votaciones por tema")
+    st.bar_chart(topic_counts, horizontal=True)
+
+    st.markdown("##### Explorar una votación")
+    vote_options = filtered.sort_values(
+        ["vote_date", "votacion_id"], ascending=[False, False]
+    )["votacion_id"].tolist()
+    labels = {
+        int(row.votacion_id): (
+            f"{row.vote_date.date() if pd.notna(row.vote_date) else 's/f'} · "
+            f"{_format_label(row.tema_politica)} · {str(row.description)[:100]}"
+        )
+        for row in filtered.itertuples()
+    }
+    selected_vote = st.selectbox(
+        "Votación", vote_options, format_func=lambda vote_id: labels[int(vote_id)],
+        key="sen_clf_vote_id",
+    )
+    render_vote_detail(int(selected_vote), database_version)
+
+
 # ── Top-level entry point ────────────────────────────────────────────────────
 
 def render_senado(
@@ -349,6 +533,9 @@ def render_senado(
     """Load Senado data and render one lazily selected top-level view."""
     database_version = get_senado_db_version()
 
+    if view == "Clasificación":
+        render_classification_view(database_version)
+        return
     if view != "Senador":
         raise ValueError(f"Vista de Senado desconocida: {view}")
 
@@ -379,7 +566,10 @@ def render_senado(
             )
             return
         if mapped["source_name_role"] == "suplente":
-            st.caption("La integración oficial no publica titular; se enlaza la suplencia registrada.")
+            st.caption(
+                "El historial nominal corresponde a la suplencia registrada que aparece "
+                "en las votaciones; el titular electoral se conserva en el escaño."
+            )
         if mapped["match_method"] == "approximate_tokens":
             st.caption(
                 f"Correspondencia auditada: {display_person_name(mapped_name)} → "

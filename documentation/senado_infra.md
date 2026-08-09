@@ -13,13 +13,13 @@ senado.gob.mx (HTML list page + per-vote pages + AJAX detail endpoint)
   -> aux_scripts/senado_votes/crawl_senado_votes.py  (fetch + cache + parse -> CSV)
   -> ingestion/senado_ingest.py                      (CSV -> election_data.db)
   -> ingestion/senadores_ingest.py                   (INE seats -> dim_senadores bridge)
+  -> aux_scripts/senado_votes/classify_senado_votes.py (optional Batch API classification)
   -> ui/senado.py                                    (Streamlit rendering)
 ```
 
-There is no classification or alignment/cohesion materialize step yet —
-that's the main structural gap versus the Diputados pipeline (see
-`diputados_infra.md`). `dim_senado_vote`/`fact_senador_vote` have everything
-needed to build the same kind of metrics later.
+Semantic classification is optional and independent from vote ingestion.
+There is still no alignment/cohesion materialize step; that remains the main
+structural gap versus the Diputados pipeline (see `diputados_infra.md`).
 
 ## Source shape
 
@@ -110,11 +110,36 @@ python -m ingestion.senadores_ingest
   `"PRIMER AÑO DE EJERCICIO PRIMER PERIODO ORDINARIO"` (all caps, word order
   swapped) for ~91% of ordinary-session pages. A case-sensitive match against
   `"Periodo"` silently misses the all-caps form.
-- **No classification or alignment/cohesion metrics yet** — unlike the
-  Diputados pipeline, there is no `senado_materialize.py` or LLM
-  classification step. `fact_senador_vote` has the same shape needed to
+- **No alignment/cohesion metrics yet** — unlike the Diputados pipeline,
+  there is no `senado_materialize.py`. `fact_senador_vote` has the same shape needed to
   build the equivalent of `gaceta_deputy_alignment.parquet` /
   `gaceta_party_cohesion.parquet` when that's wanted.
+
+## Optional semantic classification
+
+The Senate classifier uses `description`, `vote_type`, date, and period
+metadata. `prepare` is entirely local; network access occurs only with the
+explicit `submit` and `retrieve` commands:
+
+```bash
+python3 aux_scripts/senado_votes/classify_senado_votes.py prepare
+python3 aux_scripts/senado_votes/classify_senado_votes.py submit
+python3 aux_scripts/senado_votes/classify_senado_votes.py retrieve BATCH_ID
+# Preserve the raw model CSV and apply the documented audited corrections:
+python3 aux_scripts/senado_votes/classify_senado_votes.py review
+# Review classifications_reviewed.csv before applying it:
+python3 aux_scripts/senado_votes/classify_senado_votes.py apply \
+  data/senado_vote_classification/classifications_reviewed.csv
+```
+
+Applied rows are stored in `fact_senado_vote_classification`. The taxonomy is
+parallel to the Cámara classifier, except that legislative origin distinguishes
+`minuta_de_camara_de_diputados` from `dictamen_de_comisiones`. Missing
+`vote_type` must lower stage certainty rather than trigger a guessed phase.
+The Streamlit **Congreso · Clasificación de votos** section exposes these rows
+through its Senado chamber switch, four taxonomy filters, review queue, topic
+summary, and roll-call drill-down. Senator calendars can also be filtered by
+topic and voting stage.
 
 ## Current roster overlay
 

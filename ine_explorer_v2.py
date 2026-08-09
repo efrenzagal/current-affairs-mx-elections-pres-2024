@@ -16,6 +16,7 @@ import streamlit as st
 from ui.approval import render_approval
 from ui.gaceta import render_gaceta
 from ui.hemicycle import render_hemicycle_composition
+from ui.senado import render_senado
 from ui.trajectory import render_trajectory
 
 # ── Page config ────────────────────────────────────────────────────────────────
@@ -129,4 +130,13 @@ elif active_section == "Congreso · Votos por diputado":
 # ══════════════════════════════════════════════════════════════════════════════
 
 elif active_section == "Congreso · Clasificación de votos":
-    render_gaceta("Clasificación")
+    chamber = st.segmented_control(
+        "Cámara",
+        ["Cámara de Diputados", "Senado"],
+        default="Cámara de Diputados",
+        key="classification_chamber",
+    )
+    if chamber == "Senado":
+        render_senado("Clasificación")
+    else:
+        render_gaceta("Clasificación")
