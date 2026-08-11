@@ -3,6 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SITE_NAME, SiteFooter, SiteHeader } from "../site-chrome";
+import { PARTY_COLORS, partyRank } from "./parties";
+import {
+  CHOICE_COLORS,
+  cleanTitle,
+  label,
+  shortDate,
+  shortTitle,
+  stageLabel,
+  topicLabel,
+  voteLabel,
+} from "./votes";
 
 export type Chamber = "diputados" | "senado";
 
@@ -108,73 +119,6 @@ const CHAMBERS: Record<Chamber, {
     isSenate: true,
   },
 };
-
-const PARTY_COLORS: Record<string, string> = {
-  PT: "#c7323f",
-  MORENA: "#8e2533",
-  MRN: "#8e2533",
-  PVEM: "#3b8b62",
-  MC: "#e97935",
-  PRI: "#d55d75",
-  PAN: "#2d69a4",
-  PRD: "#e5ad31",
-  IND: "#7c7f82",
-  CAND_INDEPENDIENTE: "#7c7f82",
-  SG: "#7c7f82",
-  LICENCIA: "#b9b4a8",
-  VACANTE: "#d9d4c8",
-};
-
-const CHOICE_COLORS: Record<string, string> = {
-  Favor: "#267a53",
-  Contra: "#bb3d48",
-  "Abstención": "#d4a72c",
-  Abstencion: "#d4a72c",
-  Ausente: "#9b9a94",
-  "Quórum *": "#537a8f",
-};
-
-const PARTY_ORDER = [
-  "PT", "MORENA", "MRN", "PVEM", "MC", "PRI", "PAN", "PRD",
-  "IND", "CAND_INDEPENDIENTE", "SG", "LICENCIA", "VACANTE",
-];
-
-function partyRank(party: string) {
-  const rank = PARTY_ORDER.indexOf(party);
-  return rank === -1 ? PARTY_ORDER.length : rank;
-}
-
-function cleanTitle(title: string) {
-  return title.replace(/\s*<p>.*$/i, "").trim();
-}
-
-/** Vote titles run long; native tooltips need a readable summary, not the full dictamen. */
-function shortTitle(title: string, limit = 90) {
-  const clean = cleanTitle(title);
-  return clean.length > limit ? `${clean.slice(0, limit).trimEnd()}…` : clean;
-}
-
-function label(value: string | null) {
-  if (!value) return "Sin clasificar";
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function shortDate(date: string) {
-  return new Intl.DateTimeFormat("es-MX", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(`${date}T12:00:00`));
-}
-
-function voteLabel(choice: string) {
-  if (choice === "Favor") return "A favor";
-  if (choice === "Contra") return "En contra";
-  if (choice === "Quórum *") return "Presente, sin voto";
-  return choice;
-}
 
 function statusLabel(status: SeatStatus) {
   if (status === "licencia") return "Con licencia";
@@ -871,7 +815,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                   >
                     <span className="choice-dot" style={{ background: CHOICE_COLORS[choice] ?? "#8b8b86" }} />
                     <span className="history-copy">
-                      <small>{shortDate(vote.date)} · {label(vote.topic)}</small>
+                      <small>{shortDate(vote.date)} · {topicLabel(vote.topic)}</small>
                       <strong>{cleanTitle(vote.title)}</strong>
                     </span>
                     <span className="choice-label">{voteLabel(choice)}</span>
@@ -891,7 +835,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
             <p className="eyebrow">Votación seleccionada · {shortDate(selectedVote.date)}</p>
             <h2>{cleanTitle(selectedVote.title)}</h2>
             {isSenate && selectedVote.stage && (
-              <p className="vote-stage">{selectedVote.stage}</p>
+              <p className="vote-stage">{stageLabel(selectedVote.stage)}</p>
             )}
           </div>
           <a href={selectedVote.sourceUrl} target="_blank" rel="noreferrer">
@@ -900,8 +844,8 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
         </div>
 
         <div className="vote-tags">
-          <span>{isSenate ? label(selectedVote.status) : label(selectedVote.stage)}</span>
-          <span>{label(selectedVote.topic)}</span>
+          <span>{isSenate ? label(selectedVote.status) : stageLabel(selectedVote.stage)}</span>
+          <span>{topicLabel(selectedVote.topic)}</span>
           <span>{selectedVote.id}</span>
         </div>
 

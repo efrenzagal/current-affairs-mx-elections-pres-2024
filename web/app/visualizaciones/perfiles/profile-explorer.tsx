@@ -3,10 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { SITE_NAME, SiteFooter, SiteHeader } from "../../site-chrome";
+import { partyColor, partyRank } from "../parties";
+import {
+  CHOICE_COLORS,
+  cleanTitle,
+  normalize,
+  shortDate,
+  stageLabel,
+  topicLabel,
+  voteLabel as choiceLabel,
+} from "../votes";
+
+/** Sentinel for "no party filter"; no real party key collides with it. */
+const ALL_PARTIES = "todos";
 
 type Chamber = "diputados" | "senado";
 type ChamberFilter = "todos" | Chamber;
 type SeatStatus = "en_funciones" | "licencia" | "vacante" | "sin_directorio";
+type ProfileRole = "current" | "former";
 
 type Seat = {
   id: string;
@@ -45,6 +59,12 @@ type Vote = {
   topic: string | null;
 };
 
+type FormerMember = {
+  personId: string;
+  name: string;
+  party: string;
+};
+
 type SiteData = {
   manifest: {
     legislature: number;
@@ -53,6 +73,7 @@ type SiteData = {
     roster: { observedAt: string };
   };
   seats: Seat[];
+  formerMembers?: FormerMember[];
   votes: Vote[];
   histories: Record<string, [string, string][]>;
 };
@@ -60,9 +81,11 @@ type SiteData = {
 type Member = {
   key: string;
   chamber: Chamber;
-  seat: Seat;
+  seat: Seat | null;
+  role: ProfileRole;
   personId: string | null;
   name: string;
+  party: string;
   searchName: string;
   data: SiteData;
 };
@@ -74,40 +97,11 @@ const DATASETS: Record<Chamber, string> = {
   senado: "/data/senate-66.json",
 };
 
-const CHOICE_COLORS: Record<string, string> = {
-  Favor: "#267a53",
-  Contra: "#bb3d48",
-  "Abstención": "#d4a72c",
-  Abstencion: "#d4a72c",
-  Ausente: "#9b9a94",
-  "Quórum *": "#537a8f",
-};
-
 const FILTERS: { value: ChamberFilter; label: string }[] = [
   { value: "todos", label: "Ambas cámaras" },
   { value: "diputados", label: "Diputados" },
   { value: "senado", label: "Senado" },
 ];
-
-function normalize(value: string) {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es").trim();
-}
-
-function humanize(value: string | null) {
-  if (!value) return "Sin clasificar";
-  if (value === "no_aplica") return "No aplica";
-  if (value === "no_claro") return "Tema no claro";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function shortDate(date: string) {
-  return new Intl.DateTimeFormat("es-MX", { day: "numeric", month: "short", year: "numeric" })
-    .format(new Date(`${date.slice(0, 10)}T12:00:00`));
-}
-
-function cleanTitle(title: string) {
-  return title.replace(/\s*<p>.*$/i, "").trim();
-}
 
 function chamberLabel(chamber: Chamber) {
   return chamber === "diputados" ? "Cámara de Diputados" : "Senado de la República";
@@ -117,7 +111,8 @@ function memberNoun(chamber: Chamber) {
   return chamber === "diputados" ? "Diputación" : "Senaduría";
 }
 
-function statusLabel(status: SeatStatus) {
+function statusLabel(status: SeatStatus | "historical") {
+  if (status === "historical") return "Anterior";
   if (status === "licencia") return "Con licencia";
   if (status === "sin_directorio") return "Sin registro en el directorio";
   return "En funciones";
@@ -139,13 +134,6 @@ function geographyLabel(seat: Seat) {
   return [seat.state, district, seat.districtSeat].filter(Boolean).join(" · ");
 }
 
-function choiceLabel(choice: string) {
-  if (choice === "Favor") return "A favor";
-  if (choice === "Contra") return "En contra";
-  if (choice === "Quórum *") return "Presente, sin voto";
-  return choice;
-}
-
 function choiceBucket(choice: string): "favor" | "contra" | "abstention" | "noVote" {
   if (choice === "Favor") return "favor";
   if (choice === "Contra") return "contra";
@@ -165,6 +153,7 @@ export default function ProfileExplorer() {
   const [datasets, setDatasets] = useState<Record<Chamber, SiteData> | null>(null);
   const [error, setError] = useState(false);
   const [chamberFilter, setChamberFilter] = useState<ChamberFilter>("todos");
+  const [partyFilter, setPartyFilter] = useState<string>(ALL_PARTIES);
   const [query, setQuery] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [topic, setTopic] = useState("todos");
@@ -194,30 +183,101 @@ export default function ProfileExplorer() {
     for (const chamber of ["diputados", "senado"] as Chamber[]) {
       const data = datasets[chamber];
       for (const seat of data.seats) {
-        if (!seat.currentName || seat.currentStatus === "vacante") continue;
+        if (seat.currentName && seat.currentStatus !== "vacante") {
+          result.push({
+            key: `${chamber}:current:${seat.currentPersonId ?? seat.id}`,
+            chamber,
+            seat,
+            role: "current",
+            personId: seat.currentPersonId,
+            name: seat.currentName,
+            party: seat.currentParty,
+            searchName: normalize(seat.currentName),
+            data,
+          });
+        }
+
+        // Preserve the elected occupant as a historical profile after a
+        // suplencia, but only when that person has a voting record to show.
+        const formerHistory = seat.electedPersonId
+          ? data.histories[seat.electedPersonId] ?? []
+          : [];
+        if (
+          seat.electedPersonId &&
+          seat.electedPersonId !== seat.currentPersonId &&
+          formerHistory.length
+        ) {
+          result.push({
+            key: `${chamber}:former:${seat.electedPersonId}`,
+            chamber,
+            seat,
+            role: "former",
+            personId: seat.electedPersonId,
+            name: seat.electedName,
+            party: seat.electedParty,
+            searchName: normalize(seat.electedName),
+            data,
+          });
+        }
+      }
+      for (const former of data.formerMembers ?? []) {
         result.push({
-          key: `${chamber}:${seat.currentPersonId ?? seat.id}`,
+          key: `${chamber}:former:${former.personId}`,
           chamber,
-          seat,
-          personId: seat.currentPersonId,
-          name: seat.currentName,
-          searchName: normalize(seat.currentName),
+          seat: null,
+          role: "former",
+          personId: former.personId,
+          name: former.name,
+          party: former.party,
+          searchName: normalize(former.name),
           data,
         });
       }
     }
     return result.sort(
-      (a, b) => a.searchName.localeCompare(b.searchName, "es") || a.chamber.localeCompare(b.chamber),
+      (a, b) => a.searchName.localeCompare(b.searchName, "es") ||
+        a.chamber.localeCompare(b.chamber) ||
+        a.role.localeCompare(b.role),
     );
   }, [datasets]);
 
+  const inChamber = useMemo(
+    () => members.filter(
+      (member) => chamberFilter === "todos" || member.chamber === chamberFilter,
+    ),
+    [members, chamberFilter],
+  );
+
+  /**
+   * Parties offered by the filter, with a live count. Derived from the chamber
+   * selection rather than the whole Congress: offering PRD in a Senate-only view
+   * that has no PRD senators would produce a button that always yields nothing.
+   */
+  const parties = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const member of inChamber) {
+      const party = member.party;
+      counts.set(party, (counts.get(party) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort(
+      ([a], [b]) => partyRank(a) - partyRank(b) || a.localeCompare(b, "es"),
+    );
+  }, [inChamber]);
+
+  // A party can vanish when the chamber changes. Fall back rather than leave the
+  // list empty behind a filter the reader can no longer see selected.
+  useEffect(() => {
+    if (partyFilter === ALL_PARTIES) return;
+    if (!parties.some(([party]) => party === partyFilter)) setPartyFilter(ALL_PARTIES);
+  }, [parties, partyFilter]);
+
   const filteredMembers = useMemo(() => {
     const needle = normalize(query);
-    return members.filter((member) =>
-      (chamberFilter === "todos" || member.chamber === chamberFilter) &&
+    return inChamber.filter((member) =>
+      (partyFilter === ALL_PARTIES || member.party === partyFilter) &&
       (!needle || member.searchName.includes(needle)),
     );
-  }, [members, chamberFilter, query]);
+  }, [inChamber, partyFilter, query]);
 
   const selected = members.find((member) => member.key === selectedKey) ?? members[0] ?? null;
 
@@ -239,7 +299,7 @@ export default function ProfileExplorer() {
       const key = record.vote.topic ?? "sin_clasificar";
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
-    return [...counts.entries()].sort((a, b) => humanize(a[0]).localeCompare(humanize(b[0]), "es"));
+    return [...counts.entries()].sort((a, b) => topicLabel(a[0]).localeCompare(topicLabel(b[0]), "es"));
   }, [records]);
 
   const filteredRecords = useMemo(
@@ -282,6 +342,13 @@ export default function ProfileExplorer() {
     if (firstInChamber) chooseMember(firstInChamber);
   }
 
+  const hasFilters = Boolean(query) || partyFilter !== ALL_PARTIES;
+
+  function clearFilters() {
+    setQuery("");
+    setPartyFilter(ALL_PARTIES);
+  }
+
   if (error) {
     return (
       <main className="state-screen">
@@ -303,8 +370,9 @@ export default function ProfileExplorer() {
   }
 
   const seat = selected.seat;
+  const isFormer = selected.role === "former";
   const total = filteredRecords.length;
-  const electionLabel = seat.currentPersonId === seat.electedPersonId
+  const electionLabel = !isFormer && seat?.currentPersonId === seat?.electedPersonId
     ? "Partido de elección"
     : "Partido que ganó el escaño";
 
@@ -318,8 +386,8 @@ export default function ProfileExplorer() {
           <h1>Perfil legislativo.</h1>
         </div>
         <p className="hero-copy">
-          Busca entre las diputaciones y senadurías del directorio actual. Lee cada voto nominal,
-          compáralo por tema y distingue el partido que ganó el escaño del grupo parlamentario actual.
+          Busca legisladores actuales y anteriores de la LXVI Legislatura. Lee cada voto nominal,
+          compáralo por tema y distingue quién ganó el escaño de quien lo ocupa actualmente.
         </p>
       </section>
 
@@ -355,13 +423,40 @@ export default function ProfileExplorer() {
               aria-label="Buscar legisladora o legislador por nombre"
             />
           </label>
+          {/* Current profiles use their present parliamentary group; historical
+              profiles use the party with which they won the seat. */}
+          <div className="profile-control-group profile-party-group">
+            <span className="profile-control-label">Partido / grupo parlamentario</span>
+            <div className="profile-party-filter" role="group" aria-label="Filtrar por partido o grupo parlamentario">
+              <button
+                type="button"
+                className={partyFilter === ALL_PARTIES ? "active" : ""}
+                aria-pressed={partyFilter === ALL_PARTIES}
+                onClick={() => setPartyFilter(ALL_PARTIES)}
+              >
+                Todos <span className="profile-party-count">{inChamber.length}</span>
+              </button>
+              {parties.map(([party, count]) => (
+                <button
+                  type="button"
+                  key={party}
+                  className={partyFilter === party ? "active" : ""}
+                  aria-pressed={partyFilter === party}
+                  onClick={() => setPartyFilter(party)}
+                >
+                  <i style={{ background: partyColor(party) }} aria-hidden="true" />
+                  {party} <span className="profile-party-count">{count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="profile-layout">
           <aside className="profile-results" aria-label="Resultados de legisladores">
             <div className="profile-results-heading">
               <span>{filteredMembers.length} resultados</span>
-              {query && <button type="button" onClick={() => setQuery("")}>Limpiar</button>}
+              {hasFilters && <button type="button" onClick={clearFilters}>Limpiar</button>}
             </div>
             <div className="profile-result-list">
               {filteredMembers.map((member) => (
@@ -373,7 +468,15 @@ export default function ProfileExplorer() {
                   onClick={() => chooseMember(member)}
                 >
                   <strong>{member.name}</strong>
-                  <span>{chamberLabel(member.chamber)} · {member.seat.currentParty}</span>
+                  <span>
+                    <i
+                      className="profile-result-party"
+                      style={{ background: partyColor(member.party) }}
+                      aria-hidden="true"
+                    />
+                    {chamberLabel(member.chamber)} · {member.party}
+                    {member.role === "former" ? " · Anterior" : ""}
+                  </span>
                 </button>
               ))}
               {!filteredMembers.length && <p className="profile-empty">No encontramos un nombre con esos filtros.</p>}
@@ -385,28 +488,56 @@ export default function ProfileExplorer() {
               <div>
                 <p className="eyebrow">{chamberLabel(selected.chamber)} · LXVI</p>
                 <h2>{selected.name}</h2>
-                <p>{memberNoun(selected.chamber)} · {seatTypeLabel(seat.seatType)} · {geographyLabel(seat)}</p>
+                <p>
+                  {seat
+                    ? `${memberNoun(selected.chamber)} · ${seatTypeLabel(seat.seatType)} · ${geographyLabel(seat)}`
+                    : `${memberNoun(selected.chamber)} anterior · Sin escaño vinculado al corte actual`}
+                </p>
               </div>
-              <span className={`profile-status status-${seat.currentStatus}`}>{statusLabel(seat.currentStatus)}</span>
+              <span className={`profile-status status-${isFormer ? "historical" : seat?.currentStatus}`}>
+                {statusLabel(isFormer ? "historical" : seat?.currentStatus ?? "sin_directorio")}
+              </span>
             </header>
 
-            <dl className="profile-affiliations">
-              <div>
-                <dt>{electionLabel}</dt>
-                <dd>{seat.electedParty}</dd>
-                {seat.electionActor && <small>{seat.electionActor.replaceAll("_", " · ")}</small>}
-              </div>
-              <div>
-                <dt>Grupo parlamentario actual</dt>
-                <dd>{seat.currentParty}</dd>
-                {seat.currentParty !== seat.electedParty && <small>Cambió respecto del resultado electoral</small>}
-              </div>
-              <div>
-                <dt>Resultado del escaño</dt>
-                <dd>{seat.winningVotes?.toLocaleString("es-MX") ?? "Lista"}</dd>
-                <small>{seat.winningPct !== null ? `${seat.winningPct.toLocaleString("es-MX")}% de la votación` : "Sin voto individual"}</small>
-              </div>
-            </dl>
+            {seat ? (
+              <dl className="profile-affiliations">
+                <div>
+                  <dt>{isFormer ? "Partido de elección" : electionLabel}</dt>
+                  <dd>{seat.electedParty}</dd>
+                  {seat.electionActor && <small>{seat.electionActor.replaceAll("_", " · ")}</small>}
+                </div>
+                <div>
+                  <dt>{isFormer ? "Ocupante actual" : "Grupo parlamentario actual"}</dt>
+                  <dd>{isFormer ? seat.currentName ?? "Vacante" : seat.currentParty}</dd>
+                  {isFormer
+                    ? <small>{seat.currentName ? seat.currentParty : "El escaño no tiene ocupante"}</small>
+                    : seat.currentParty !== seat.electedParty && <small>Cambió respecto del resultado electoral</small>}
+                </div>
+                <div>
+                  <dt>Resultado del escaño</dt>
+                  <dd>{seat.winningVotes?.toLocaleString("es-MX") ?? "Lista"}</dd>
+                  <small>{seat.winningPct !== null ? `${seat.winningPct.toLocaleString("es-MX")}% de la votación` : "Sin voto individual"}</small>
+                </div>
+              </dl>
+            ) : (
+              <dl className="profile-affiliations">
+                <div>
+                  <dt>Último grupo registrado</dt>
+                  <dd>{selected.party}</dd>
+                  <small>Afiliación reportada en su votación más reciente</small>
+                </div>
+                <div>
+                  <dt>Estado en el corte actual</dt>
+                  <dd>Anterior</dd>
+                  <small>Ya no figura como ocupante de un escaño</small>
+                </div>
+                <div>
+                  <dt>Trayectoria disponible</dt>
+                  <dd>{records.length.toLocaleString("es-MX")}</dd>
+                  <small>Votaciones nominales en la LXVI Legislatura</small>
+                </div>
+              </dl>
+            )}
 
             <div className="profile-topic-row">
               <label>
@@ -420,7 +551,7 @@ export default function ProfileExplorer() {
                 >
                   <option value="todos">Todos los temas ({records.length})</option>
                   {topics.map(([value, count]) => (
-                    <option key={value} value={value}>{humanize(value)} ({count})</option>
+                    <option key={value} value={value}>{topicLabel(value)} ({count})</option>
                   ))}
                 </select>
               </label>
@@ -477,9 +608,9 @@ export default function ProfileExplorer() {
             {selectedVote && (
               <section className="profile-vote-detail" aria-live="polite">
                 <div>
-                  <p className="eyebrow">{shortDate(selectedVote.vote.date)} · {humanize(selectedVote.vote.topic)}</p>
+                  <p className="eyebrow">{shortDate(selectedVote.vote.date)} · {topicLabel(selectedVote.vote.topic)}</p>
                   <h3>{cleanTitle(selectedVote.vote.title)}</h3>
-                  {selectedVote.vote.stage && <p>{humanize(selectedVote.vote.stage)}</p>}
+                  {selectedVote.vote.stage && <p>{stageLabel(selectedVote.vote.stage)}</p>}
                 </div>
                 <div className="profile-vote-choice">
                   <span>Votó</span>

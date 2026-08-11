@@ -12,11 +12,18 @@ import { DASHBOARDS } from "./dashboards";
  * fetched: the seat and history payloads stay behind their own routes.
  */
 type Summary = {
-  seatCount: number;
   voteCount: number;
   sourceThrough: string;
-  substitutedSeats: number;
-  roster: { observedAt: string };
+  /**
+   * Seat-shaped manifests only. The vote explorer publishes a digest with no
+   * seats and no roster, so everything below the first two fields is optional
+   * and the card picks its stats from whichever shape it was handed.
+   */
+  seatCount?: number;
+  substitutedSeats?: number;
+  roster?: { observedAt: string };
+  chambers?: Record<string, number>;
+  topicCount?: number;
 };
 
 /** Subject areas in registry order, deduplicated. Drives the optional headings. */
@@ -82,7 +89,7 @@ export default function VisualizacionesPage() {
                   <a href={dashboard.href}>{dashboard.title}</a>
                 </h2>
                 <p className="article-subtitle">
-                  {stats
+                  {stats?.seatCount
                     ? `${stats.seatCount} escaños · LXVI Legislatura`
                     : dashboard.subtitle}
                 </p>
@@ -94,14 +101,33 @@ export default function VisualizacionesPage() {
                       <dt>Votaciones nominales</dt>
                       <dd>{stats.voteCount}</dd>
                     </div>
-                    <div>
-                      <dt>Escaños con relevo</dt>
-                      <dd>{stats.substitutedSeats}</dd>
-                    </div>
-                    <div>
-                      <dt>Composición al</dt>
-                      <dd>{shortDate(stats.roster.observedAt)}</dd>
-                    </div>
+                    {stats.roster ? (
+                      <>
+                        <div>
+                          <dt>Escaños con relevo</dt>
+                          <dd>{stats.substitutedSeats}</dd>
+                        </div>
+                        <div>
+                          <dt>Composición al</dt>
+                          <dd>{shortDate(stats.roster.observedAt)}</dd>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {stats.chambers && (
+                          <div>
+                            <dt>Cámaras</dt>
+                            <dd>{Object.keys(stats.chambers).length}</dd>
+                          </div>
+                        )}
+                        {stats.topicCount && (
+                          <div>
+                            <dt>Temas de política</dt>
+                            <dd>{stats.topicCount}</dd>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </dl>
                 )}
 

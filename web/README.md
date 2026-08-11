@@ -17,8 +17,14 @@ chamber composition → member → vote → party breakdown.
 - **Cámara** (`/visualizaciones/diputados`): 500 seats, 295 Gaceta roll calls.
 - **Senado** (`/visualizaciones/senado`): 128 seats, 378 roll calls.
 - **Perfiles legislativos** (`/visualizaciones/perfiles`): búsqueda conjunta de
-  las personas del directorio actual de ambas cámaras, con resumen de voto,
-  trayectoria nominal y filtro por tema.
+  las personas del directorio actual y de anteriores ocupantes con votos en
+  ambas cámaras, con resumen de voto, trayectoria nominal y filtro por tema.
+- **Geografía electoral** (`/visualizaciones/trayectoria`): mapa seleccionable
+  de las 32 entidades y resultados nacionales/estatales para Presidencia,
+  Senado y Diputaciones, con trayectoria y desglose por boleta/coalición y partido.
+- **Buscador de votaciones** (`/visualizaciones/votaciones`): las 673 votaciones
+  nominales de ambas cámaras, buscables por texto y filtrables por las cuatro
+  ejes de clasificación, con el desglose por grupo parlamentario en cuadros.
 - Each explorer opens on **composición actual** and can switch to the **2024
   electoral result**. See "Elected versus sitting" below — this distinction is
   the reason the section exists in its current form.
@@ -114,9 +120,12 @@ Cloudflare deploy is verified.
 | `app/site-chrome.tsx` | Shared header/footer and the three-section nav |
 | `app/visualizaciones/page.tsx` | Dashboard index, live counts from `visualizaciones.json` |
 | `app/visualizaciones/dashboards.ts` | Dashboard registry; add a card here when you add a route |
+| `app/visualizaciones/parties.ts` | The one party palette and bench order. Never re-declare these |
+| `app/visualizaciones/votes.ts` | The one vote vocabulary: choice colours, title cleanup, Spanish labels for every classification code. Never re-declare these |
 | `app/visualizaciones/explorer.tsx` | The chamber explorer. One component, `chamber` prop |
 | `app/visualizaciones/{diputados,senado}/page.tsx` | Thin routes over `explorer.tsx` |
-| `app/visualizaciones/perfiles/` | Current-member search and person-level vote profiles across both chambers |
+| `app/visualizaciones/perfiles/` | Current and former-member search with person-level vote profiles across both chambers |
+| `app/visualizaciones/votaciones/` | Vote search across both chambers, with the party square grid |
 | `app/articulos/page.tsx` | Artículos index, driven by `public/data/articles.json` |
 | `app/datos/page.tsx` | Datos: warehouse dictionary, master-detail over every table |
 | `app/globals.css` | Complete visual system and responsive layout |
@@ -126,6 +135,8 @@ Cloudflare deploy is verified.
 | `public/articulos/*.html` | Published articles, served as static files |
 | `public/data/legislature-66.json` | Cámara seats, votes, histories and party totals |
 | `public/data/senate-66.json` | Senate seats, votes, histories and party totals |
+| `public/data/votes-66.json` | Both chambers' roll calls and party breakdowns, no seats. 0.8 MB, ~62 KB gzipped |
+| `public/data/vote-ballots-66.json` | Names for the individual squares, mirroring `partyVotes`. 0.8 MB, ~64 KB gzipped |
 | `public/data/visualizaciones.json` | Manifest-only digest so the index need not load 6.5 MB |
 | `public/data/dictionary.json` | Table dictionaries, coverage matrices and column samples |
 | `tests/rendered-html.test.mjs` | Build smoke test and core data invariants |
@@ -199,6 +210,90 @@ wrappers carry the original fixed height with `overflow:auto`. All three are
 overridden; if a future Quarto version changes those class names, the figures
 will silently shrink back.
 
+## Vote explorer
+
+`/visualizaciones/votaciones` is the vote-first route: the hemicycle explorers
+start from a seat and reach a vote, this one starts from the vote. It reads its
+own `votes-66.json` and neither seats nor histories are in it — those are 90% of
+the hemicycle payloads and none of what a vote search needs. Reusing
+`legislature-66.json` here would have cost a reader 5.9 MB to use 0.4 MB.
+
+**The grid is sized by counts and only named by ballots.** `partyVotes` is the
+chamber's own tally for that roll call and is what draws every square; hovering
+one shows who it is, from `vote-ballots-66.json`. That file mirrors the shape of
+`partyVotes` — party, then choice, then an ordered list of people — so the
+client just zips them. Keep it that way. Rebuilding the grid *from* ballots is
+the tempting simplification and it is wrong:
+
+- The two sources disagree on six LXVI Camara roll calls. The per-deputy table
+  files an independent under `SP` where the official summary says `IND` — same
+  person, same choice, different bench label. Sized from ballots, those votes
+  would render a party block the official tally does not contain.
+- The aggregation is the chamber's count *at the time of the vote*, so it stays
+  right for a bench that has since changed. Never recompute it from current
+  composition.
+
+The exporter clamps each name list to its official count and reports coverage;
+it currently names 187,374 of 187,380 squares, the six exceptions being exactly
+that `SP`/`IND` mismatch. A square with no matching name renders normally and
+says only its party and choice — it is never moved to another bench to find one.
+The test fails if coverage drops below 99.9%, which is what a broken join looks
+like.
+
+Names come from the seat tables where the person is linked, so a legislator
+reads the same here as in the hemicycle, and from the chamber's own spelling
+otherwise — roll calls reach interim substitutes the seat tables never held.
+Only the Senado's `Apellido, Nombre` form is flipped, because only it has the
+comma to split on; guessing where a deputy's surnames end would rename people.
+
+**Model confidence is deliberately not published.** The Senado classification
+carries a `confianza` score and the export drops it. A number a reader cannot
+act on reads as precision the label does not have, and "sin revisión" already
+says the useful part. The test asserts no `confidence` key reaches the client.
+
+**Vote IDs stay namespaced.** `partyVotes` is keyed `"<chamber>:<id>"`. The two
+chambers' IDs are independent — the Camara's are Gaceta slugs, the Senado's are
+small integers — and `5115` is a real Senado vote and a plausible future Camara
+one. This payload is the only place the two namespaces meet; the test asserts
+every key carries its chamber.
+
+**The two chambers do not classify identically**, and the exporter reconciles
+them rather than the component:
+
+- `dictamen_de_comisiones` (Senado) and `dictamen_de_comision` (Camara) are one
+  concept spelled twice, and are collapsed by `canonical_code` — the same
+  problem `canonical_party` solves for benches. Uncollapsed they render as two
+  filter chips meaning the same thing on a page that lists both chambers.
+- `minuta_del_senado` and `minuta_de_camara_de_diputados` look like the same
+  case and are **not**: each names the chamber the bill arrived from. They stay
+  distinct.
+- Review provenance is asymmetric. The Camara ran the deterministic review pass
+  and stores an outcome (`rule_checked`, `audited`); the Senado never ran it and
+  stores none. `reviewKey` folds that into one vocabulary a reader can filter
+  on, reporting the Senado as "solo modelo, sin revisión". A Senado label must
+  never render as "verificada" — that is asserted.
+
+**Quorum and the majority thresholds are Camara-only.** They are derived, not
+stored, and the exporter imports `add_vote_thresholds` from
+`ingestion/gaceta_materialize.py` rather than restating the arithmetic, so
+"mayoría calificada" means one thing on both front ends. They are not exported
+for the Senado because the formula keys off `total` meaning the whole chamber,
+which is what the Gaceta tally reports; a Senado tally's total is the number of
+senators recorded in that roll call, so the same formula would compute a quorum
+floor against a denominator that already excludes the absent.
+
+**Every classification code needs a written Spanish label** in `votes.ts`. The
+codes are unaccented `snake_case` at the source, so no mechanical transform can
+produce "Organización y régimen del Congreso". The test parses the label maps
+out of `votes.ts` and fails the build on any code the payload uses and the maps
+do not cover — a future classification pass cannot quietly ship raw snake_case
+onto the page.
+
+Two Camara votes have no `gaceta_date` and therefore no daily-issue link; the
+panel omits it. Streamlit's *Iniciativa (PDF)* button has no equivalent here on
+purpose — it fuzzy-matches the dictamen against a live fetch of that day's
+Gaceta index, which a static site cannot do at render time.
+
 ## Sources and joins
 
 The exporter reads the repository-root `election_data.db`:
@@ -216,13 +311,15 @@ Seat-to-legislator bridges are already persisted in `dim_diputados`,
 `dim_senadores` and the roster tables. Join histories through those IDs; do not
 fuzzy-match names in the web layer.
 
-The two chambers use the same exported shape (`schemaVersion: 2`):
+The two chambers use the same exported shape (`schemaVersion: 3`):
 
 ```text
 manifest   counts, legislature, source cutoff, roster cutoff, occupancy stats
 seats      seat geography/list, 2024 result,
            elected{PersonId,Name,Party,NameRole} — INE, who won it
            current{PersonId,Name,Party,Status}  — directory, who holds it
+formerMembers  voting identities absent from both seat snapshots, with their
+               latest vote-reported party
 votes      metadata, source URL and chamber-wide totals
 histories  person ID -> ordered [vote ID, choice] pairs
 partyVotes vote ID -> party -> choice -> count
@@ -264,6 +361,14 @@ seat can resolve to, under either view, must have an entry in `histories`, and
 `substitutedSeats` must stay above zero — a zero there means the roster overlay
 silently stopped applying.
 
+`votes-66.json` must carry all 673 roll calls, every one resolving to a
+namespaced party breakdown whose four choice totals equal the chamber tally —
+the squares are drawn by expanding those counts, so a breakdown that does not
+sum renders a grid of the wrong size. Every classification code it uses must
+have a Spanish label in `votes.ts`. In `vote-ballots-66.json` no party/choice
+name list may be longer than the count it decorates, and coverage must stay
+above 99.9%.
+
 Refresh the roster before the exporter if the directory has moved:
 
 ```bash
@@ -285,6 +390,29 @@ regenerate both snapshots, then test.
   come from the `CHAMBERS` map in `explorer.tsx`, keyed by the route's chamber.
 - Hover interactions must also work through keyboard focus; seats are buttons.
 - Preserve the compact mobile layout and reduced-motion behavior.
+
+On the vote explorer specifically:
+
+- The whole reading state — query, chamber, four facets, review, result, margin,
+  sort and the open vote — lives in the query string, seeded at first render so
+  a shared link never paints the unfiltered archive first. `replaceState`, not
+  `pushState`: ticking four chips must not cost four presses of Back.
+- Facet options are derived from the votes the other filters already allow, with
+  counts, so a chip that would return nothing is never offered.
+- The list renders 10 rows and grows on request. Rendering all 673 made the page
+  unusable to scroll, and the detail panel sits below it. The page counter
+  resets by comparing a signature of the filter state during render, not from an
+  effect, so narrowing a filter always returns you to the top of the results.
+- Square tooltips are a custom element, not the native `title`. `title` forces a
+  `help` cursor, waits about a second, and cannot be styled. One `mouseover`
+  listener sits on the grid container and reads the square's data attributes;
+  `PartyGrids` is memoized so moving the pointer never re-renders 500 squares,
+  and a reading that lands on the gap between squares is held rather than
+  cleared, or the label strobes on its way across a bench.
+- A selection the chamber switch made unreachable (`permiso` is Senado-only) is
+  **ignored, not deleted**. It has no chip to un-tick, so leaving it live would
+  empty the list for no visible reason; discarding it would lose the reader's
+  filter when they switch back.
 
 ## Editing copy
 

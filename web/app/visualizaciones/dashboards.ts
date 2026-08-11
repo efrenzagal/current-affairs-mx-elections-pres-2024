@@ -27,6 +27,18 @@ export type Dashboard = {
 
 export const DASHBOARDS: Dashboard[] = [
   {
+    slug: "trayectoria",
+    href: "/visualizaciones/trayectoria",
+    area: "Elecciones",
+    title: "Geografía electoral",
+    subtitle: "32 entidades · Presidencia, Senado y Diputaciones",
+    summary:
+      "Selecciona un estado y compara la trayectoria del voto presidencial, del Senado y de las " +
+      "diputaciones federales. Cambia de ciclo para explorar coaliciones y partidos.",
+    scope: "18 elecciones federales · escala nacional y estatal",
+    topics: ["Elecciones", "Estados", "Trayectoria", "Partidos y coaliciones"],
+  },
+  {
     slug: "perfiles",
     href: "/visualizaciones/perfiles",
     area: "Congreso",
@@ -38,6 +50,19 @@ export const DASHBOARDS: Dashboard[] = [
       "el partido que ganó el escaño del grupo parlamentario actual.",
     scope: "673 votaciones nominales entre ambas cámaras",
     topics: ["Congreso", "Perfiles", "Temas", "Votaciones nominales"],
+  },
+  {
+    slug: "votaciones",
+    href: "/visualizaciones/votaciones",
+    area: "Congreso",
+    title: "Buscador de votaciones",
+    subtitle: "673 votaciones nominales · Ambas cámaras · LXVI Legislatura",
+    summary:
+      "Busca cualquier votación por texto o por tema y ábrela para ver el resultado completo: " +
+      "cifras a favor, en contra, abstenciones y ausencias, el desglose cuadro por cuadro de cada " +
+      "grupo parlamentario y, en la Cámara, si se alcanzó el quórum y cada tipo de mayoría.",
+    scope: "673 votaciones clasificadas por tema, etapa, origen e instrumento",
+    topics: ["Congreso", "Votaciones nominales", "Temas", "Búsqueda"],
   },
   {
     slug: "diputados",

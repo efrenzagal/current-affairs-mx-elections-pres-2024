@@ -19,9 +19,25 @@ jupyter: python3
   .footnotes, .footnotes p, .footnotes li {
     font-family: "Times New Roman", Times, serif;
   }
-  .cell-output-display { max-width: 1100px; margin-left: calc(50% - 550px); }
-  @media (max-width: 1150px) {
+  /* Figures overhang the 760px text column, but only just. At the old 1100px
+     the charts were 45% wider than the prose, which is what made 11px tick
+     labels read as microscopic — the eye scales chart text against the column
+     beside it, not against the chart's own width. */
+  .cell-output-display { max-width: 920px; margin-left: calc(50% - 460px); }
+  @media (max-width: 980px) {
     .cell-output-display { max-width: 100%; margin-left: 0; }
+  }
+  /* Captions are now source/method notes, not titles — each figure carries its
+     own headline inside the plot. Sans here is deliberate: it is the one thing
+     on the page that is neither prose nor chart, and the contrast says so.
+     A system stack, so the page needs no webfont at all. */
+  figcaption, .figure-caption, .quarto-figure figcaption {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif !important;
+    font-size: 0.82rem !important;
+    color: #8a8a8a !important;
+    max-width: 920px;
+    margin-left: auto; margin-right: auto;
+    padding-top: 0.5em;
   }
   p { line-height: 1.55; }
   h2 { margin-top: 2.2em; }
@@ -86,9 +102,10 @@ import sys
 sys.path.insert(0, "../..")
 
 from ui.common import (
-    CATEGORY_COLORS, COALITION_MEMBERS, IDEOLOGY_MAP, MAIN_PARTY_KEYS, TS_PARTY_COLORS,
-    classify_ternary, split_coalition_votes_by_geo, ts_base_layout,
+    COALITION_MEMBERS, IDEOLOGY_MAP, MAIN_PARTY_KEYS,
+    classify_ternary, split_coalition_votes_by_geo,
 )
+import chart_style as cs
 
 DB_PATH = "../../election_data.db"
 PRE_YEARS = [1994, 2000, 2006, 2012, 2018, 2024]
@@ -145,31 +162,63 @@ party_totals = (
     .groupby(["year", "party_key"], as_index=False)["votes"].sum()
 )
 
+# Plotted in millions rather than raw counts: "28.6M" on an axis tick reads at a
+# glance where "28,650,000" does not, and the exact figures live in the tooltip.
+party_totals["millions"] = party_totals["votes"] / 1e6
+
 fig = go.Figure()
 for party in MAIN_PARTY_KEYS:
     d = party_totals[party_totals["party_key"] == party].sort_values("year")
     if d.empty:
         continue
     fig.add_trace(go.Scatter(
-        x=d["year"], y=d["votes"], mode="lines+markers", name=party,
-        line=dict(color=TS_PARTY_COLORS[party], width=2.5),
-        marker=dict(size=8, color=TS_PARTY_COLORS[party], line=dict(width=1.5, color="white")),
-        hovertemplate=f"<b>{party}</b><br>%{{x}}: %{{y:,.0f}} votos<extra></extra>",
+        x=d["year"], y=d["millions"], mode="lines+markers", name=party,
+        line=dict(color=cs.PARTY[party], width=1.6, shape="linear"),
+        marker=dict(size=7, color=cs.PARTY[party],
+                    line=dict(width=1.4, color=cs.SURFACE)),
+        hovertemplate=f"<b>{party}</b><br>%{{x}}: %{{y:.2f}}M votos<extra></extra>",
     ))
+
+# Seven series converge too tightly at the right edge to direct-label them all
+# (PRI and MC land within half a million of each other in 2024), so the legend
+# carries identity and only the two that decide the story get end-labels.
+for party, yr in (("MORENA", 2024), ("PAN", 2024)):
+    d = party_totals[(party_totals["party_key"] == party) & (party_totals["year"] == yr)]
+    if d.empty:
+        continue
+    fig.add_annotation(
+        x=yr + 0.6, y=float(d["millions"].iloc[0]),
+        text=f"<b>{party} {float(d['millions'].iloc[0]):.1f}M</b>",
+        showarrow=False, xanchor="left", yanchor="middle",
+        font=dict(family=cs.FONT, size=cs.SIZE_DIRECT_LABEL, color=cs.PARTY[party]),
+    )
 
 # MORENA founded as a political party on 2014-08-01
 morena_founding = 2014 + (pd.Timestamp("2014-08-01") - pd.Timestamp("2014-01-01")).days / 365
 fig.add_vline(
-    x=morena_founding, line_dash="dot", line_color="rgba(80,80,80,0.6)", line_width=1.5,
+    x=morena_founding, line_dash="dot", line_color="rgba(20,20,20,0.3)", line_width=1,
 )
 fig.add_annotation(
-    x=morena_founding, y=0.98, yref="paper", yanchor="top", xanchor="left", xshift=6,
-    text="Fundación de MORENA<br>(1 ago 2014)", showarrow=False, align="left",
-    font=dict(size=10, family="IBM Plex Mono", color="rgba(80,80,80,0.9)"),
+    x=morena_founding, y=0.99, yref="paper", yanchor="top", xanchor="right", xshift=-8,
+    text="Fundación de MORENA<br>(1 ago 2014)", showarrow=False, align="right",
+    font=dict(family=cs.FONT, size=cs.SIZE_NOTE, color=cs.INK_MUTED),
 )
 
-fig.update_layout(**ts_base_layout("Votos por partido — Presidencial", "Votos", PRE_YEARS, height=440))
-fig.update_layout(title=None, margin=dict(t=30))
+fig.update_layout(**cs.base_layout(
+    "MORENA reordenó el voto en un solo ciclo",
+    "Votos por partido en elecciones presidenciales, en millones",
+    height=520, margin=dict(l=64, r=20, t=110, b=95),
+))
+fig.update_layout(
+    xaxis=cs.time_axis(PRE_YEARS, pad_right=7),
+    yaxis=cs.value_axis([0, 31], tickvals=[0, 10, 20, 30], ticksuffix="M"),
+    legend=dict(
+        orientation="h", yanchor="top", y=-0.10, xanchor="left", x=0,
+        font=dict(family=cs.FONT, size=cs.SIZE_AXIS_TITLE, color=cs.INK_SOFT),
+        itemsizing="constant",
+    ),
+    hovermode="x unified",
+)
 fig.show()
 ```
 
@@ -188,9 +237,7 @@ a los seis ciclos electorales, podemos observar la siguiente tendencia:
 
 ```{python}
 #| label: fig-tendencia
-#| fig-cap: "Tendencia del voto por bloque ideológico a través del tiempo."
-
-VERTEX_COLORS = {"L": "#8B0000", "R": "#1E90FF", "C": "#006847"}
+#| fig-cap: "Porcentajes calculados sobre la suma de los tres bloques, excluyendo nulos, no registrados e independientes. Fuente: INE."
 
 bloc_rows = []
 for eid, g in votes_split.groupby("election_id"):
@@ -207,27 +254,51 @@ for eid, g in votes_split.groupby("election_id"):
 df_bloc = pd.DataFrame(bloc_rows).sort_values("year").reset_index(drop=True)
 
 fig = go.Figure()
-for col, color, label in [
-    ("pct_L", VERTEX_COLORS["L"], "Izquierda"),
-    ("pct_R", VERTEX_COLORS["R"], "Derecha"),
-    ("pct_C", VERTEX_COLORS["C"], "Centro"),
-]:
+
+# A 50% rule: above it a bloc could govern on its own votes alone, below it the
+# other two could in principle combine and outvote it. It is the same threshold
+# classify_ternary() uses for "Base", so the line makes that cutoff visible.
+fig.add_hline(y=50, line_width=0.9, line_color="rgba(20,20,20,0.28)")
+fig.add_annotation(
+    xref="paper", x=0.004, y=50, text="Mayoría absoluta", showarrow=False,
+    xanchor="left", yanchor="bottom", yshift=4,
+    font=dict(family=cs.FONT, size=cs.SIZE_NOTE, color=cs.INK_MUTED),
+)
+
+for col, key in (("pct_L", "L"), ("pct_R", "R"), ("pct_C", "C")):
+    color, label = cs.BLOC[key], cs.BLOC_LABEL[key]
     fig.add_trace(go.Scatter(
         x=df_bloc["year"], y=df_bloc[col], mode="lines+markers", name=label,
-        line=dict(color=color, width=2.5),
-        marker=dict(size=8, color=color, line=dict(width=1.5, color="white")),
+        line=dict(color=color, width=1.9),
+        marker=dict(size=7, color=color, line=dict(width=1.4, color=cs.SURFACE)),
         hovertemplate=f"<b>{label}</b>: %{{y:.1f}}%<extra></extra>",
     ))
+    # The three blocs are far apart in 2024 (55.8 / 27.3 / 16.9), so end-labels
+    # land cleanly and the legend box comes out entirely. The label is colored
+    # because with no legend it *is* the identity key — the one place in these
+    # figures where text carries the series color.
+    end = df_bloc.iloc[-1]
+    fig.add_annotation(
+        x=int(end["year"]) + 0.7, y=float(end[col]),
+        text=f"<b>{label} {float(end[col]):.0f}%</b>",
+        showarrow=False, xanchor="left", yanchor="middle",
+        font=dict(family=cs.FONT, size=cs.SIZE_DIRECT_LABEL, color=color),
+    )
 
+fig.update_layout(**cs.base_layout(
+    "La izquierda pasó de tercer lugar a mayoría absoluta",
+    "Participación de cada bloque en el voto presidencial, % del total entre Izquierda, Centro y Derecha",
+    # l=64 clears the "60%" tick labels — at the shared l=10 default they were
+    # cropped to a bare "0".
+    height=540, margin=dict(l=64, r=20, t=110, b=60),
+))
 fig.update_layout(
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    font_family="IBM Plex Sans", font_color="#444",
-    xaxis=dict(title="Año", tickvals=PRE_YEARS, tickfont=dict(family="IBM Plex Mono"),
-               gridcolor="rgba(150,150,150,0.15)", linecolor="rgba(150,150,150,0.3)"),
-    yaxis=dict(title="% votos (entre I+D+C)", range=[0, 100], gridcolor="rgba(150,150,150,0.15)"),
-    legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5),
+    # Ranged to the data (17–59%), not to 0–100: the old range spent ~40% of the
+    # plot on empty space above the series and flattened every movement in it.
+    xaxis=cs.time_axis(PRE_YEARS, pad_right=8),
+    yaxis=cs.value_axis([0, 65], tickvals=[0, 20, 40, 60], ticksuffix="%"),
+    showlegend=False,
     hovermode="x unified",
-    height=520, margin=dict(l=50, r=20, t=50, b=60),
 )
 fig.show()
 ```
@@ -248,7 +319,7 @@ votos para cada movimiento y cada vértice obtener el 100% para el movimiento co
 
 ```{python}
 #| label: fig-ternaria
-#| fig-cap: "Distribución nacional del voto presidencial entre los bloques Izquierda / Centro / Derecha, 1994–2024."
+#| fig-cap: "Distribución nacional del voto entre los bloques Izquierda / Centro / Derecha, 1994–2024. La zona sombreada agrupa los resultados sin mayoría absoluta y el color indica el tipo de zona en que cae cada elección. Fuente: INE."
 
 _S32 = np.sqrt(3) / 2
 
@@ -269,7 +340,7 @@ fig = go.Figure()
 # Triangle outline
 fig.add_trace(go.Scatter(
     x=[0, 1, 0.5, 0], y=[0, 0, _S32, 0],
-    mode="lines", line=dict(color="rgba(20,20,20,0.9)", width=2),
+    mode="lines", line=dict(color="rgba(20,20,20,0.85)", width=1.2),
     hoverinfo="skip", showlegend=False,
 ))
 
@@ -279,7 +350,7 @@ fig.add_trace(go.Scatter(
     x=[mid_lr[0], mid_rc[0], mid_lc[0], mid_lr[0]],
     y=[mid_lr[1], mid_rc[1], mid_lc[1], mid_lr[1]],
     mode="lines", fill="toself", fillcolor="rgba(150,150,150,0.07)",
-    line=dict(color="rgba(200,200,200,0.35)", width=1, dash="dash"),
+    line=dict(color="rgba(200,200,200,0.35)", width=0.8, dash="dash"),
     hoverinfo="skip", showlegend=False,
 ))
 
@@ -290,68 +361,74 @@ r = 8 / 100
 fig.add_trace(go.Scatter(
     x=cx0 + r * np.cos(theta), y=cy0 + r * np.sin(theta),
     mode="lines", fill="toself", fillcolor="rgba(170,170,170,0.14)",
-    line=dict(color="rgba(170,170,170,0.5)", width=1, dash="dot"),
+    line=dict(color="rgba(170,170,170,0.5)", width=0.8, dash="dot"),
     hoverinfo="skip", showlegend=False,
 ))
 
-# Grid lines parallel to each side at 1/3 and 2/3
+# Grid lines parallel to each side at 1/3 and 2/3 — solid hairlines rather than
+# dotted, so they recede into the surface instead of adding texture that
+# competes with the trajectory.
 for f in (1 / 3, 2 / 3):
     fig.add_trace(go.Scatter(
         x=[f * 0.5, f * 0.5 + (1 - f)], y=[f * _S32, f * _S32],
-        mode="lines", line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+        mode="lines", line=dict(color="rgba(20,20,20,0.07)", width=1),
         hoverinfo="skip", showlegend=False,
     ))
     fig.add_trace(go.Scatter(
         x=[f, f + (1 - f) * 0.5], y=[0, (1 - f) * _S32],
-        mode="lines", line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+        mode="lines", line=dict(color="rgba(20,20,20,0.07)", width=1),
         hoverinfo="skip", showlegend=False,
     ))
     fig.add_trace(go.Scatter(
         x=[1 - f, (1 - f) * 0.5], y=[0, (1 - f) * _S32],
-        mode="lines", line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+        mode="lines", line=dict(color="rgba(20,20,20,0.07)", width=1),
         hoverinfo="skip", showlegend=False,
     ))
 
 # Centroid cross
 fig.add_trace(go.Scatter(
     x=[cx0], y=[cy0], mode="markers",
-    marker=dict(symbol="cross", size=9, color="rgba(160,160,160,0.5)",
-                line=dict(width=1.5, color="rgba(160,160,160,0.7)")),
+    marker=dict(symbol="cross", size=8, color="rgba(150,150,150,0.55)",
+                line=dict(width=1, color="rgba(150,150,150,0.7)")),
     hoverinfo="skip", showlegend=False,
 ))
 
-# Trajectory line + arrowheads
-fig.add_trace(go.Scatter(
-    x=df_bloc["tx"], y=df_bloc["ty"], mode="lines",
-    line=dict(color="rgba(90,90,90,0.45)", width=1.8, dash="dot"),
-    hoverinfo="skip", showlegend=False,
-))
+# The two gray zones are explained in the subtitle rather than labeled in place:
+# the interior is crowded enough that in-plot labels landed on top of the 1994
+# and 2006 points, and the legend below already names the "Empate" category.
+
+# Trajectory: the article's actual claim is about distance travelled per sexenio,
+# so the arrows are the story and now carry real weight instead of sitting as
+# the faintest ink on the chart.
 for (_, a), (_, b) in zip(df_bloc.iloc[:-1].iterrows(), df_bloc.iloc[1:].iterrows()):
     fig.add_annotation(
         x=b["tx"], y=b["ty"], ax=a["tx"], ay=a["ty"],
         xref="x", yref="y", axref="x", ayref="y",
-        showarrow=True, arrowhead=3, arrowsize=1,
-        arrowwidth=1.6, arrowcolor="rgba(90,90,90,0.6)", standoff=10,
+        showarrow=True, arrowhead=2, arrowsize=1.1,
+        arrowwidth=1.5, arrowcolor="rgba(20,20,20,0.45)", standoff=13, startstandoff=13,
     )
 
 # Year points, colored by ternary-zone category (Base/Plural/Contenciosa/Empate).
 # Text position is hand-picked per year since 2018/2024 sit almost directly
 # on top of each other and a fixed "top center" for both would collide.
 YEAR_LABEL_POSITION = {
-    1994: "top right", 2000: "top center", 2006: "bottom center",
-    2012: "bottom left", 2018: "bottom center", 2024: "top center",
+    1994: "top right", 2000: "middle right", 2006: "bottom center",
+    2012: "top left", 2018: "bottom center", 2024: "middle left",
 }
 for _, row in df_bloc.iterrows():
     yr = int(row["year"])
-    cat_color = CATEGORY_COLORS[row["category"]]
+    cat_color = cs.CATEGORY[row["category"]]
     fig.add_trace(go.Scatter(
         x=[row["tx"]], y=[row["ty"]], mode="markers+text",
-        marker=dict(size=16, color=cat_color, opacity=0.95,
-                    line=dict(width=1.5, color="white")),
-        text=[str(yr)], textposition=YEAR_LABEL_POSITION[yr],
-        textfont=dict(size=11, family="IBM Plex Mono", color=cat_color),
+        marker=dict(size=17, color=cat_color, opacity=1,
+                    line=dict(width=1.6, color=cs.SURFACE)),
+        text=[f"<b>{yr}</b>"], textposition=YEAR_LABEL_POSITION[yr],
+        # The year is a label, not a data value — it reads in ink while the dot
+        # beside it carries the category color. At 11px in a light category hue
+        # these were close to unreadable.
+        textfont=dict(size=cs.SIZE_POINT_LABEL, family=cs.FONT, color=cs.INK),
         hovertemplate=(
-            f"<b>{yr}</b><br>"
+            f"<b>{yr}</b> — {row['category']}<br>"
             f"Izquierda: {row['pct_L']:.1f}%<br>"
             f"Derecha:   {row['pct_R']:.1f}%<br>"
             f"Centro:    {row['pct_C']:.1f}%<extra></extra>"
@@ -359,22 +436,43 @@ for _, row in df_bloc.iterrows():
         showlegend=False,
     ))
 
+# Legend for the zone categories. The dots have always been colored by
+# classify_ternary()'s verdict, but nothing on the figure said so — this is the
+# key that makes the color channel readable at all.
+for cat in df_bloc["category"].unique():
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None], mode="markers", name=cat,
+        marker=dict(size=12, color=cs.CATEGORY[cat],
+                    line=dict(width=1.4, color=cs.SURFACE)),
+        hoverinfo="skip", showlegend=True,
+    ))
+
 # Vertex labels
 fig.add_trace(go.Scatter(
-    x=[-0.015, 1.015, 0.5], y=[-0.018, -0.018, _S32 + 0.018],
-    mode="text", text=["<b>Izquierda</b>", "<b>Derecha</b>", "<b>Centro</b>"],
-    textfont=dict(size=12, family="IBM Plex Mono",
-                  color=[VERTEX_COLORS["L"], VERTEX_COLORS["R"], VERTEX_COLORS["C"]]),
+    x=[-0.015, 1.015, 0.5], y=[-0.022, -0.022, _S32 + 0.022],
+    mode="text", text=["<b>IZQUIERDA</b>", "<b>DERECHA</b>", "<b>CENTRO</b>"],
+    textfont=dict(size=cs.SIZE_VERTEX, family=cs.FONT,
+                  color=[cs.BLOC["L"], cs.BLOC["R"], cs.BLOC["C"]]),
     hoverinfo="skip", showlegend=False,
 ))
 
+fig.update_layout(**cs.base_layout(
+    "Seis sexenios, un recorrido hacia la izquierda",
+    "Cada punto es una elección; el círculo central marca un empate 33/33/33",
+    height=760, margin=dict(l=10, r=10, t=110, b=70),
+))
+TERNARY_XRANGE = [-0.06, 1.06]
+TERNARY_YRANGE = [-0.05, _S32 + 0.06]
+
 fig.update_layout(
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    font_family="IBM Plex Sans", font_color="#444",
-    xaxis=dict(visible=False, range=[-0.04, 1.04]),
-    yaxis=dict(visible=False, range=[-0.035, _S32 + 0.045], scaleanchor="x", scaleratio=1),
-    height=560,
-    margin=dict(l=10, r=10, t=50, b=20),
+    xaxis=dict(visible=False, range=TERNARY_XRANGE),
+    yaxis=dict(visible=False, range=TERNARY_YRANGE, scaleanchor="x", scaleratio=1),
+    meta=cs.locked_aspect_meta(TERNARY_XRANGE, TERNARY_YRANGE),
+    legend=dict(
+        orientation="h", yanchor="top", y=0.02, xanchor="center", x=0.5,
+        font=dict(family=cs.FONT, size=cs.SIZE_AXIS_TITLE, color=cs.INK_SOFT),
+        itemsizing="constant", bgcolor="rgba(255,255,255,0.75)",
+    ),
 )
 fig.show()
 ```
@@ -395,7 +493,7 @@ estados con mayor volumen de voto resaltan sobre el resto, y etiquetamos los má
 
 ```{python}
 #| label: fig-ternaria-estados
-#| fig-cap: "Estados con mayor volumen de voto en 2024, ubicados según su distribución L/R/C. El tamaño de cada burbuja es proporcional a sus votos totales."
+#| fig-cap: "Los 32 estados ubicados según su distribución L/C/D en 2024; los 10 de mayor volumen de voto aparecen destacados y el resto atenuados. La zona sombreada agrupa los resultados sin mayoría absoluta. Fuente: INE."
 
 STATE_YEAR = 2024
 STATE_ELECTION_ID = f"PRE_{STATE_YEAR}"
@@ -461,9 +559,12 @@ LABEL_OFFSETS = {
 }
 # Shorter/disambiguated display text for the leader-line labels — "México"
 # alone would read as the country, and CDMX already has its own bubble.
+# CDMX is spelled out rather than left to .title(), which renders the particle
+# capitalized ("Ciudad De México").
 LABEL_DISPLAY_NAMES = {
     "MÉXICO": "Estado de México",
     "VERACRUZ DE IGNACIO DE LA LLAVE": "Veracruz",
+    "CIUDAD DE MÉXICO": "Ciudad de México",
 }
 
 state_mid_lr, state_mid_rc, state_mid_lc = (0.5, 0.0), (0.75, _S32 / 2), (0.25, _S32 / 2)
@@ -476,7 +577,7 @@ fig = go.Figure()
 # Triangle outline
 fig.add_trace(go.Scatter(
     x=[0, 1, 0.5, 0], y=[0, 0, _S32, 0],
-    mode="lines", line=dict(color="rgba(20,20,20,0.9)", width=2),
+    mode="lines", line=dict(color="rgba(20,20,20,0.85)", width=1.2),
     hoverinfo="skip", showlegend=False,
 ))
 
@@ -485,7 +586,7 @@ fig.add_trace(go.Scatter(
     x=[state_mid_lr[0], state_mid_rc[0], state_mid_lc[0], state_mid_lr[0]],
     y=[state_mid_lr[1], state_mid_rc[1], state_mid_lc[1], state_mid_lr[1]],
     mode="lines", fill="toself", fillcolor="rgba(150,150,150,0.07)",
-    line=dict(color="rgba(200,200,200,0.35)", width=1, dash="dash"),
+    line=dict(color="rgba(200,200,200,0.35)", width=0.8, dash="dash"),
     hoverinfo="skip", showlegend=False,
 ))
 
@@ -493,7 +594,7 @@ fig.add_trace(go.Scatter(
 fig.add_trace(go.Scatter(
     x=state_cx0 + state_r * np.cos(state_theta), y=state_cy0 + state_r * np.sin(state_theta),
     mode="lines", fill="toself", fillcolor="rgba(170,170,170,0.14)",
-    line=dict(color="rgba(170,170,170,0.5)", width=1, dash="dot"),
+    line=dict(color="rgba(170,170,170,0.5)", width=0.8, dash="dot"),
     hoverinfo="skip", showlegend=False,
 ))
 
@@ -501,41 +602,44 @@ fig.add_trace(go.Scatter(
 for f in (1 / 3, 2 / 3):
     fig.add_trace(go.Scatter(
         x=[f * 0.5, f * 0.5 + (1 - f)], y=[f * _S32, f * _S32],
-        mode="lines", line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+        mode="lines", line=dict(color="rgba(20,20,20,0.07)", width=1),
         hoverinfo="skip", showlegend=False,
     ))
     fig.add_trace(go.Scatter(
         x=[f, f + (1 - f) * 0.5], y=[0, (1 - f) * _S32],
-        mode="lines", line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+        mode="lines", line=dict(color="rgba(20,20,20,0.07)", width=1),
         hoverinfo="skip", showlegend=False,
     ))
     fig.add_trace(go.Scatter(
         x=[1 - f, (1 - f) * 0.5], y=[0, (1 - f) * _S32],
-        mode="lines", line=dict(color="rgba(180,180,180,0.18)", width=0.8, dash="dot"),
+        mode="lines", line=dict(color="rgba(20,20,20,0.07)", width=1),
         hoverinfo="skip", showlegend=False,
     ))
 
 # Centroid cross
 fig.add_trace(go.Scatter(
     x=[state_cx0], y=[state_cy0], mode="markers",
-    marker=dict(symbol="cross", size=9, color="rgba(160,160,160,0.5)",
-                line=dict(width=1.5, color="rgba(160,160,160,0.7)")),
+    marker=dict(symbol="cross", size=8, color="rgba(150,150,150,0.55)",
+                line=dict(width=1, color="rgba(150,150,150,0.7)")),
     hoverinfo="skip", showlegend=False,
 ))
+
+# As in the national ternary, the zones are described in the subtitle — labeled
+# in place they collided with the Nuevo León and Guanajuato callouts.
 
 # State bubbles, sized by vote volume, colored by ternary-zone category.
 # All 32 states are plotted, but only the top TOP_N_HIGHLIGHT by vote
 # volume get full opacity — the rest sit faded in the background for
 # context without competing for attention.
-sizeref = 2 * df_state_bloc["total_votes"].max() / (46 ** 2)
+sizeref = 2 * df_state_bloc["total_votes"].max() / (52 ** 2)
 for i, row in df_state_bloc.iterrows():
     is_top = i < TOP_N_HIGHLIGHT
-    cat_color = CATEGORY_COLORS[row["category"]]
+    cat_color = cs.CATEGORY[row["category"]]
     fig.add_trace(go.Scatter(
         x=[row["tx"]], y=[row["ty"]], mode="markers",
-        marker=dict(size=[row["total_votes"]], sizemode="area", sizeref=sizeref, sizemin=6,
-                    color=cat_color, opacity=0.85 if is_top else 0.22,
-                    line=dict(width=1.2 if is_top else 0.4, color="white")),
+        marker=dict(size=[row["total_votes"]], sizemode="area", sizeref=sizeref, sizemin=7,
+                    color=cat_color, opacity=0.85 if is_top else 0.25,
+                    line=dict(width=1.2 if is_top else 0.4, color=cs.SURFACE)),
         hovertemplate=(
             f"<b>{row['nombre_estado'].title()}</b><br>"
             f"Izquierda: {row['pct_L']:.1f}%<br>"
@@ -550,33 +654,50 @@ for i, row in df_state_bloc.iterrows():
 labeled = df_state_bloc[df_state_bloc["nombre_estado"].isin(LABEL_OFFSETS)]
 for _, row in labeled.iterrows():
     dx, dy = LABEL_OFFSETS[row["nombre_estado"]]
-    cat_color = CATEGORY_COLORS[row["category"]]
     display_name = LABEL_DISPLAY_NAMES.get(row["nombre_estado"], row["nombre_estado"].title())
     fig.add_annotation(
         x=row["tx"], y=row["ty"], ax=row["tx"] + dx, ay=row["ty"] + dy,
         xref="x", yref="y", axref="x", ayref="y",
-        showarrow=True, arrowhead=0, arrowwidth=1, arrowcolor="rgba(120,120,120,0.55)", standoff=4,
+        showarrow=True, arrowhead=0, arrowwidth=0.8, arrowcolor="rgba(20,20,20,0.32)", standoff=4,
+        # Ink, not the category hue: these sit over faded bubbles and the
+        # lighter categories were unreadable as text.
         text=f"<b>{display_name}</b>",
-        font=dict(size=11, family="IBM Plex Mono", color=cat_color),
-        bgcolor="rgba(255,255,255,0.75)",
+        font=dict(size=cs.SIZE_POINT_LABEL, family=cs.FONT, color=cs.INK),
+        bgcolor="rgba(255,255,255,0.82)", borderpad=3,
     )
+
+# Legend for the zone categories actually present among the 32 states.
+for cat in df_state_bloc["category"].unique():
+    fig.add_trace(go.Scatter(
+        x=[None], y=[None], mode="markers", name=cat,
+        marker=dict(size=12, color=cs.CATEGORY[cat],
+                    line=dict(width=1.4, color=cs.SURFACE)),
+        hoverinfo="skip", showlegend=True,
+    ))
 
 # Vertex labels
 fig.add_trace(go.Scatter(
-    x=[-0.015, 1.015, 0.5], y=[-0.018, -0.018, _S32 + 0.018],
-    mode="text", text=["<b>Izquierda</b>", "<b>Derecha</b>", "<b>Centro</b>"],
-    textfont=dict(size=12, family="IBM Plex Mono",
-                  color=[VERTEX_COLORS["L"], VERTEX_COLORS["R"], VERTEX_COLORS["C"]]),
+    x=[-0.015, 1.015, 0.5], y=[-0.022, -0.022, _S32 + 0.022],
+    mode="text", text=["<b>IZQUIERDA</b>", "<b>DERECHA</b>", "<b>CENTRO</b>"],
+    textfont=dict(size=cs.SIZE_VERTEX, family=cs.FONT,
+                  color=[cs.BLOC["L"], cs.BLOC["R"], cs.BLOC["C"]]),
     hoverinfo="skip", showlegend=False,
 ))
 
+fig.update_layout(**cs.base_layout(
+    "Todos los estados se inclinan a la izquierda — pero no por igual",
+    f"Elección presidencial {STATE_YEAR}; el área de cada burbuja es proporcional a los votos emitidos",
+    height=760, margin=dict(l=10, r=10, t=110, b=70),
+))
 fig.update_layout(
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    font_family="IBM Plex Sans", font_color="#444",
-    xaxis=dict(visible=False, range=[-0.04, 1.04]),
-    yaxis=dict(visible=False, range=[-0.05, _S32 + 0.06], scaleanchor="x", scaleratio=1),
-    height=560,
-    margin=dict(l=10, r=10, t=50, b=20),
+    xaxis=dict(visible=False, range=TERNARY_XRANGE),
+    yaxis=dict(visible=False, range=TERNARY_YRANGE, scaleanchor="x", scaleratio=1),
+    meta=cs.locked_aspect_meta(TERNARY_XRANGE, TERNARY_YRANGE),
+    legend=dict(
+        orientation="h", yanchor="top", y=0.02, xanchor="center", x=0.5,
+        font=dict(family=cs.FONT, size=cs.SIZE_AXIS_TITLE, color=cs.INK_SOFT),
+        itemsizing="constant", bgcolor="rgba(255,255,255,0.75)",
+    ),
 )
 fig.show()
 ```

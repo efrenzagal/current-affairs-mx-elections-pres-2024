@@ -71,9 +71,25 @@ CHROME_CSS = """
 .ca-brand{align-items:center;color:#f7f2e7;display:flex;font-family:var(--serif);font-size:17px;font-weight:700;line-height:.9;text-decoration:none;width:fit-content}
 .ca-mark{align-items:center;border:1px solid rgba(255,255,255,.5);border-radius:50%;display:flex;font-family:var(--sans);font-size:10px;height:36px;justify-content:center;letter-spacing:-.03em;margin-right:10px;width:36px}
 .ca-header nav{display:flex;gap:30px}
-.ca-header nav a{border-bottom:2px solid transparent;color:rgba(255,255,255,.72);font-size:12px;font-weight:650;letter-spacing:.08em;padding-bottom:3px;text-decoration:none;text-transform:uppercase}
-.ca-header nav a:hover{color:#fff}
-.ca-header nav a.active{border-bottom-color:#79b897;color:#fff}
+.ca-nav-item{position:relative}
+.ca-nav-item>summary{cursor:pointer;list-style:none}
+.ca-nav-item>summary::-webkit-details-marker{display:none}
+.ca-nav-item.has-menu:after{content:"";height:22px;left:-18px;position:absolute;top:100%;width:calc(100% + 36px)}
+.ca-header .ca-nav-trigger{border-bottom:2px solid transparent;color:rgba(255,255,255,.72);font-size:12px;font-weight:650;letter-spacing:.08em;padding-bottom:3px;text-decoration:none;text-transform:uppercase}
+.ca-header .ca-nav-trigger:hover{color:#fff}
+.ca-header .ca-nav-trigger.active{border-bottom-color:#79b897;color:#fff}
+.ca-chevron{display:inline-block;font-size:13px;margin-left:5px;transition:transform .16s ease}
+.ca-nav-menu{background:var(--white);border:1px solid var(--line);border-radius:4px;box-shadow:0 18px 48px rgba(4,17,17,.2);color:var(--ink);left:50%;min-width:350px;opacity:0;padding:7px;pointer-events:none;position:absolute;top:calc(100% + 18px);transform:translate(-50%,-5px);transition:opacity .15s ease,transform .15s ease,visibility .15s;visibility:hidden;z-index:1100}
+.ca-nav-item:hover .ca-nav-menu,.ca-nav-item:focus-within .ca-nav-menu,.ca-nav-item[open] .ca-nav-menu{opacity:1;pointer-events:auto;transform:translate(-50%,0);visibility:visible}
+.ca-nav-item:hover .ca-chevron,.ca-nav-item:focus-within .ca-chevron,.ca-nav-item[open] .ca-chevron{transform:rotate(180deg)}
+.ca-nav-menu:before{background:var(--white);border-left:1px solid var(--line);border-top:1px solid var(--line);content:"";height:10px;left:50%;position:absolute;top:-6px;transform:translateX(-50%) rotate(45deg);width:10px}
+.ca-header .ca-nav-menu a{border:0;color:var(--ink);display:block;letter-spacing:0;padding:10px 12px;text-decoration:none;text-transform:none}
+.ca-header .ca-nav-menu a:hover,.ca-header .ca-nav-menu a:focus-visible{background:#f0ede5;border-radius:2px;outline:none}
+.ca-header .ca-nav-menu a.ca-menu-overview{align-items:center;background:var(--navy);color:var(--white);display:flex;font-size:10px;font-weight:750;justify-content:space-between;letter-spacing:.08em;margin-bottom:4px;text-transform:uppercase}
+.ca-header .ca-nav-menu a.ca-menu-overview:hover,.ca-header .ca-nav-menu a.ca-menu-overview:focus-visible{background:#1c3c3d}
+.ca-menu-list{display:grid;gap:1px}
+.ca-menu-list strong{display:block;font-family:var(--serif);font-size:15px;font-weight:600;line-height:1.18}
+.ca-menu-list span{color:var(--muted);display:block;font-size:8px;line-height:1.35;margin-top:3px}
 .ca-status{font-size:12px;justify-self:end;letter-spacing:.04em}
 .ca-status i{background:#79b897;border-radius:50%;display:inline-block;height:7px;margin-right:7px;width:7px}
 .ca-footer{align-items:center;border-top:1px solid var(--line);color:var(--muted);display:grid;font-family:var(--sans);font-size:10px;grid-template-columns:1fr auto 1fr;padding:28px 4vw}
@@ -81,8 +97,9 @@ CHROME_CSS = """
 .ca-footer .ca-mark{border-color:var(--line)}
 .ca-footer>span{justify-self:end}
 .ca-back{display:block;font-family:var(--sans);font-size:11px;font-weight:650;letter-spacing:.08em;margin:0 auto;max-width:760px;padding:26px 20px 0;text-transform:uppercase}
-@media(max-width:1100px){.ca-header{grid-template-columns:1fr auto}.ca-header nav{display:none}}
-@media(max-width:700px){.ca-header{min-height:70px;padding:0 18px}.ca-footer{gap:15px;grid-template-columns:1fr}.ca-footer p,.ca-footer>span{justify-self:start}}
+@media(max-width:1100px){.ca-header{gap:10px 20px;grid-template-columns:1fr auto;min-height:0;padding-block:12px}.ca-header nav{display:flex;gap:20px;grid-column:1/-1;grid-row:2;justify-content:center}.ca-header .ca-nav-trigger{font-size:10px}.ca-nav-item{position:static}.ca-nav-item.has-menu:after,.ca-nav-menu:before{display:none}.ca-nav-menu{left:4vw;min-width:0;right:4vw;top:calc(100% + 1px);transform:translateY(-5px)}.ca-nav-item:hover .ca-nav-menu,.ca-nav-item:focus-within .ca-nav-menu,.ca-nav-item[open] .ca-nav-menu{transform:translateY(0)}}
+@media(hover:none) and (max-width:1100px){.ca-nav-item:not([open]) .ca-nav-menu{opacity:0;pointer-events:none;transform:translateY(-5px);visibility:hidden}}
+@media(max-width:700px){.ca-header{padding:10px 18px 12px}.ca-header nav{gap:14px;justify-content:space-between}.ca-footer{gap:15px;grid-template-columns:1fr}.ca-footer p,.ca-footer>span{justify-self:start}}
 """
 
 # Quarto centres a narrow article column and drops figures inside it. For an
@@ -127,11 +144,26 @@ main.content .ca-figure figure.quarto-float div{
 /* Must out-specify the height:auto rule above, which also matches this div. */
 main.content .ca-figure figure.quarto-float div.plotly-graph-div{
   height:clamp(520px,72vh,860px)!important;max-height:none!important;width:100%!important}
+/* The two ternary charts lock x/y to an equal scale, so their triangle is sized
+   by whichever axis is tighter. In a 1560x770 frame that is the height, and the
+   shape ends up marooned in white space with its labels oversized around it.
+   Cap those figures near the width the triangle can actually fill; every other
+   chart keeps the full-width breakout. Tagged from the plot's own scaleanchor
+   in FIGURE_JS, so a new locked-aspect figure picks this up on its own. */
+main.content .cell-output-display.ca-aspect-locked:not(.ca-full){
+  max-width:min(980px,92vw)!important}
+/* A triangle wants a nearly square frame, not the short wide band the shared
+   clamp gives it. Must out-specify the .plotly-graph-div height rule above. */
+main.content .ca-figure.ca-aspect-locked:not(.ca-full) figure.quarto-float div.plotly-graph-div{
+  height:clamp(660px,78vh,900px)!important}
 .ca-figure figcaption,.ca-figure .quarto-float-caption{color:var(--muted);font-family:var(--sans)!important;font-size:11px!important;letter-spacing:.04em;padding:0 16px 14px;text-align:left!important}
 .ca-expand{background:var(--white);border:1px solid var(--line);border-radius:3px;color:var(--muted);cursor:pointer;font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:.08em;padding:6px 11px;position:absolute;right:12px;text-transform:uppercase;top:12px;z-index:5}
 .ca-expand:hover{background:var(--navy);border-color:var(--navy);color:#f7f2e7}
 main.content .ca-figure.ca-full{background:var(--white);border-radius:0;bottom:0;left:0;margin:0!important;max-width:none!important;position:fixed;right:0;top:0;width:100vw!important;z-index:9999}
-main.content .ca-figure.ca-full .plotly-graph-div{height:calc(100vh - 62px)!important}
+/* Matches the depth of the clamp rule above (which is otherwise more specific
+   and wins even against !important), so expanding actually gets full height. */
+main.content .ca-figure.ca-full figure.quarto-float div.plotly-graph-div{
+  height:calc(100vh - 62px)!important}
 body.ca-locked{overflow:hidden}
 @media(max-width:700px){
   main.content>*{padding-left:16px;padding-right:16px}
@@ -144,10 +176,142 @@ body.ca-locked{overflow:hidden}
 # container afterwards does nothing until it is told to measure again.
 FIGURE_JS = """
 (function(){
+  // Plotly font sizes and margins are absolute pixels, fixed when the .qmd is
+  // rendered. The article authors them against a ~920px column (see
+  // chart_style.py), but this page stretches the same figure to 1560px and
+  // wider still in fullscreen — at which point the type is proportionally
+  // smaller than it was authored to be, which is the exact problem the article's
+  // type scale exists to solve. Nothing in Plotly scales type with the
+  // container, so scale it here from the width the figure actually gets.
+  var CA_BASE_WIDTH = 920;
+  var CA_MAX_SCALE = 1.75;
+
+  // How hard each role follows the width. Scaling everything by the same factor
+  // preserves the authored ratios, which sounds right and is not: a headline and
+  // a tick label do not want to grow at the same rate. Held together, a legend
+  // sized for a 920px column arrives at ~29px on a 1560px one and competes with
+  // the title. So the headline takes the full factor and everything supporting
+  // it takes a fraction, widening the hierarchy exactly as the canvas grows.
+  var CA_ROLE_EXPONENT = {
+    title: 1,
+    subtitle: 0.55,
+    support: 0.35,   // ticks, legend, annotations, in-plot labels
+  };
+
+  // Every font-bearing object in one figure, collected once with the role that
+  // decides its growth. Marker sizes are deliberately excluded: the state
+  // bubbles encode vote volume through sizeref/area, so touching their size
+  // would misstate the data.
+  function fontTargets(div){
+    var layout = div.layout || {}, data = div.data || [], out = [];
+    function add(obj, exp){
+      if(obj && typeof obj.size === 'number') out.push({obj:obj, exp:exp});
+    }
+    var SUPPORT = CA_ROLE_EXPONENT.support;
+    if(layout.title){
+      add(layout.title.font, CA_ROLE_EXPONENT.title);
+      if(layout.title.subtitle) add(layout.title.subtitle.font, CA_ROLE_EXPONENT.subtitle);
+    }
+    add(layout.font, SUPPORT);
+    ['xaxis','yaxis'].forEach(function(key){
+      if(layout[key]) add(layout[key].tickfont, SUPPORT);
+    });
+    if(layout.legend) add(layout.legend.font, SUPPORT);
+    if(layout.hoverlabel) add(layout.hoverlabel.font, SUPPORT);
+    (layout.annotations||[]).forEach(function(ann){ add(ann.font, SUPPORT); });
+    data.forEach(function(trace){ add(trace.textfont, SUPPORT); });
+    return out;
+  }
+
+  // Margins scale with the type they have to clear — held back, because a
+  // margin grown by the full factor eats the plot area on a wide screen.
+  function marginTargets(div){
+    var margin = (div.layout||{}).margin, out = [];
+    if(!margin) return out;
+    ['l','r','t','b'].forEach(function(side){
+      if(typeof margin[side] === 'number') out.push({obj:margin, key:side});
+    });
+    return out;
+  }
+
+  function scaleTypography(div){
+    var width = div.clientWidth;
+    if(!width) return false;
+    var scale = Math.max(1, Math.min(width / CA_BASE_WIDTH, CA_MAX_SCALE));
+    if(!div.__caType){
+      div.__caType = {
+        fonts: fontTargets(div).map(function(f){
+          return {obj:f.obj, key:'size', base:f.obj.size, exp:f.exp};
+        }),
+        margins: marginTargets(div).map(function(m){ return {obj:m.obj, key:m.key, base:m.obj[m.key]}; })
+      };
+    }
+    var changed = false;
+    function apply(entry, factor){
+      var next = Math.round(entry.base * factor * 10) / 10;
+      if(entry.obj[entry.key] !== next){ entry.obj[entry.key] = next; changed = true; }
+    }
+    div.__caType.fonts.forEach(function(e){ apply(e, Math.pow(scale, e.exp)); });
+    // Square root keeps the margins ahead of the type without crowding the plot.
+    div.__caType.margins.forEach(function(e){ apply(e, Math.sqrt(scale)); });
+    return changed;
+  }
+
+  // A figure whose y axis is pinned to x (the ternaries) cannot use the full
+  // breakout width — see the .ca-aspect-locked rule. Read it off the plot
+  // rather than hard-coding which figures those are.
+  function tagAspectLocked(div){
+    var cell = div.closest ? div.closest('.cell-output-display') : null;
+    if(!cell || cell.__caAspectTagged || !div.layout) return;
+    var yaxis = div.layout.yaxis;
+    if(yaxis && yaxis.scaleanchor) cell.classList.add('ca-aspect-locked');
+    cell.__caAspectTagged = true;
+  }
+
+  // Re-apply the ranges a locked-aspect figure was authored with. Plotly solves
+  // the x/y scale constraint once, against the box it first saw, then writes the
+  // solved ranges back over layout.xaxis.range — so a later Plots.resize only
+  // rescales that first solution instead of redoing it, and the triangle stays
+  // at roughly a third of the frame however the container is sized. Feeding the
+  // authored ranges back makes it solve again at the current size.
+  // chart_style.locked_aspect_meta() puts them in layout.meta, the one place
+  // plotly leaves alone.
+  function restoreLockedRanges(div){
+    var meta = (div.layout||{}).meta;
+    if(!meta || !meta.ca_xrange || !meta.ca_yrange) return;
+    window.Plotly.relayout(div, {
+      'xaxis.range': meta.ca_xrange.slice(),
+      'yaxis.range': meta.ca_yrange.slice()
+    });
+  }
+
+  // One figure, brought back in step with its container. The steps are chained
+  // rather than merely called in order because each returns a promise, and
+  // restoring the ranges before the resize has settled just gets overwritten by
+  // the resize's own solve.
+  function refresh(div){
+    if(!window.Plotly) return;
+    try{
+      // Only redraw when a size actually moved, so the ResizeObserver below
+      // cannot feed itself: the scale is a pure function of the width, so it
+      // reaches a fixed point after one pass.
+      var step = scaleTypography(div)
+        ? window.Plotly.redraw(div)
+        : Promise.resolve();
+      step
+        .then(function(){ return window.Plotly.Plots.resize(div); })
+        // Last, so it solves against the final box. Changing the ranges does not
+        // change the container, so this cannot retrigger the observer.
+        .then(function(){ restoreLockedRanges(div); })
+        .catch(function(){});
+    }catch(e){}
+  }
+
   function resizeAll(){
     if(!window.Plotly) return;
     document.querySelectorAll('.plotly-graph-div').forEach(function(div){
-      try{ window.Plotly.Plots.resize(div); }catch(e){}
+      tagAspectLocked(div);
+      refresh(div);
     });
   }
   function ready(fn){
@@ -180,7 +344,9 @@ FIGURE_JS = """
       var observer=new ResizeObserver(function(entries){
         entries.forEach(function(entry){
           var div=entry.target.querySelector('.plotly-graph-div');
-          if(div && window.Plotly){ try{ window.Plotly.Plots.resize(div); }catch(e){} }
+          // Same path as resizeAll: a bare Plots.resize here would stretch the
+          // figure while leaving the type at its authored size.
+          if(div) refresh(div);
         });
       });
       document.querySelectorAll('.ca-figure').forEach(function(cell){ observer.observe(cell); });
@@ -205,17 +371,58 @@ def chrome_header(active: str = "articulos") -> str:
         ("articulos", "/articulos", "Artículos"),
         ("datos", "/datos", "Datos"),
     )
-    links = "".join(
-        '<a href="{}"{}>{}</a>'.format(
-            href, ' class="active"' if key == active else "", label
-        )
-        for key, href, label in sections
+    visualizations = (
+        ("/visualizaciones/trayectoria", "Geografía electoral", "Elecciones"),
+        ("/visualizaciones/perfiles", "Perfiles legislativos", "Congreso"),
+        ("/visualizaciones/votaciones", "Buscador de votaciones", "Congreso"),
+        ("/visualizaciones/diputados", "Cámara de Diputados", "Congreso"),
+        ("/visualizaciones/senado", "Senado de la República", "Congreso"),
     )
+    menus = {
+        "visualizaciones": (
+            "Todas las visualizaciones",
+            visualizations,
+        ),
+        "articulos": (
+            "Todos los artículos",
+            tuple(
+                (
+                    f"/articulos/{article.slug}.html",
+                    article.title,
+                    article.subtitle,
+                )
+                for article in ARTICLES
+            ),
+        ),
+    }
+    links = []
+    for key, href, label in sections:
+        menu = menus.get(key)
+        active_class = " active" if key == active else ""
+        if menu is None:
+            links.append(
+                f'<div class="ca-nav-item"><a class="ca-nav-trigger{active_class}" '
+                f'href="{href}">{label}</a></div>'
+            )
+            continue
+        overview, items = menu
+        item_links = "".join(
+            f'<a href="{item_href}"><strong>{item_label}</strong><span>{meta}</span></a>'
+            for item_href, item_label, meta in items
+        )
+        links.append(
+            f'<details class="ca-nav-item has-menu" name="site-navigation">'
+            f'<summary class="ca-nav-trigger{active_class}">'
+            f'{label}<span class="ca-chevron" aria-hidden="true">⌄</span></summary>'
+            f'<div class="ca-nav-menu" aria-label="Opciones de {label}">'
+            f'<a class="ca-menu-overview" href="{href}">{overview}<span>→</span></a>'
+            f'<div class="ca-menu-list">{item_links}</div></div></details>'
+        )
     return (
         '<header class="ca-header">'
         '<a class="ca-brand" href="/"><span class="ca-mark">ca</span>'
         "<span>current affairs<br>mx</span></a>"
-        f"<nav>{links}</nav>"
+        f"<nav>{''.join(links)}</nav>"
         '<div class="ca-status"><i></i>Artículo</div>'
         "</header>"
         '<a class="ca-back" href="/articulos">← Todos los artículos</a>'
