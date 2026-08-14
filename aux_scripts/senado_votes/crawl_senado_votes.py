@@ -55,9 +55,15 @@ DATE_RE = re.compile(
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
 
 
-def fetch_cached(url: str, session: requests.Session, cache_name: str, params: dict | None = None) -> tuple[str, bool]:
+def fetch_cached(
+    url: str,
+    session: requests.Session,
+    cache_name: str,
+    params: dict | None = None,
+    force_refresh: bool = False,
+) -> tuple[str, bool]:
     cache_path = CACHE_DIR / cache_name
-    if cache_path.exists():
+    if cache_path.exists() and not force_refresh:
         if cache_path.stat().st_size == 0:
             cache_path.unlink()
         else:
@@ -204,7 +210,10 @@ def crawl(max_votes: int | None) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"Fetching vote list: {LIST_URL}")
-    list_html, _ = fetch_cached(LIST_URL, session, "list_LXVI.html")
+    # The vote list page grows as new roll calls are recorded, so it must
+    # always be re-fetched live -- unlike per-vote pages, which are
+    # immutable once a vote has happened and are safe to cache forever.
+    list_html, _ = fetch_cached(LIST_URL, session, "list_LXVI.html", force_refresh=True)
     vote_ids = parse_vote_list(list_html)
     print(f"Votes found: {len(vote_ids):,}")
 

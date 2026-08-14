@@ -112,9 +112,9 @@ def cache_path_for_url(url: str) -> Path:
     return CACHE_DIR / safe
 
 
-def fetch_html_cached(url: str, session: requests.Session) -> FetchResult:
+def fetch_html_cached(url: str, session: requests.Session, force_refresh: bool = False) -> FetchResult:
     cache_path = cache_path_for_url(url)
-    if cache_path.exists():
+    if cache_path.exists() and not force_refresh:
         if cache_path.stat().st_size == 0:
             cache_path.unlink()
         else:
@@ -311,18 +311,29 @@ def crawl(max_periods: int | None, fetch_vote_pages: bool, max_vote_pages: int) 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print(f"Fetching index: {INDEX_URL}")
-    index = fetch_html_cached(INDEX_URL, session)
+    # The index links to a fixed set of period pages per legislature, but
+    # a *new* period (a new año or an extraordinary session) can appear on
+    # it at any time, so it must always be re-fetched live rather than
+    # trusted from cache.
+    index = fetch_html_cached(INDEX_URL, session, force_refresh=True)
     periods = parse_period_links(index.text)
     if max_periods is not None:
         periods = periods.head(max_periods).copy()
     print(f"Period pages selected: {len(periods):,}")
+
+    current_legislature = periods["legislature"].max() if not periods.empty else None
 
     period_rows = []
     vote_catalogs = []
     for i, row in periods.iterrows():
         period_url = row["period_url"]
         print(f"  [{i + 1}/{len(periods)}] {period_url}")
-        period_html = fetch_html_cached(period_url, session)
+        # Only the current legislature's period pages can still gain new
+        # vote links (older legislatures are closed and immutable), so
+        # only those need a live re-fetch; everything else is safe to
+        # trust from cache.
+        force_refresh = row["legislature"] == current_legislature
+        period_html = fetch_html_cached(period_url, session, force_refresh=force_refresh)
         period_meta, votes = parse_period_page(period_url, period_html.text)
         period_meta["from_cache"] = period_html.from_cache
         period_rows.append(period_meta)
@@ -336,6 +347,16 @@ def crawl(max_periods: int | None, fetch_vote_pages: bool, max_vote_pages: int) 
     if not vote_catalog.empty:
         vote_catalog = vote_catalog.drop_duplicates(subset=["vote_url"]).reset_index(drop=True)
         vote_catalog = add_context_metadata(vote_catalog)
+        # Put the current legislature's (possibly new) votes first so that
+        # --max-vote-pages is spent on them instead of on older,
+        # already-cached legislatures encountered earlier in the catalog.
+        vote_catalog = pd.concat(
+            [
+                vote_catalog[vote_catalog["legislature"] == current_legislature],
+                vote_catalog[vote_catalog["legislature"] != current_legislature],
+            ],
+            ignore_index=True,
+        )
 
     dim_period.to_csv(OUT_DIR / "dim_gaceta_period.csv", index=False)
     vote_catalog.to_csv(OUT_DIR / "gaceta_vote_url_catalog.csv", index=False)
