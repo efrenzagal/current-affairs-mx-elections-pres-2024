@@ -27,6 +27,18 @@ export type Dashboard = {
 
 export const DASHBOARDS: Dashboard[] = [
   {
+    slug: "aprobacion",
+    href: "/visualizaciones/aprobacion",
+    area: "Presidencia",
+    title: "Aprobación presidencial",
+    subtitle: "6 sexenios · 1994–2026",
+    summary:
+      "Compara la aprobación de cada presidente en el mismo punto de su mandato. Elige a quién " +
+      "destacar y filtra por casa encuestadora para ver el resto de los sexenios como referencia.",
+    scope: "Encuestas de aprobación alineadas por mes de mandato",
+    topics: ["Presidencia", "Encuestas", "Aprobación"],
+  },
+  {
     slug: "trayectoria",
     href: "/visualizaciones/trayectoria",
     area: "Elecciones",
