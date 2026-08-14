@@ -96,7 +96,10 @@ a { color: inherit; }
 .explorer-grid { display: grid; gap: 18px; grid-template-columns: minmax(600px, 1.25fr) minmax(390px, .75fr); margin: auto; max-width: 1680px; }
 .chamber-card, .deputy-panel { background: var(--white); border: 1px solid var(--line); border-radius: 4px; min-width: 0; }
 .chamber-card { overflow: hidden; }
-.toolbar { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 14px; justify-content: space-between; padding: 16px 18px; }
+.toolbar { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 14px; padding: 16px 18px; }
+.toolbar-label { color: var(--muted); flex: 0 0 auto; font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+/* Used by the vote explorer's filter rail; the hemicycle explorers search from
+   `.panel-search` instead. */
 .search-field { align-items: center; background: #f2efe8; border-radius: 3px; display: flex; flex: 0 1 280px; gap: 8px; padding: 8px 11px; }
 .search-field span { color: var(--muted); font-size: 20px; line-height: 0; transform: rotate(-15deg); }
 .search-field input { background: transparent; border: 0; color: var(--ink); font-size: 12px; outline: 0; width: 100%; }
@@ -111,6 +114,21 @@ a { color: inherit; }
 .seat-dot:hover, .seat-dot:focus-visible { box-shadow: 0 0 0 4px rgba(18,43,45,.2); outline: none; transform: rotate(var(--seat-rotation)) scale(1.6); z-index: 4; }
 .seat-dot.selected { box-shadow: 0 0 0 3px var(--white), 0 0 0 6px var(--ink); transform: rotate(var(--seat-rotation)) scale(1.35); z-index: 5; }
 .seat-dot.muted { opacity: .08; }
+/* The selected identity is not the one this tab prints in any seat. Every seat
+   goes dark rather than leaving a stale ring on a seat that currently belongs
+   to someone else. Hover still lifts a seat back, so the chamber stays a way
+   out. */
+.hemicycle-off .seat-dot { opacity: .1; }
+.hemicycle-off .seat-dot:hover, .hemicycle-off .seat-dot:focus-visible { opacity: 1; }
+/* Where that person sat, on a floor that is naming someone else there. Hollow
+   and dashed on purpose: a filled dot at full opacity in a dimmed chamber
+   reads as a live selection, and this is a weaker claim than that. */
+.seat-dot.seat-origin-mark { border-style: dashed; border-width: 1.5px; box-shadow: 0 0 0 3px var(--white), 0 0 0 5px rgba(21,35,33,.5); transform: rotate(var(--seat-rotation)) scale(1.45); z-index: 5; }
+.hemicycle-off .seat-dot.seat-origin-mark { opacity: 1; }
+.hemicycle-note { background: rgba(247,242,231,.94); border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font-size: 12px; left: 50%; line-height: 1.6; margin: 0; max-width: 42ch; padding: 18px 22px; position: absolute; text-align: center; top: 46%; transform: translate(-50%, -50%); z-index: 6; }
+.hemicycle-note strong { color: var(--ink); }
+.hemicycle-note-link { background: none; border: 0; color: var(--ink); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
+.hemicycle-note-link:hover { color: var(--navy); }
 .dais { align-items: center; background: var(--navy); border-radius: 110px 110px 8px 8px; bottom: 0; color: rgba(255,255,255,.75); display: flex; font-size: 9px; height: 34px; justify-content: center; left: 43%; letter-spacing: .12em; position: absolute; text-transform: uppercase; width: 14%; }
 .hover-reader { align-items: center; background: #f1eee6; border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: auto minmax(170px,1fr) auto; min-height: 74px; padding: 12px 18px; }
 .party-badge { align-items: center; border-radius: 50%; color: white; display: flex; font-size: 9px; font-weight: 800; height: 38px; justify-content: center; width: 38px; }
@@ -121,6 +139,12 @@ a { color: inherit; }
 .legend { display: flex; flex-wrap: wrap; gap: 12px 20px; justify-content: center; padding: 15px; }
 .legend span { color: var(--muted); font-size: 10px; font-weight: 650; }
 .legend i, .choice-key i { border-radius: 50%; display: inline-block; height: 7px; margin-right: 5px; width: 7px; }
+.party-legend { border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0; padding: 0; }
+.party-legend span { align-items: center; border-bottom: 1px solid var(--line); display: grid; gap: 5px; grid-template-columns: auto auto 1fr auto; padding: 11px 13px; }
+.party-legend i { margin: 0; }
+.party-legend b { color: var(--ink); font-size: 10px; }
+.party-legend strong { color: var(--ink); font-family: var(--serif); font-size: 15px; font-weight: 500; white-space: nowrap; }
+.party-legend small { color: var(--muted); font-size: 10px; text-align: right; }
 .legend-vote span { align-items: center; display: inline-flex; font-size: 11px; }
 .legend-vote strong { color: var(--ink); font-size: 12px; margin-left: 5px; }
 .legend-vote .key-hollow { background: transparent; border: 1px solid rgba(21,35,33,.42); }
@@ -133,7 +157,7 @@ a { color: inherit; }
 .mode-switch button.active { background: var(--navy); border-color: var(--navy); color: #f7f2e7; }
 .mode-context { color: var(--muted); font-size: 10px; margin-left: auto; }
 
-/* A seat with no row in this roll call: shown hollow, never recoloured as a
+/* A seat with no row in this roll call: shown hollow, never colored as a
    vote it did not cast. */
 .seat-dot.no-record { box-shadow: inset 0 0 0 1px rgba(21,35,33,.34); }
 .seat-type-key { border-top: 1px solid var(--line); color: var(--muted); display: flex; gap: 22px; justify-content: center; padding: 11px 15px 13px; }
@@ -173,7 +197,11 @@ a { color: inherit; }
 .deputy-metrics .election-metric { background: #eeebe3; }
 .deputy-metrics .election-metric strong { color: #8e2533; }
 .deputy-metrics .election-metric small { color: var(--muted); display: block; font-size: 8px; margin-top: 5px; text-transform: uppercase; }
-.history-label { color: var(--muted); display: flex; font-size: 9px; font-weight: 700; justify-content: space-between; letter-spacing: .1em; padding: 14px 20px 10px; text-transform: uppercase; }
+/* No seat, so no 2024 result to report: the row drops to three even tiles. */
+.deputy-metrics.metrics-seatless { grid-template-columns: repeat(3, 1fr); }
+.history-label { align-items: center; color: var(--muted); display: flex; font-size: 9px; font-weight: 700; gap: 12px; justify-content: space-between; letter-spacing: .1em; padding: 14px 20px 10px; text-transform: uppercase; }
+.history-topic { min-width: 0; }
+.history-topic select { background: var(--white); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); font-size: 10px; max-width: 220px; padding: 5px 7px; }
 .vote-history { overflow-y: auto; scrollbar-color: #c2bdb3 transparent; }
 .vote-history button { align-items: center; background: transparent; border: 0; border-top: 1px solid rgba(21,35,33,.09); color: inherit; cursor: pointer; display: grid; gap: 11px; grid-template-columns: auto 1fr auto auto; padding: 14px 18px; text-align: left; width: 100%; }
 .vote-history button:hover, .vote-history button.selected { background: #eeebe3; }
@@ -183,6 +211,26 @@ a { color: inherit; }
 .history-copy strong { display: -webkit-box; font-family: var(--serif); font-size: 13px; font-weight: 500; line-height: 1.25; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .choice-label { color: var(--muted); font-size: 9px; font-weight: 700; white-space: nowrap; }
 .arrow { color: var(--muted); font-size: 13px; }
+
+/* Name search. It lives at the head of the person panel rather than over the
+   hemicycle: searching picks *who* the panel reads, and the hemicycle is the
+   page's subject, not a field's backdrop. The dropdown is absolutely
+   positioned but stays inside the panel's own box, so `.deputy-panel`'s
+   `overflow: hidden` never clips it. */
+.panel-search { border-bottom: 1px solid var(--line); padding: 14px 18px; position: relative; }
+.panel-search-field { align-items: center; background: #f2efe8; border: 1px solid transparent; border-radius: 3px; display: flex; gap: 8px; padding: 8px 11px; }
+.panel-search-field:focus-within { border-color: var(--navy); }
+.panel-search-field > span { color: var(--muted); font-size: 18px; line-height: 0; transform: rotate(-15deg); }
+.panel-search-field input { background: transparent; border: 0; color: var(--ink); font-size: 12px; outline: 0; width: 100%; }
+.panel-results { background: var(--white); border: 1px solid var(--line); border-radius: 3px; box-shadow: 0 12px 28px rgba(21,35,33,.16); left: 18px; max-height: 330px; overflow-y: auto; position: absolute; right: 18px; scrollbar-color: #c2bdb3 transparent; top: calc(100% - 4px); z-index: 20; }
+.panel-results > button { align-items: center; background: transparent; border: 0; border-bottom: 1px solid rgba(21,35,33,.09); color: var(--ink); cursor: pointer; display: flex; gap: 9px; padding: 11px 13px; text-align: left; width: 100%; }
+.panel-results > button:hover, .panel-results > button:focus-visible { background: #f2efe8; outline: 0; }
+.panel-results > button > i { border-radius: 50%; flex: 0 0 auto; height: 8px; width: 8px; }
+.panel-result-copy { min-width: 0; }
+.panel-result-copy strong { display: block; font-family: var(--serif); font-size: 14px; font-weight: 600; line-height: 1.2; }
+.panel-result-copy small { color: var(--muted); display: block; font-size: 9px; letter-spacing: .05em; margin-top: 3px; text-transform: uppercase; }
+.panel-results-empty, .panel-results-more { color: var(--muted); font-size: 11px; line-height: 1.6; margin: 0; padding: 14px 13px; }
+.panel-results-empty a { color: var(--ink); font-weight: 650; }
 
 .vote-detail { background: var(--navy); color: var(--white); padding: 72px 4vw 82px; scroll-margin-top: 80px; }
 .vote-title-block { align-items: start; display: flex; justify-content: space-between; margin: auto; max-width: 1560px; }
@@ -194,28 +242,29 @@ a { color: inherit; }
 .vote-tags { display: flex; gap: 8px; margin: 24px auto 38px; max-width: 1560px; }
 .vote-tags span { border: 1px solid rgba(255,255,255,.18); border-radius: 20px; color: rgba(255,255,255,.65); font-size: 9px; letter-spacing: .08em; padding: 7px 10px; text-transform: uppercase; }
 .result-grid { display: grid; gap: 16px; grid-template-columns: .72fr 1.28fr; margin: auto; max-width: 1560px; }
-.result-summary, .party-results { background: #f5f1e7; color: var(--ink); padding: 30px; }
+.result-summary, .decision-hemicycle-panel { background: #f5f1e7; color: var(--ink); padding: 30px; }
 .panel-kicker { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .12em; margin: 0 0 20px; text-transform: uppercase; }
 /* line-height below 1 lets the glyphs overflow their line box, so the label
    needs explicit separation or it collides with the numerals. */
 .result-number strong { display: block; font-family: var(--serif); font-size: 88px; font-weight: 400; letter-spacing: -.07em; line-height: .82; margin-bottom: 14px; }
 .result-number span { color: var(--muted); display: block; font-family: var(--serif); font-size: 18px; line-height: 1.2; }
 .overall-bar { background: #dedad0; border-radius: 3px; display: flex; height: 10px; margin: 28px 0 20px; overflow: hidden; }
-.overall-bar span, .party-stacked-bar span { min-width: 0; }
+.overall-bar span { min-width: 0; }
 .result-summary dl { display: grid; grid-template-columns: repeat(2,1fr); margin: 0; }
 .result-summary dl div { border-top: 1px solid var(--line); display: flex; justify-content: space-between; padding: 11px 3px; }
 .result-summary dl div:nth-child(odd) { margin-right: 20px; }
 .result-summary dt { color: var(--muted); font-size: 10px; }
 .result-summary dd { font-family: var(--serif); font-size: 17px; margin: 0; }
-.party-results-heading { align-items: end; display: flex; justify-content: space-between; }
-.party-results-heading h3 { font-family: var(--serif); font-size: 30px; font-weight: 400; margin: -10px 0 0; }
-.choice-key { display: flex; gap: 12px; }
-.choice-key span { color: var(--muted); font-size: 9px; }
-.party-table { margin-top: 20px; }
-.party-row { align-items: center; border-top: 1px solid var(--line); display: grid; gap: 18px; grid-template-columns: 55px 1fr 70px; padding: 12px 0; }
-.party-row > strong { font-size: 11px; }
-.party-stacked-bar { background: #dfdcd3; border-radius: 2px; display: flex; height: 14px; overflow: hidden; }
-.party-total { color: var(--muted); font-family: ui-monospace, monospace; font-size: 10px; text-align: right; }
+.decision-hemicycle { margin-top: 8px; width: 100%; }
+.decision-hemicycle .seat-dot { cursor: default; }
+.decision-hemicycle .seat-dot:hover { box-shadow: 0 0 0 1px rgba(21,35,33,.08); transform: rotate(var(--seat-rotation)); }
+.decision-legend { border-top: 1px solid var(--line); padding: 15px 0 0; }
+.party-vote-percentages { border-top: 1px solid var(--line); margin-top: 15px; padding-top: 15px; }
+.party-vote-percentages > p { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .1em; margin: 0 0 9px; text-transform: uppercase; }
+.party-vote-percentages > div { display: grid; gap: 6px 16px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.party-vote-percentages span { display: flex; font-size: 10px; gap: 8px; justify-content: space-between; }
+.party-vote-percentages b { font-size: 10px; }
+.party-vote-percentages small { color: var(--muted); font-size: 9px; text-align: right; }
 
 .method-note { align-items: start; display: grid; gap: 60px; grid-template-columns: 180px 1fr; margin: auto; max-width: 1120px; padding: 72px 4vw; }
 .method-note p:last-child { font-family: var(--serif); font-size: 23px; line-height: 1.45; margin: 0; }
@@ -287,97 +336,6 @@ footer > span { justify-self: end; }
 .dashboard-stats dt { color: var(--muted); font-size: 10px; letter-spacing: .07em; text-transform: uppercase; }
 .dashboard-stats dd { font-family: var(--serif); font-size: 25px; margin: 2px 0 0; }
 
-/* --- Perfiles legislativos (/visualizaciones/perfiles) -------------------- */
-.profile-hero { align-items: end; background: var(--navy); color: var(--white); display: grid; gap: 6vw; grid-template-columns: 1.1fr .9fr; min-height: 320px; padding: 56px 4vw 62px; }
-.profile-hero .eyebrow { color: #8dbca5; }
-.profile-hero .eyebrow a { text-decoration: underline; text-underline-offset: 3px; }
-.profile-hero h1 { font-family: var(--serif); font-size: clamp(54px, 7vw, 104px); font-weight: 400; letter-spacing: -.065em; line-height: .82; margin: 0; }
-.profile-explorer { margin: auto; max-width: 1680px; padding: 54px 3vw 74px; }
-.profile-controls { align-items: end; background: var(--white); border: 1px solid var(--line); border-radius: 4px; display: grid; gap: 24px; grid-template-columns: auto auto minmax(260px, 1fr); margin-bottom: 18px; padding: 18px 20px; }
-.profile-control-group, .profile-search { display: flex; flex-direction: column; gap: 8px; }
-.profile-control-label { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
-.profile-chamber-tabs { display: flex; gap: 4px; }
-.profile-chamber-tabs button { background: transparent; border: 1px solid var(--line); border-radius: 20px; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; padding: 8px 12px; }
-.profile-chamber-tabs button:hover, .profile-chamber-tabs button.active { background: var(--navy); border-color: var(--navy); color: var(--white); }
-.profile-legislature { border-left: 1px solid var(--line); min-width: 120px; padding-left: 24px; }
-.profile-legislature strong { font-family: var(--serif); font-size: 17px; font-weight: 500; }
-.profile-search input { background: #f2efe8; border: 1px solid transparent; border-radius: 3px; color: var(--ink); outline: 0; padding: 10px 12px; width: 100%; }
-.profile-search input:focus { border-color: var(--navy); }
-/* Spans the whole control row: the chip count varies with the chamber, so it
-   cannot share a fixed grid track with the chamber tabs and the search box. */
-.profile-party-group { border-top: 1px solid var(--line); grid-column: 1 / -1; margin-top: -8px; padding-top: 16px; }
-.profile-party-filter { display: flex; flex-wrap: wrap; gap: 5px; }
-.profile-party-filter button { align-items: center; background: transparent; border: 1px solid var(--line); border-radius: 20px; color: var(--muted); cursor: pointer; display: inline-flex; font-size: 11px; font-weight: 700; gap: 6px; padding: 7px 11px; }
-.profile-party-filter button:hover, .profile-party-filter button.active { background: var(--navy); border-color: var(--navy); color: var(--white); }
-.profile-party-filter i { border-radius: 50%; display: inline-block; height: 8px; width: 8px; }
-.profile-party-count { color: var(--muted); font-size: 9px; font-weight: 650; }
-.profile-party-filter button:hover .profile-party-count,
-.profile-party-filter button.active .profile-party-count { color: rgba(255,255,255,.7); }
-.profile-result-party { border-radius: 50%; display: inline-block; height: 6px; margin-right: 5px; vertical-align: 1px; width: 6px; }
-.profile-layout { align-items: start; display: grid; gap: 18px; grid-template-columns: minmax(240px, .28fr) minmax(0, 1fr); }
-.profile-results, .profile-card { background: var(--white); border: 1px solid var(--line); border-radius: 4px; min-width: 0; }
-.profile-results { max-height: calc(100vh - 130px); overflow: hidden; position: sticky; top: 102px; }
-.profile-results-heading { align-items: center; border-bottom: 1px solid var(--line); color: var(--muted); display: flex; font-size: 9px; font-weight: 700; justify-content: space-between; letter-spacing: .1em; padding: 13px 14px; text-transform: uppercase; }
-.profile-results-heading button { background: transparent; border: 0; color: var(--ink); cursor: pointer; font-size: 9px; font-weight: 700; padding: 0; text-decoration: underline; text-underline-offset: 3px; text-transform: uppercase; }
-.profile-result-list { max-height: calc(100vh - 175px); overflow-y: auto; scrollbar-color: #c2bdb3 transparent; }
-.profile-result-list > button { background: transparent; border: 0; border-bottom: 1px solid rgba(21,35,33,.09); color: var(--ink); cursor: pointer; display: block; padding: 13px 14px; text-align: left; width: 100%; }
-.profile-result-list > button:hover { background: #f2efe8; }
-.profile-result-list > button.active { background: var(--navy); color: var(--white); }
-.profile-result-list strong { display: block; font-family: var(--serif); font-size: 14px; font-weight: 600; line-height: 1.2; }
-.profile-result-list span { color: var(--muted); display: block; font-size: 9px; margin-top: 4px; }
-.profile-result-list button.active span { color: rgba(255,255,255,.65); }
-.profile-empty { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0; padding: 18px; }
-.profile-identity { align-items: start; display: flex; justify-content: space-between; padding: 36px 36px 30px; }
-.profile-identity .eyebrow { color: #517967; margin-bottom: 12px; }
-.profile-identity h2 { font-family: var(--serif); font-size: clamp(38px, 4.2vw, 66px); font-weight: 400; letter-spacing: -.05em; line-height: .95; margin: 0 0 13px; max-width: 16ch; }
-.profile-identity > div > p:last-child { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0; }
-.profile-status { background: #dfeee5; border-radius: 20px; color: #1f5a41; flex: 0 0 auto; font-size: 9px; font-weight: 750; letter-spacing: .08em; padding: 7px 10px; text-transform: uppercase; }
-.profile-status.status-licencia, .profile-status.status-sin_directorio { background: #eee8d8; color: #755f28; }
-.profile-status.status-historical { background: #e5e5e2; color: #555b57; }
-.profile-affiliations { border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; }
-.profile-affiliations > div { padding: 20px 24px; }
-.profile-affiliations > div + div { border-left: 1px solid var(--line); }
-.profile-affiliations dt { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.profile-affiliations dd { font-family: var(--serif); font-size: 28px; margin: 6px 0 2px; }
-.profile-affiliations small { color: var(--muted); display: block; font-size: 9px; line-height: 1.4; }
-.profile-topic-row { align-items: end; background: #f2efe8; border-bottom: 1px solid var(--line); display: flex; gap: 28px; justify-content: space-between; padding: 17px 24px; }
-.profile-topic-row label { display: flex; flex: 1 1 420px; flex-direction: column; gap: 6px; }
-.profile-topic-row label span { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.profile-topic-row select { background: var(--white); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); max-width: 520px; padding: 9px 10px; }
-.profile-topic-row p { color: var(--muted); font-size: 10px; margin: 0 0 8px; white-space: nowrap; }
-.profile-metrics { border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(5, 1fr); }
-.profile-metric { border-top: 3px solid transparent; padding: 18px 20px; }
-.profile-metric + .profile-metric { border-left: 1px solid var(--line); }
-.profile-metric.metric-favor { border-top-color: #267a53; }
-.profile-metric.metric-contra { border-top-color: #bb3d48; }
-.profile-metric.metric-abstention { border-top-color: #d4a72c; }
-.profile-metric.metric-no-vote { border-top-color: #9b9a94; }
-.profile-metric span, .profile-metric small { color: var(--muted); display: block; font-size: 9px; letter-spacing: .07em; text-transform: uppercase; }
-.profile-metric strong { display: block; font-family: var(--serif); font-size: 34px; font-weight: 400; line-height: 1; margin: 6px 0 5px; }
-.profile-calendar { padding: 30px 28px 34px; }
-.profile-section-heading { align-items: end; display: flex; gap: 24px; justify-content: space-between; }
-.profile-section-heading .eyebrow { color: #517967; margin-bottom: 7px; }
-.profile-section-heading h3 { font-family: var(--serif); font-size: 30px; font-weight: 400; letter-spacing: -.035em; margin: 0; }
-.profile-calendar-key { color: var(--muted); display: flex; flex-wrap: wrap; gap: 12px; }
-.profile-calendar-key span { align-items: center; display: inline-flex; font-size: 9px; }
-.profile-calendar-key i { border-radius: 50%; height: 7px; margin-right: 5px; width: 7px; }
-.profile-calendar-years { margin-top: 24px; }
-.profile-calendar-year { align-items: start; display: grid; gap: 12px; grid-template-columns: 36px 1fr; margin: 8px 0; }
-.profile-calendar-year > strong { color: var(--muted); font-size: 10px; padding-top: 4px; }
-.profile-calendar-track { display: flex; flex-wrap: wrap; gap: 3px; }
-.profile-calendar-track button { border: 0; border-radius: 1px; cursor: pointer; height: 24px; padding: 0; width: 9px; }
-.profile-calendar-track button:hover { filter: brightness(1.15); outline: 1px solid var(--ink); outline-offset: 1px; }
-.profile-calendar-track button:focus-visible, .profile-calendar-track button.selected { outline: 2px solid var(--ink); outline-offset: 2px; }
-.profile-vote-detail { background: var(--navy); color: var(--white); display: grid; gap: 36px; grid-template-columns: 1fr minmax(150px, auto); padding: 34px 36px; }
-.profile-vote-detail .eyebrow { color: #8dbca5; margin-bottom: 10px; }
-.profile-vote-detail h3 { font-family: var(--serif); font-size: 24px; font-weight: 400; line-height: 1.3; margin: 0; }
-.profile-vote-detail > div > p:last-child { color: rgba(255,255,255,.62); font-size: 10px; line-height: 1.5; margin: 13px 0 0; }
-.profile-vote-choice { border-left: 1px solid rgba(255,255,255,.18); display: flex; flex-direction: column; padding-left: 28px; }
-.profile-vote-choice span { color: rgba(255,255,255,.55); font-size: 9px; letter-spacing: .09em; text-transform: uppercase; }
-.profile-vote-choice strong { font-family: var(--serif); font-size: 30px; font-weight: 400; margin: 5px 0 18px; }
-.profile-vote-choice a { border-bottom: 1px solid rgba(255,255,255,.35); font-size: 10px; margin-top: auto; padding-bottom: 4px; text-decoration: none; width: fit-content; }
-.profile-no-history { background: #f6f2e4; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.65; margin: 0; padding: 22px 28px; }
-
 /* --- Vista actual / electoral (exploradores) ------------------------------ */
 /* Same affordance as the old chamber tabs, now switching *which identity* each
    seat carries. Seat coordinates never change between the two. */
@@ -393,7 +351,17 @@ footer > span { justify-self: end; }
 .seat-dot.seat-vacant { border-style: dashed; box-shadow: none; }
 .seat-origin { border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0; padding: 14px 22px; }
 .seat-origin strong { color: var(--ink); }
+.seat-origin a { color: var(--ink); font-weight: 700; }
 .seat-flag { background: #f6f2e4; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 12px; line-height: 1.6; margin: 0; padding: 14px 22px; }
+.seat-history-attribution { background: #f6f2e4; border-bottom: 1px solid var(--line); padding: 14px 22px; }
+.seat-history-attribution p { color: var(--muted); font-size: 11px; line-height: 1.55; margin: 0 0 11px; }
+.seat-history-attribution p strong { color: var(--ink); }
+.occupant-filter { display: flex; flex-wrap: wrap; gap: 5px; }
+.occupant-filter button { background: transparent; border: 1px solid var(--line); border-radius: 20px; color: var(--muted); cursor: pointer; font-size: 9px; font-weight: 750; padding: 6px 9px; }
+.occupant-filter button:hover, .occupant-filter button.active { background: var(--ink); border-color: var(--ink); color: white; }
+.seat-history-attribution ul { border-top: 1px solid rgba(21,35,33,.1); list-style: none; margin: 11px 0 0; padding: 7px 0 0; }
+.seat-history-attribution li { align-items: baseline; color: var(--muted); display: flex; font-size: 9px; gap: 10px; justify-content: space-between; line-height: 1.45; padding-top: 4px; }
+.seat-history-attribution li a { color: var(--ink); font-weight: 700; white-space: nowrap; }
 
 /* --- Diccionario de datos (/datos) --------------------------------------- */
 /* Master-detail over the warehouse dictionary. Same payload as the standalone
@@ -508,6 +476,8 @@ footer > span { justify-self: end; }
 .electoral-map-legend span { color: var(--muted); font-size: 9px; }
 .electoral-map-legend i { border-radius: 50%; display: inline-block; height: 7px; margin-right: 5px; width: 7px; }
 .trajectory-panel { display: flex; flex-direction: column; }
+.trajectory-methodology-link { color: #517967; font-size: 9px; font-weight: 750; letter-spacing: .1em; margin-top: 2px; text-transform: uppercase; text-underline-offset: 3px; }
+.trajectory-methodology-link:hover { color: var(--ink); }
 .trajectory-definition { color: var(--muted); font-size: 11px; line-height: 1.55; margin: 16px 24px 0; }
 .trajectory-triangle-wrap { display: flex; flex: 1; flex-direction: column; justify-content: space-between; padding: 8px 20px 18px; }
 .trajectory-triangle { display: block; height: auto; margin: 0 auto; max-height: 390px; overflow: visible; width: 100%; }
@@ -588,6 +558,17 @@ footer > span { justify-self: end; }
 .approval-summary-pollsters { padding: 20px 24px 26px; }
 .approval-summary-label { color: var(--muted); display: block; font-size: 9px; font-weight: 750; letter-spacing: .11em; margin-bottom: 10px; text-transform: uppercase; }
 .approval-summary-empty { color: var(--muted); font-size: 13px; padding: 24px; }
+.approval-line-median { fill: none; opacity: .3; pointer-events: none; stroke-dasharray: 5 4; stroke-width: 2.5; }
+.approval-line-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 14px 22px 0; }
+.approval-line-legend-item { align-items: center; color: var(--muted); display: inline-flex; font-size: 10px; font-weight: 650; gap: 7px; }
+.approval-line-swatch { border-radius: 2px; display: inline-block; height: 3px; width: 18px; }
+.approval-line-swatch-highlight { height: 4px; }
+.approval-line-swatch-ghost { background: var(--muted); opacity: .35; }
+.approval-line-swatch-median { background: transparent; border-top: 2px dashed; height: 0; opacity: .55; }
+
+.approval-table-section { margin: auto; max-width: 1680px; padding: 0 3vw 76px; }
+.approval-table-section .approval-summary-header { padding: 0 0 18px; }
+.approval-table-section .dict-table-wrap td:nth-child(n+3):nth-child(-n+5) { font-family: ui-monospace, monospace; text-align: right; }
 
 /* --- Buscador de votaciones (/visualizaciones/votaciones) ----------------- */
 .sr-only { clip: rect(0 0 0 0); clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
@@ -608,6 +589,8 @@ footer > span { justify-self: end; }
 .vote-filters .search-field span { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .11em; line-height: 1.4; text-transform: uppercase; transform: none; }
 .vote-filter-group { border: 0; margin: 0; padding: 0; }
 .vote-filter-group legend { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .11em; margin-bottom: 9px; padding: 0; text-transform: uppercase; }
+.vote-filter-more { display: none; }
+.vote-filter-advanced { display: contents; }
 .vote-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .vote-chips button { align-items: center; background: transparent; border: 1px solid var(--line); border-radius: 20px; color: var(--muted); cursor: pointer; display: inline-flex; font-size: 11px; font-weight: 700; gap: 6px; padding: 6px 10px; text-align: left; }
 .vote-chips button:hover, .vote-chips button.active { background: var(--navy); border-color: var(--navy); color: var(--white); }
@@ -715,17 +698,15 @@ footer > span { justify-self: end; }
      no longer sticky, since a pinned filter panel on a narrow screen covers the
      list it is filtering. */
   .vote-layout { grid-template-columns: 1fr; }
-  .vote-filters { max-height: none; overflow-y: visible; position: static; }
+  .vote-filters { gap: 16px; max-height: none; overflow-y: visible; position: static; }
+  .vote-filter-more { align-items: center; background: var(--paper); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); cursor: pointer; display: flex; font-size: 10px; font-weight: 750; justify-content: space-between; letter-spacing: .08em; padding: 11px 12px; text-transform: uppercase; width: 100%; }
+  .vote-filter-more:hover { background: var(--paper-deep); }
+  .vote-filter-more span:last-child { color: var(--muted); font-size: 9px; }
+  .vote-filter-advanced { border-top: 1px solid var(--line); display: none; flex-direction: column; gap: 20px; padding-top: 18px; }
+  .vote-filter-advanced.expanded { display: flex; }
   .dict-app { grid-template-columns: 240px minmax(0, 1fr); }
   .dict-overview-grid { grid-template-columns: 1fr; }
   .landing-grid { grid-template-columns: 1fr; }
-  .profile-controls { grid-template-columns: 1fr auto; }
-  .profile-search { grid-column: 1 / -1; }
-  .profile-layout { grid-template-columns: 230px minmax(0, 1fr); }
-  .profile-affiliations { grid-template-columns: 1fr; }
-  .profile-affiliations > div + div { border-left: 0; border-top: 1px solid var(--line); }
-  .profile-metrics { grid-template-columns: repeat(3, 1fr); }
-  .profile-metric:nth-child(4) { border-left: 0; }
   .electoral-master-detail { grid-template-columns: 1fr; }
   .electoral-map { max-height: 600px; }
 }
@@ -780,7 +761,6 @@ footer > span { justify-self: end; }
   .vote-tags { flex-wrap: wrap; }
   .result-grid { grid-template-columns: 1fr; }
   .result-number strong { font-size: 72px; }
-  .party-results-heading { align-items: start; flex-direction: column; gap: 20px; }
   .choice-key { flex-wrap: wrap; }
   .party-row { gap: 9px; grid-template-columns: 42px 1fr 52px; }
   .method-note { display: block; padding: 50px 20px; }
@@ -801,33 +781,6 @@ footer > span { justify-self: end; }
   .dashboard-meta { border-bottom: 1px solid var(--line); border-right: 0; flex-direction: row; gap: 14px; padding: 0 0 14px; }
   .dashboard-stats { gap: 18px; }
   .dashboard-stats dd { font-size: 21px; }
-  .profile-hero { display: block; min-height: auto; padding: 46px 20px 44px; }
-  .profile-hero h1 { font-size: 58px; margin-bottom: 26px; }
-  .profile-explorer { padding: 30px 12px 52px; }
-  .profile-controls { align-items: stretch; grid-template-columns: 1fr; padding: 16px; }
-  .profile-chamber-tabs { overflow-x: auto; }
-  .profile-chamber-tabs button { white-space: nowrap; }
-  .profile-party-group { margin-top: 0; padding-top: 14px; }
-  .profile-legislature { border-left: 0; border-top: 1px solid var(--line); padding-left: 0; padding-top: 14px; }
-  .profile-search { grid-column: auto; }
-  .profile-layout { grid-template-columns: minmax(0, 1fr); }
-  .profile-results { max-height: 260px; position: static; }
-  .profile-result-list { max-height: 215px; }
-  .profile-identity { display: block; padding: 28px 22px 24px; }
-  .profile-identity h2 { font-size: 41px; }
-  .profile-status { display: inline-block; margin-top: 18px; }
-  .profile-topic-row { align-items: stretch; flex-direction: column; gap: 9px; }
-  .profile-topic-row label { flex-basis: auto; }
-  .profile-topic-row select { width: 100%; }
-  .profile-topic-row p { margin: 0; }
-  .profile-metrics { grid-template-columns: repeat(2, 1fr); }
-  .profile-metric:nth-child(3), .profile-metric:nth-child(5) { border-left: 0; }
-  .profile-metric:nth-child(4) { border-left: 1px solid var(--line); }
-  .profile-calendar { padding: 26px 20px 30px; }
-  .profile-section-heading { align-items: start; flex-direction: column; }
-  .profile-calendar-track button { height: 21px; width: 8px; }
-  .profile-vote-detail { grid-template-columns: 1fr; padding: 28px 22px; }
-  .profile-vote-choice { border-left: 0; border-top: 1px solid rgba(255,255,255,.18); padding-left: 0; padding-top: 20px; }
   .electoral-hero { display: block; min-height: auto; padding: 46px 20px 44px; }
   .electoral-hero h1 { font-size: 56px; margin-bottom: 26px; }
   .electoral-explorer { padding: 26px 12px 52px; }

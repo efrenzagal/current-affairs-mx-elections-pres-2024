@@ -51,19 +51,6 @@ export const DASHBOARDS: Dashboard[] = [
     topics: ["Elecciones", "Estados", "Trayectoria", "Partidos y coaliciones"],
   },
   {
-    slug: "perfiles",
-    href: "/visualizaciones/perfiles",
-    area: "Congreso",
-    title: "Perfiles legislativos",
-    subtitle: "628 escaños · Cámara de Diputados y Senado · LXVI Legislatura",
-    summary:
-      "Busca a una diputada, diputado, senadora o senador y recorre su trayectoria nominal. " +
-      "Compara votos a favor, en contra, abstenciones y ausencias; filtra por tema y distingue " +
-      "el partido que ganó el escaño del grupo parlamentario actual.",
-    scope: "673 votaciones nominales entre ambas cámaras",
-    topics: ["Congreso", "Perfiles", "Temas", "Votaciones nominales"],
-  },
-  {
     slug: "votaciones",
     href: "/visualizaciones/votaciones",
     area: "Congreso",
@@ -84,10 +71,11 @@ export const DASHBOARDS: Dashboard[] = [
     subtitle: "500 escaños · LXVI Legislatura",
     summary:
       "El pleno escaño por escaño, con la composición vigente del directorio oficial y el " +
-      "historial nominal de cada diputación. Selecciona una curul, recorre sus votaciones y " +
-      "abre cualquiera para ver cómo se dividieron los grupos parlamentarios.",
+      "historial nominal de cada diputación. Selecciona una curul o busca por nombre —también a " +
+      "quienes ya dejaron el pleno—, filtra la trayectoria por tema y abre cualquier votación " +
+      "para ver cómo se dividieron los grupos parlamentarios.",
     scope: "295 votaciones nominales",
-    topics: ["Congreso", "Votaciones nominales", "Composición"],
+    topics: ["Congreso", "Votaciones nominales", "Composición", "Perfiles"],
   },
   {
     slug: "senado",
@@ -97,9 +85,10 @@ export const DASHBOARDS: Dashboard[] = [
     subtitle: "128 escaños · LXVI Legislatura",
     summary:
       "El mismo explorador para la cámara alta, incluidos los escaños de primera minoría y la " +
-      "lista nacional. Las suplencias en funciones y las vacantes se muestran como estados " +
-      "propios, no como el resultado electoral de 2024.",
+      "lista nacional, con la misma búsqueda por nombre y filtro por tema. Las suplencias en " +
+      "funciones y las vacantes se muestran como estados propios, no como el resultado " +
+      "electoral de 2024.",
     scope: "378 votaciones nominales",
-    topics: ["Congreso", "Votaciones nominales", "Composición"],
+    topics: ["Congreso", "Votaciones nominales", "Composición", "Perfiles"],
   },
 ];

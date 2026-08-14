@@ -166,6 +166,26 @@ function MexicoMap({
   }, [geojson]);
   const winners = new Map(data.maps[String(year)].map((result) => [result.stateId, result]));
   const cycles = data.cycles[String(year)];
+  // The ternary's third corner is an analytical residual, not a party. For
+  // the current electoral map, show the party that actually led each state.
+  const usePartyWinners = year === 2024;
+  const partyWinners = new Map(geojson.features.flatMap((feature) => {
+    const parties = data.geographies[String(feature.properties.stateId)]?.elections[String(year)]?.parties ?? [];
+    const total = parties.reduce((sum, party) => sum + party.votes, 0);
+    const winner = parties.reduce<(typeof parties)[number] | null>(
+      (leading, party) => !leading || party.votes > leading.votes ? party : leading,
+      null,
+    );
+    return winner ? [[feature.properties.stateId, {
+      key: winner.key,
+      label: winner.label ?? winner.key.replaceAll("_", " + "),
+      color: partyColor(winner.key),
+      pct: total ? winner.votes / total * 100 : 0,
+    }] as const] : [];
+  }));
+  const legend = usePartyWinners
+    ? [...new Map([...partyWinners.values()].map((winner) => [winner.key, winner])).values()]
+    : (Object.entries(cycles) as [BlocKey, { label: string; color: string }][]).map(([key, cycle]) => ({ key, ...cycle }));
 
   return (
     <div className="electoral-map-wrap">
@@ -173,17 +193,18 @@ function MexicoMap({
         {geojson.features.map((feature) => {
           const stateId = feature.properties.stateId;
           const result = winners.get(stateId);
+          const partyWinner = partyWinners.get(stateId);
           const active = stateId === selectedState;
           const hovered = stateId === hoveredState;
           return (
             <path
               key={stateId}
               d={pathForFeature(feature, bounds)}
-              fill={result ? cycles[result.winner].color : "#d7d4cb"}
+              fill={usePartyWinners ? partyWinner?.color ?? "#d7d4cb" : result ? cycles[result.winner].color : "#d7d4cb"}
               className={`electoral-state${active ? " selected" : ""}${hovered ? " hovered" : ""}`}
               role="button"
               tabIndex={0}
-              aria-label={`${feature.properties.name}${result ? `, lideró ${result.winnerLabel} con ${result.winnerPct}%` : ""}`}
+              aria-label={`${feature.properties.name}${usePartyWinners && partyWinner ? `, ganó ${partyWinner.label} con ${partyWinner.pct.toFixed(1)}%` : result ? `, lideró ${result.winnerLabel} con ${result.winnerPct}%` : ""}`}
               onClick={() => onSelect(stateId)}
               onFocus={() => onHover(stateId)}
               onBlur={() => onHover(null)}
@@ -200,8 +221,8 @@ function MexicoMap({
         })}
       </svg>
       <div className="electoral-map-legend">
-        {(Object.entries(cycles) as [BlocKey, { label: string; color: string }][]).map(([key, cycle]) => (
-          <span key={key}><i style={{ background: cycle.color }} />{cycle.label}</span>
+        {legend.map((item) => (
+          <span key={item.key}><i style={{ background: item.color }} />{item.label}</span>
         ))}
       </div>
     </div>
@@ -423,7 +444,12 @@ export default function TrajectoryExplorer() {
           </section>
 
           <section className="electoral-panel trajectory-panel">
-            <header><p className="eyebrow">Trayectoria · {contest.years[0]}–{contest.years.at(-1)}</p><h2>{geography.name}</h2></header>
+            <header>
+              <div><p className="eyebrow">Trayectoria · {contest.years[0]}–{contest.years.at(-1)}</p><h2>{geography.name}</h2></div>
+              <a className="trajectory-methodology-link" href="/articulos/espectro-politico.html">
+                Metodología →
+              </a>
+            </header>
             <p className="trajectory-definition">“Otros” reúne el voto no asignado a las tradiciones PRD/Morena o PAN; no representa una ideología única.</p>
             <TrajectoryTriangle geography={geography} year={year} contestLabel={meta.trajectoryLabel} onYear={setYear} />
           </section>

@@ -12,13 +12,15 @@ The explorers connect the official 2024 seat integration *and* the current
 official directory to nominal roll-call histories, letting readers move from
 chamber composition → member → vote → party breakdown.
 
+The charts include every LXVI vote record published and downloaded from the
+official source, mapped to a constitutional seat. Seats omitted by the source
+remain **“Sin registro”**; they are not imputed as absent or assigned a
+fabricated vote.
+
 ## Current product
 
 - **Cámara** (`/visualizaciones/diputados`): 500 seats, 295 Gaceta roll calls.
 - **Senado** (`/visualizaciones/senado`): 128 seats, 378 roll calls.
-- **Perfiles legislativos** (`/visualizaciones/perfiles`): búsqueda conjunta de
-  las personas del directorio actual y de anteriores ocupantes con votos en
-  ambas cámaras, con resumen de voto, trayectoria nominal y filtro por tema.
 - **Geografía electoral** (`/visualizaciones/trayectoria`): mapa seleccionable
   de las 32 entidades y resultados nacionales/estatales para Presidencia,
   Senado y Diputaciones, con trayectoria y desglose por boleta/coalición y partido.
@@ -29,7 +31,13 @@ chamber composition → member → vote → party breakdown.
   electoral result**. See "Elected versus sitting" below — this distinction is
   the reason the section exists in its current form.
 - Hover/focus a seat for identity, electoral result and recent activity.
-- Select a seat for its complete voting history.
+- Select a seat for its complete voting history, filterable by policy topic.
+- Or search by name from the person panel. The search spans three identities:
+  the sitting occupant, the titular who won the seat in 2024, and members with a
+  roll-call record and no seat at all. Picking one of the first two moves the
+  view tab to wherever that seat is lit; picking the last darkens the whole
+  hemicycle, because no curul is theirs. When a name has no match the panel
+  offers the same search in the other chamber via `?q=`.
 - Select a vote for totals, official source and party-level aggregation.
 - Party is encoded by color; seat origin is encoded by shape:
   - square: mayoría relativa (MR)
@@ -90,15 +98,29 @@ Consequences that are easy to get wrong:
 - **`licencia` and `vacante` override the displayed party** (to `LICENCIA` /
   `VACANTE`). The directory still prints a group for a member on leave, but that
   seat is not voting with the group and must not be counted into the bloc.
-- **Histories are keyed by person, not by seat.** A seat can have had two
-  occupants and each owns their own record. The client resolves the seat to an
-  identity under the active view, then looks that person up.
+- **Raw histories are keyed by canonical person; seat histories are composed
+  client-side.** A seat can have had several occupants and each vote remains
+  attributed to the person who cast it. Clicking a seat combines those records
+  by default, with titular/suplencia filters; searching a name still opens only
+  that person's record. `personAliases` preserves audited raw-id merges and
+  `seatMembers` records each person's role and official relationship source.
 - **`partyVotes` is independent of the view.** It comes from the chamber's own
   per-group aggregation at the time of the vote, which is the correct
   denominator for that roll call. Do not recompute it from current composition.
 - Seats whose current occupant has no vote identity render normally and say so.
   They are never backfilled with the elected member's record — that would
   attribute votes to the wrong person.
+- **The view tab never moves on its own.** It relabels all 500 seats, so flipping
+  it as a side effect of picking one name makes the whole hemicycle lurch. When
+  the active tab cannot show the selected identity, the chamber dims and that
+  person's seat of origin is marked hollow instead (`.seat-origin-mark`) — a
+  weaker claim than the solid ring of a live selection, and deliberately styled
+  so the two cannot be confused. Crossing to the other tab is offered as a link.
+- **A search hit keeps its own identity.** Picking the titular of a seat that has
+  changed hands must keep showing the titular, not whoever replaced them. Only
+  hits the active view already places collapse into a plain seat selection; a
+  former member never does, because resolving them through their seat would
+  silently swap their record for the current occupant's.
 
 ## Hosting
 
@@ -122,9 +144,8 @@ Cloudflare deploy is verified.
 | `app/visualizaciones/dashboards.ts` | Dashboard registry; add a card here when you add a route |
 | `app/visualizaciones/parties.ts` | The one party palette and bench order. Never re-declare these |
 | `app/visualizaciones/votes.ts` | The one vote vocabulary: choice colours, title cleanup, Spanish labels for every classification code. Never re-declare these |
-| `app/visualizaciones/explorer.tsx` | The chamber explorer. One component, `chamber` prop |
+| `app/visualizaciones/explorer.tsx` | The chamber explorer: hemicycle, name search over sitting/elected/former members, and the person panel. One component, `chamber` prop |
 | `app/visualizaciones/{diputados,senado}/page.tsx` | Thin routes over `explorer.tsx` |
-| `app/visualizaciones/perfiles/` | Current and former-member search with person-level vote profiles across both chambers |
 | `app/visualizaciones/votaciones/` | Vote search across both chambers, with the party square grid |
 | `app/articulos/page.tsx` | Artículos index, driven by `public/data/articles.json` |
 | `app/datos/page.tsx` | Datos: warehouse dictionary, master-detail over every table |
@@ -311,15 +332,16 @@ Seat-to-legislator bridges are already persisted in `dim_diputados`,
 `dim_senadores` and the roster tables. Join histories through those IDs; do not
 fuzzy-match names in the web layer.
 
-The two chambers use the same exported shape (`schemaVersion: 3`):
+The two chambers use the same exported shape (`schemaVersion: 6`):
 
 ```text
 manifest   counts, legislature, source cutoff, roster cutoff, occupancy stats
 seats      seat geography/list, 2024 result,
-           elected{PersonId,Name,Party,NameRole} — INE, who won it
+           titularName/substituteName — stable INE seat labels
+           elected{PersonId,Name,Party,NameRole} — roll-call identity bridge
            current{PersonId,Name,Party,Status}  — directory, who holds it
 formerMembers  voting identities absent from both seat snapshots, with their
-               latest vote-reported party
+               latest vote-reported party, plus seatId/seatRole (see below)
 votes      metadata, source URL and chamber-wide totals
 histories  person ID -> ordered [vote ID, choice] pairs
 partyVotes vote ID -> party -> choice -> count
@@ -328,6 +350,33 @@ partyVotes vote ID -> party -> choice -> count
 `currentStatus` is one of `en_funciones`, `licencia`, `vacante` or
 `sin_directorio` (our own fallback when a seat is missing from the snapshot —
 the seat keeps its elected occupant rather than disappearing).
+
+### Placing former members
+
+77 voting identities (35 Cámara, 42 Senado) appear in no seat snapshot. They are
+overwhelmingly suplentes who covered a licencia: Bonilla Herrera cast 310 of 378
+Senate roll calls. Roll-call rows carry no geography — `dim_gaceta_deputy` is an
+id and a name — so the *only* route from one of these records back to a place in
+the chamber is `ine_substitute_name`, the suplente the INE registered per seat.
+
+`link_former_members` in `export_gaceta_web.py` does that match and places 74 of
+77. It is name matching, which the web layer is forbidden to do — that is exactly
+why it lives in the export, resolved once against the warehouse and shipped as an
+id. Comparison is on accent-stripped, order-independent tokens, with a lone
+initial allowed to stand for a given name; a candidate counts only when it is the
+single seat in the chamber that matches, so an ambiguous name stays unlinked.
+
+`seatRole` splits the result, and the two halves render very differently:
+
+- `suplencia_concluida` (69) — served, and the titular has since returned. Every
+  one of these lands on a seat where `currentPersonId == electedPersonId`, which
+  is the strongest evidence the match is real rather than coincidental.
+- `en_funciones` (5) — still in the seat. The roll call files them under a second
+  identity that the directory never linked, so the same human holds both a seat
+  entry and a `formerMembers` entry, each with its own history. Neither record is
+  merged into the other: the site shows the one you asked for.
+- `null` (3) — no seat could be named. The chamber goes fully dark for these, and
+  the copy says the linkage failed rather than asserting they never held a seat.
 
 Vote IDs are chamber-local. Never merge Cámara and Senate votes into one
 namespace or aggregation. Person IDs are likewise chamber-local: Cámara uses the

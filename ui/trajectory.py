@@ -710,8 +710,10 @@ def render_trajectory():
                 geo = load_estados_geojson()
                 render_winner_map_estado(
                     df_raw_geo, blocs, geo,
-                    f"Ganador por Estado · {ts_label} · PRE {hist_year}",
+                    (f"Partido con más votos por Estado · {ts_label} · PRE {hist_year}"
+                     if hist_year == 2024 else f"Ganador por Estado · {ts_label} · PRE {hist_year}"),
                     height=520,
+                    party_winners=hist_year == 2024,
                 )
             else:
                 geo = load_municipios_geojson()

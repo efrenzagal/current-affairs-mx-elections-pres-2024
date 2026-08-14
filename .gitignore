@@ -20,5 +20,10 @@ data/*
 .RData
 .Rhistory
 
+# Local identifiers for the Google Sheets legislative-review workflow.
+# Authentication tokens remain in googlesheets4/gargle's external cache.
+/config/legislative_vote_review.env
+/config/approval_rates.env
+
 # Stray lockfile from running npx in the repo root (the Node project is web/)
 /package-lock.json

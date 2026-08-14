@@ -340,6 +340,7 @@ export default function VoteExplorer() {
   const [sort, setSort] = useState<SortKey>(initial.sort);
   const [selectedKey, setSelectedKey] = useState<string | null>(initial.selectedKey);
   const [hover, setHover] = useState<HoverInfo | null>(null);
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const pendingScroll = useRef(false);
 
@@ -532,13 +533,15 @@ export default function VoteExplorer() {
     }));
   }
 
-  const activeFilters =
-    (query ? 1 : 0) +
-    (chamber !== "todas" ? 1 : 0) +
+  const advancedFilters =
     FACETS.reduce((sum, facet) => sum + activeFacets[facet.key].length, 0) +
     activeReview.length +
     (result !== "todas" ? 1 : 0) +
     (margin !== "todas" ? 1 : 0);
+  const activeFilters =
+    (query ? 1 : 0) +
+    (chamber !== "todas" ? 1 : 0) +
+    advancedFilters;
 
   function clearFilters() {
     setQuery("");
@@ -623,89 +626,105 @@ export default function VoteExplorer() {
               </div>
             </fieldset>
 
-            {FACETS.map((facet) => (
-              <fieldset key={facet.key} className="vote-filter-group">
-                <legend>{facet.label}</legend>
+            <button
+              type="button"
+              className="vote-filter-more"
+              aria-expanded={filtersExpanded}
+              aria-controls="vote-advanced-filters"
+              onClick={() => setFiltersExpanded((current) => !current)}
+            >
+              <span>{filtersExpanded ? "Ocultar filtros" : "Más filtros"}</span>
+              <span>{advancedFilters > 0 ? `${advancedFilters} activos` : filtersExpanded ? "−" : "+"}</span>
+            </button>
+
+            <div
+              className={filtersExpanded ? "vote-filter-advanced expanded" : "vote-filter-advanced"}
+              id="vote-advanced-filters"
+            >
+              {FACETS.map((facet) => (
+                <fieldset key={facet.key} className="vote-filter-group">
+                  <legend>{facet.label}</legend>
+                  <div className="vote-chips">
+                    {facetOptions[facet.key].map(([value, count]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={facets[facet.key].includes(value) ? "active" : ""}
+                        aria-pressed={facets[facet.key].includes(value)}
+                        onClick={() => toggleFacet(facet.key, value)}
+                      >
+                        {facet.labels[value] ?? value} <small>{count}</small>
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+              ))}
+
+              <fieldset className="vote-filter-group">
+                <legend>Resultado</legend>
                 <div className="vote-chips">
-                  {facetOptions[facet.key].map(([value, count]) => (
+                  {(["todas", "aprobadas", "rechazadas"] as ResultFilter[]).map((value) => (
                     <button
                       key={value}
                       type="button"
-                      className={facets[facet.key].includes(value) ? "active" : ""}
-                      aria-pressed={facets[facet.key].includes(value)}
-                      onClick={() => toggleFacet(facet.key, value)}
+                      className={result === value ? "active" : ""}
+                      aria-pressed={result === value}
+                      onClick={() => setResult(value)}
                     >
-                      {facet.labels[value] ?? value} <small>{count}</small>
+                      {value === "todas" ? "Todas" : value === "aprobadas" ? "Aprobadas" : "Rechazadas"}
                     </button>
                   ))}
                 </div>
               </fieldset>
-            ))}
 
-            <fieldset className="vote-filter-group">
-              <legend>Resultado</legend>
-              <div className="vote-chips">
-                {(["todas", "aprobadas", "rechazadas"] as ResultFilter[]).map((value) => (
+              <fieldset className="vote-filter-group">
+                <legend>Margen de consenso</legend>
+                <div className="vote-chips">
                   <button
-                    key={value}
                     type="button"
-                    className={result === value ? "active" : ""}
-                    aria-pressed={result === value}
-                    onClick={() => setResult(value)}
+                    className={margin === "todas" ? "active" : ""}
+                    aria-pressed={margin === "todas"}
+                    onClick={() => setMargin("todas")}
                   >
-                    {value === "todas" ? "Todas" : value === "aprobadas" ? "Aprobadas" : "Rechazadas"}
+                    Todas
                   </button>
-                ))}
-              </div>
-            </fieldset>
+                  {(Object.keys(MARGIN_BUCKETS) as Exclude<MarginFilter, "todas">[]).map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={margin === value ? "active" : ""}
+                      aria-pressed={margin === value}
+                      onClick={() => setMargin(value)}
+                    >
+                      {MARGIN_BUCKETS[value].label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
 
-            <fieldset className="vote-filter-group">
-              <legend>Margen de consenso</legend>
-              <div className="vote-chips">
-                <button
-                  type="button"
-                  className={margin === "todas" ? "active" : ""}
-                  aria-pressed={margin === "todas"}
-                  onClick={() => setMargin("todas")}
-                >
-                  Todas
-                </button>
-                {(Object.keys(MARGIN_BUCKETS) as Exclude<MarginFilter, "todas">[]).map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={margin === value ? "active" : ""}
-                    aria-pressed={margin === value}
-                    onClick={() => setMargin(value)}
-                  >
-                    {MARGIN_BUCKETS[value].label}
-                  </button>
-                ))}
-              </div>
-            </fieldset>
-
-            <fieldset className="vote-filter-group">
-              <legend>Revisión de la clasificación</legend>
-              <div className="vote-chips">
-                {reviewOptions.map(([value, count]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className={review.includes(value) ? "active" : ""}
-                    aria-pressed={review.includes(value)}
-                    onClick={() =>
-                      setReview((current) =>
-                        current.includes(value)
-                          ? current.filter((entry) => entry !== value)
-                          : [...current, value],
-                      )
-                    }
-                  >
-                    {reviewLabel(value)} <small>{count}</small>
-                  </button>
-                ))}
-              </div>
-            </fieldset>
+              <fieldset className="vote-filter-group">
+                <legend>Revisión de la clasificación</legend>
+                <div className="vote-chips">
+                  {reviewOptions.map(([value, count]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={review.includes(value) ? "active" : ""}
+                      aria-pressed={review.includes(value)}
+                      onClick={() =>
+                        setReview((current) =>
+                          current.includes(value)
+                            ? current.filter((entry) => entry !== value)
+                            : [...current, value],
+                        )
+                      }
+                    >
+                      {reviewLabel(value)} <small>{count}</small>
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+            </div>
 
             {activeFilters > 0 && (
               <button type="button" className="vote-clear" onClick={clearFilters}>

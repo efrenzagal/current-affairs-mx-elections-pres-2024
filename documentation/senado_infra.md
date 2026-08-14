@@ -90,6 +90,11 @@ python -m ingestion.senadores_ingest
 
 ## Known quirks
 
+The charts include every LXVI vote record published and downloaded from the
+official source, mapped to a constitutional seat. Seats omitted by the source
+remain **“Sin registro”**; they are not imputed as absent or assigned a
+fabricated vote.
+
 - **Party switching ("chapulineo")** is real and shows up in the data as
   `grupo_parlamentario` changing value across `votacion_id`s for the same
   `senador_id` — there is no separate "party history" table. To analyze

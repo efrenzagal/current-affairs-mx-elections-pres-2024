@@ -10,10 +10,9 @@ moves the app's charts.
 through a Jupyter kernel on a Python older than 3.10, where the `X | None`
 annotations below would otherwise raise at import time.
 
-Sizes here are picked against the article's own proportions, not in the
-abstract: body copy is Times at ~19px in a 760px column, while figures render
-~920px wide. A 12px tick that looks correct in a dashboard reads as a footnote
-beside this body text, which is why every size below is larger than the app's.
+Sizes here follow a conventional editorial chart scale. The published article
+already gives figures more room than the prose column and modestly scales type
+with that room, so oversized authored values compound quickly on desktop.
 """
 
 from __future__ import annotations
@@ -26,17 +25,15 @@ from __future__ import annotations
 # added a third face to the page.
 FONT = '"Times New Roman", Times, serif'
 
-# Roughly 12% larger than the sans equivalents these replaced: Times has a much
-# smaller x-height, so matching point sizes would read a size down next to the
-# body copy.
-SIZE_TITLE = 27
-SIZE_SUBTITLE = 18
-SIZE_AXIS_TITLE = 17
-SIZE_TICK = 17
-SIZE_DIRECT_LABEL = 18
-SIZE_VERTEX = 19
-SIZE_POINT_LABEL = 16
-SIZE_NOTE = 14
+# The website adds restrained responsive scaling on wide figures. These are the
+# authored sizes at the 920px Quarto canvas; supporting labels land around
+# 15–17px at the site's widest normal view.
+SIZE_AXIS_TITLE = 13
+SIZE_TICK = 13
+SIZE_DIRECT_LABEL = 14
+SIZE_VERTEX = 15
+SIZE_POINT_LABEL = 13
+SIZE_NOTE = 11
 
 # ── Ink ───────────────────────────────────────────────────────────────────────
 # Four steps only. Titles get near-black, supporting text steps back, and the
@@ -85,31 +82,15 @@ CATEGORY = {
 }
 
 
-def base_layout(title: str, subtitle: str = "", height: int = 520,
-                margin: dict | None = None) -> dict:
-    """Layout shared by every figure in the article.
-
-    `title` is the finding, not the dataset — the reader should be able to take
-    the point from the title alone. `subtitle` carries the units and scope that
-    used to live in a rotated y-axis title.
-
-    Keep `subtitle` under ~100 characters: plotly does not wrap it, so anything
-    wider than the figure is silently cut off at the right edge rather than
-    flowing onto a second line. Longer method notes belong in the fig-cap.
-    """
+def base_layout(height: int = 520, margin: dict | None = None) -> dict:
+    """Layout shared by every figure in the article."""
     return dict(
-        title=dict(
-            text=f"<b>{title}</b>",
-            subtitle=dict(text=subtitle, font=dict(size=SIZE_SUBTITLE, color=INK_SOFT)),
-            font=dict(size=SIZE_TITLE, color=INK),
-            x=0, xanchor="left", y=0.97, yanchor="top",
-        ),
         font=dict(family=FONT, size=SIZE_TICK, color=INK_SOFT),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         height=height,
-        margin=margin or dict(l=10, r=10, t=100, b=40),
-        hoverlabel=dict(font=dict(family=FONT, size=14), bgcolor="white"),
+        margin=margin or dict(l=10, r=10, t=40, b=40),
+        hoverlabel=dict(font=dict(family=FONT, size=12), bgcolor="white"),
     )
 
 

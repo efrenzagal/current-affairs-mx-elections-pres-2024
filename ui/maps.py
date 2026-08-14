@@ -199,13 +199,64 @@ def render_winner_map(df: pd.DataFrame, blocs: dict, geojson: dict,
 
 
 def render_winner_map_estado(df: pd.DataFrame, blocs: dict, geojson: dict,
-                              title: str, height: int = 560):
-    """Render the shared bloc-colored state-level winner map (Nacional view)."""
+                              title: str, height: int = 560,
+                              party_winners: bool = False):
+    """Render a state map by bloc, or by the leading party when requested."""
     if not geojson:
         st.warning(
             "No se encontró el GeoJSON procesado de estados. "
             "Descarga `estados_processed.geojson` en data/materialized/."
         )
+        return
+
+    if party_winners:
+        by_party = df.groupby(
+            ["id_estado", "nombre_estado", "party_key"], as_index=False,
+        )["votes"].sum()
+        totals = by_party.groupby("id_estado")["votes"].transform("sum")
+        winners = by_party.loc[by_party.groupby("id_estado")["votes"].idxmax()].copy()
+        winners["winnerPct"] = winners["votes"] / totals.loc[winners.index] * 100
+        winners["_geo_id"] = winners["nombre_estado"].map(
+            lambda n: _norm(_ESTADO_NAME_ALIASES.get(_norm(n), n))
+        )
+        all_ids = {f["id"] for f in geojson["features"]}
+        winners = winners[winners["_geo_id"].isin(all_ids)].copy()
+        winners["_label"] = winners["nombre_estado"].apply(title_case_es)
+
+        fig = go.Figure()
+        for party_key in sorted(winners["party_key"].unique()):
+            subset = winners[winners["party_key"] == party_key]
+            color = TS_PARTY_COLORS.get(party_key, _ts_fallback_color(party_key))
+            ids_set = set(subset["_geo_id"])
+            geo_sub = {"type": "FeatureCollection",
+                       "features": [f for f in geojson["features"] if f["id"] in ids_set]}
+            fig.add_trace(go.Choroplethmapbox(
+                geojson=geo_sub, locations=subset["_geo_id"],
+                z=[1] * len(subset),
+                colorscale=[[0, color], [1, color]],
+                showscale=False, marker_opacity=0.82,
+                marker_line_width=0.4, marker_line_color="rgba(255,255,255,0.15)",
+                hovertext=subset["_label"],
+                customdata=subset[["winnerPct", "votes"]].values,
+                hovertemplate=(
+                    "<b>%{hovertext}</b><br>"
+                    f"Partido con más votos: {party_key}<br>"
+                    "Porcentaje: %{customdata[0]:.1f}%<br>"
+                    "Votos: %{customdata[1]:,}<extra></extra>"
+                ),
+                name=party_key, showlegend=True,
+            ))
+
+        fig.update_layout(
+            mapbox=dict(style="carto-darkmatter", zoom=4.1, center={"lat": 23.6, "lon": -102.5}),
+            legend=dict(orientation="h", yanchor="top", y=-0.04,
+                        xanchor="center", x=0.5, font=dict(size=10), itemsizing="constant"),
+            title=dict(text=f"<b>{title}</b>", font=dict(family="IBM Plex Mono", size=14)),
+            margin=dict(l=0, r=0, t=50, b=80), height=height,
+            plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Cada estado se colorea según el partido que recibió más votos.")
         return
 
     agg = agg_blocs(df, ["id_estado", "nombre_estado"], blocs)

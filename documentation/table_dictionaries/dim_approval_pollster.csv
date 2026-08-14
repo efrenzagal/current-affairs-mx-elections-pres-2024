@@ -1,0 +1,5 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+pollster_id,INTEGER,Primary key,Identificador numerico de la casa encuestadora.,Numeric identifier for the polling house.,Positive integer,Referenced by approval facts.
+pollster_name,TEXT,Required natural key,Nombre normalizado de la casa encuestadora.,Normalized polling-house name.,Unique non-empty text,Preserves the house identity used in the published observation.
+pollster_type,TEXT,Nullable attribute,Tipo de organizacion encuestadora cuando se conoce.,Polling organization type when known.,e.g. Casa encuestadora or NULL,Editorial metadata; it does not describe the sampling method.
+familia,TEXT,Nullable attribute,Familia editorial que agrupa variantes de una misma casa.,Editorial family grouping variants of the same polling house.,Text or NULL,Used for display and comparison without overwriting pollster_name.

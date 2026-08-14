@@ -9,7 +9,10 @@ type Point = {
   month: number;
   date: string;
   approve: number;
+  disapprove: number;
+  residual: number;
   pollster: string;
+  sourceUrl: string;
 };
 
 type President = { key: string; label: string; color: string };
@@ -23,6 +26,18 @@ type ApprovalData = {
 };
 
 const ALL_POLLSTERS = "Todos";
+const PRESIDENT_FULL_NAMES: Record<string, string> = {
+  EZPL: "Ernesto Zedillo",
+  VFQ: "Vicente Fox",
+  FCH: "Felipe Calderón",
+  EPN: "Enrique Peña Nieto",
+  AMLO: "Andrés Manuel López Obrador",
+  Sheinbaum: "Claudia Sheinbaum",
+};
+
+function presidentName(president: President) {
+  return PRESIDENT_FULL_NAMES[president.key] ?? president.label;
+}
 
 // A full sexenio, so a still-serving president's line reads against the
 // term it is partway through rather than against whatever month it reaches
@@ -126,9 +141,27 @@ export default function ApprovalExplorer() {
     return new Map([...byPresident.entries()].map(([key, points]) => [key, monthlyTrend(points)]));
   }, [filteredPoints]);
 
+  // Only needed once a pollster filter narrows the highlighted line, so the
+  // dimmer "todas las encuestadoras" median can sit behind it as a house-effect
+  // reference; skip the grouping otherwise.
+  const overallTrendForHighlight = useMemo(() => {
+    if (!data || pollster === ALL_POLLSTERS) return null;
+    const points = data.points.filter((point) => point.president === highlight);
+    const trend = monthlyTrend(points);
+    return trend.length >= 2 ? trend : null;
+  }, [data, highlight, pollster]);
+
   const highlightPoints = useMemo(
     () => (highlight ? filteredPoints.filter((point) => point.president === highlight) : []),
     [filteredPoints, highlight],
+  );
+
+  const tableRows = useMemo(
+    () =>
+      [...highlightPoints].sort(
+        (a, b) => b.date.localeCompare(a.date) || a.pollster.localeCompare(b.pollster, "es"),
+      ),
+    [highlightPoints],
   );
 
   const summary = useMemo(() => {
@@ -184,7 +217,7 @@ export default function ApprovalExplorer() {
                   style={highlight === president.key ? { background: president.color, borderColor: president.color } : undefined}
                   onClick={() => selectHighlight(president.key)}
                 >
-                  {president.label}
+                  {presidentName(president)}
                 </button>
               ))}
             </div>
@@ -195,20 +228,42 @@ export default function ApprovalExplorer() {
           <header>
             <div>
               <p className="eyebrow">Meses en funciones · 0–{TERM_MONTHS}</p>
-              <h2>{highlightPresident.label}</h2>
+              <h2>{presidentName(highlightPresident)}</h2>
             </div>
             <p>
               Cada punto es una encuesta. La línea gruesa es la mediana mensual de{" "}
-              <strong>{highlightPresident.label}</strong>; las líneas tenues son el mismo cálculo
+              <strong>{presidentName(highlightPresident)}</strong>; las líneas tenues son el mismo cálculo
               para el resto de los sexenios, en el mismo mes de su mandato.
+              {pollster !== ALL_POLLSTERS && (
+                <>
+                  {" "}La línea punteada es la mediana de <strong>todas</strong> las encuestadoras, para
+                  comparar el efecto casa de <strong>{pollster}</strong>.
+                </>
+              )}
             </p>
           </header>
+          <div className="approval-line-legend" aria-hidden="true">
+            <span className="approval-line-legend-item">
+              <i className="approval-line-swatch approval-line-swatch-highlight" style={{ background: highlightPresident.color }} />
+              {presidentName(highlightPresident)}
+            </span>
+            <span className="approval-line-legend-item">
+              <i className="approval-line-swatch approval-line-swatch-ghost" />
+              Otros sexenios
+            </span>
+            {overallTrendForHighlight && (
+              <span className="approval-line-legend-item">
+                <i className="approval-line-swatch approval-line-swatch-median" style={{ borderColor: highlightPresident.color }} />
+                Mediana de todas las encuestadoras
+              </span>
+            )}
+          </div>
           <div className="approval-chart-wrap" ref={chartWrapRef}>
             <svg
               className="approval-chart"
               viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
               role="img"
-              aria-label={`Aprobación de ${highlightPresident.label} por mes de mandato, con el resto de los sexenios de referencia`}
+              aria-label={`Aprobación de ${presidentName(highlightPresident)} por mes de mandato, con el resto de los sexenios de referencia`}
             >
               {[0, 20, 40, 60, 80, 100].map((tick) => (
                 <g key={tick}>
@@ -245,6 +300,15 @@ export default function ApprovalExplorer() {
                     <path key={president.key} d={linePath(trend)} className="approval-line-ghost" style={{ stroke: president.color }} />
                   );
                 })}
+
+              {overallTrendForHighlight && (
+                <path
+                  d={linePath(overallTrendForHighlight)}
+                  className="approval-line-median"
+                  style={{ stroke: highlightPresident.color }}
+                  aria-label={`Mediana de todas las encuestadoras para ${presidentName(highlightPresident)}`}
+                />
+              )}
 
               {highlightPoints.map((point, index) => (
                 <circle
@@ -283,7 +347,7 @@ export default function ApprovalExplorer() {
                   onClick={() => selectHighlight(president.key)}
                 >
                   <i style={{ background: president.color }} />
-                  {president.label}
+                  {presidentName(president)}
                 </button>
               ))}
             </div>
@@ -306,7 +370,7 @@ export default function ApprovalExplorer() {
         <section className="electoral-panel approval-summary-panel">
           <header className="approval-summary-header">
             <p className="eyebrow">Resumen de la selección</p>
-            <h2>{highlightPresident.label}{pollster !== ALL_POLLSTERS ? ` · ${pollster}` : ""}</h2>
+            <h2>{presidentName(highlightPresident)}{pollster !== ALL_POLLSTERS ? ` · ${pollster}` : ""}</h2>
           </header>
           {summary ? (
             <>
@@ -330,6 +394,47 @@ export default function ApprovalExplorer() {
             <p className="approval-summary-empty">Sin encuestas para esta selección.</p>
           )}
         </section>
+      </section>
+
+      <section className="approval-table-section">
+        <header className="approval-summary-header">
+          <p className="eyebrow">Encuestas y fuentes</p>
+          <h2>{presidentName(highlightPresident)}{pollster !== ALL_POLLSTERS ? ` · ${pollster}` : ""}</h2>
+        </header>
+        {tableRows.length > 0 ? (
+          <div className="dict-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Encuestadora</th>
+                  <th>Fecha</th>
+                  <th>Aprueba</th>
+                  <th>Desaprueba</th>
+                  <th>Otro / NS</th>
+                  <th>Fuente</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tableRows.map((point, index) => (
+                  <tr key={`${point.date}-${point.pollster}-${index}`}>
+                    <td>{point.pollster}</td>
+                    <td>{formatDate(point.date)}</td>
+                    <td>{point.approve}%</td>
+                    <td>{point.disapprove}%</td>
+                    <td>{point.residual}%</td>
+                    <td>
+                      <a href={point.sourceUrl} target="_blank" rel="noopener noreferrer">
+                        Ver fuente
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="approval-summary-empty">Sin encuestas para esta selección.</p>
+        )}
       </section>
 
       <section className="method-note">

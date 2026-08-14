@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 import sqlite3
 import sys
+import unicodedata
 from pathlib import Path
 
 
@@ -44,6 +46,33 @@ INE_INTEGRATION_PATH = (
     / "CSV"
     / "INTEGRACION_CARGOS_PEF_2024.csv"
 )
+INE_INTEGRATION_PUBLIC_URL = (
+    "https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/"
+)
+
+# Post-election legal events can assign a substitute who does not appear in the
+# final 2024 integration CSV. Keep these small, source-backed exceptions here
+# until the licence/protest feed is ingested as a first-class temporal source.
+AUDITED_FORMER_SEAT_OVERRIDES = {
+    ("SEN", "1805"): {
+        "seatId": "SEN_4D4CFB205261",
+        "sourceUrl": (
+            "https://sil.gobernacion.gob.mx/Archivos/Documentos/2025/06/"
+            "asun_4909061_20250626_1754067805.pdf"
+        ),
+    },
+}
+
+# These roll-call strings are proven aliases of the official sitting member,
+# not substitute occupants. Their dates do not overlap and, once combined,
+# each person covers all 295 LXVI Chamber votes.
+AUDITED_PERSON_ALIASES = {
+    "DIP": {
+        "DEP_0AC343D3EC5E": "DEP_10ACE730EC87",  # G. MANCILLA CARLOS
+        "DEP_62F86822CD67": "DEP_A9A4258198C3",  # JIMÉNEZ DELGADO PATRICIA
+    },
+    "SEN": {},
+}
 
 
 def rows(conn: sqlite3.Connection, query: str, params: tuple = ()) -> list[dict]:
@@ -116,7 +145,7 @@ def apply_roster(seats: list[dict], roster: dict[str, dict]) -> None:
         entry = roster.get(seat["id"])
         if entry is None:
             seat.update(
-                currentName=seat["electedName"],
+                currentName=seat["titularName"],
                 currentParty=seat["electedParty"],
                 currentStatus="sin_directorio",
                 currentPersonId=seat["electedPersonId"],
@@ -144,6 +173,389 @@ def roster_stats(seats: list[dict]) -> dict:
         "vacantSeats": sum(seat["currentStatus"] == "vacante" for seat in seats),
         "currentLinkedSeats": sum(bool(seat["currentPersonId"]) for seat in seats),
     }
+
+
+def add_registered_seat_names(seats: list[dict]) -> None:
+    """Keep the constitutional seat label separate from its voting identity.
+
+    ``electedName`` is the identity that successfully bridges to roll calls and
+    can therefore be the registered suplente.  The public seat label must stay
+    anchored to INE's titular whenever that name is available.
+    """
+    for seat in seats:
+        seat["titularName"] = (
+            display_person_name(seat.get("titularName")) or seat["electedName"]
+        )
+        seat["substituteName"] = (
+            display_person_name(seat.get("substituteName")) or None
+        )
+
+
+def load_substitutes(conn: sqlite3.Connection, chamber: str) -> dict[str, str]:
+    """Seat -> the suplente the INE registered for it, by seat id."""
+    table, key = (
+        ("dim_diputados", "diputado_id")
+        if chamber == "DIP"
+        else ("dim_senadores", "senador_seat_id")
+    )
+    return {
+        row["seatId"]: row["name"]
+        for row in rows(
+            conn,
+            f"""
+            SELECT {key} AS seatId, ine_substitute_name AS name
+            FROM {table}
+            WHERE legislature = 66 AND ine_substitute_name IS NOT NULL
+            """,
+        )
+    }
+
+
+def name_tokens(raw: str | None) -> list[str]:
+    """Comparable tokens for one person, order and orthography discarded.
+
+    Three registers spell the same human three ways: the Senado roll call writes
+    `Sen. Macías Rábago, Julieta`, the Camara roll call writes
+    `PEREZ JAEN ZERMEÑO M. ELENA`, and the INE substitute column writes
+    `MARIA ELENA PEREZ-JAEN ZERMEÑO`. Sorting the tokens drops the surname-order
+    question entirely; folding `y` to `i` absorbs the one spelling drift that
+    survives it (Maribel/Marybel), which is otherwise a whole missed linkage.
+    """
+    name = str(raw or "").strip()
+    if name.lower().startswith(("sen.", "dip.")):
+        name = name[4:].strip()
+    if "," in name:
+        surnames, _, given = name.partition(",")
+        name = f"{given.strip()} {surnames.strip()}"
+    name = unicodedata.normalize("NFKD", name)
+    name = "".join(char for char in name if not unicodedata.combining(char))
+    name = re.sub(r"[^a-z ]", " ", name.lower()).replace("y", "i")
+    return sorted(token for token in name.split() if token)
+
+
+def covers_name(voter: list[str], registered: list[str]) -> bool:
+    """True when every roll-call token finds a partner in the registered name.
+
+    A lone initial stands in for a full given name, and given names the roll
+    call dropped are tolerated on the registry side — both are routine in these
+    two sources. Requiring two full-length agreements stops that tolerance from
+    matching on a shared surname alone.
+    """
+    pool = list(registered)
+    long_hits = 0
+    for token in sorted(voter, key=len, reverse=True):
+        if len(token) == 1:
+            partner = next((other for other in pool if other.startswith(token)), None)
+        elif token in pool:
+            partner = token
+        else:
+            partner = next(
+                (other for other in pool if len(other) == 1 and token.startswith(other)),
+                None,
+            )
+        if partner is None:
+            return False
+        pool.remove(partner)
+        if len(token) >= 3 and len(partner) >= 3:
+            long_hits += 1
+    return long_hits >= 2
+
+
+def link_former_members(
+    chamber: str,
+    former_members: list[dict],
+    seats: list[dict],
+    substitutes: dict[str, str],
+) -> None:
+    """Attach the seat each former member covered, through the INE suplente register.
+
+    Roll-call rows carry no geography — `dim_gaceta_deputy` is an id and a name —
+    so the suplente registered per seat is the only route from a voting record
+    back to a place in the hemicycle. Without it these members are unplaceable
+    and the chamber can only go dark behind them.
+
+    Exact token match first, then the initial-aware fallback, and either only
+    counts when it names a single seat in the chamber: an ambiguous name stays
+    unlinked rather than being guessed onto a bench.
+
+    `seatRole` separates two groups the seat alone cannot tell apart. Most are
+    suplentes who served a licencia and left when the titular came back. A few
+    are the person *currently* in the seat, filed by the roll call under a second
+    identity the directory never linked — for those the hemicycle must not go
+    dark, because they are sitting in it.
+    """
+    tokens_by_seat = {
+        seat_id: name_tokens(name) for seat_id, name in substitutes.items()
+    }
+    exact: dict[str, list[str]] = {}
+    for seat_id, tokens in tokens_by_seat.items():
+        exact.setdefault(" ".join(tokens), []).append(seat_id)
+    seats_by_id = {seat["id"]: seat for seat in seats}
+
+    linked = 0
+    for member in former_members:
+        override = AUDITED_FORMER_SEAT_OVERRIDES.get(
+            (chamber, str(member["personId"]))
+        )
+        if override is not None:
+            member["seatId"] = override["seatId"]
+            member["seatRole"] = "suplencia_concluida"
+            member["relationshipSourceUrl"] = override["sourceUrl"]
+            linked += 1
+            continue
+        tokens = name_tokens(member["name"])
+        candidates = exact.get(" ".join(tokens), [])
+        if len(candidates) != 1:
+            candidates = [
+                seat_id
+                for seat_id, registered in tokens_by_seat.items()
+                if covers_name(tokens, registered)
+            ]
+        if len(candidates) != 1:
+            member["seatId"] = None
+            member["seatRole"] = None
+            member["relationshipSourceUrl"] = None
+            continue
+        seat = seats_by_id[candidates[0]]
+        member["seatId"] = seat["id"]
+        member["seatRole"] = (
+            "en_funciones"
+            if covers_name(tokens, name_tokens(seat["currentName"]))
+            else "suplencia_concluida"
+        )
+        member["relationshipSourceUrl"] = INE_INTEGRATION_PUBLIC_URL
+        linked += 1
+    print(f"  linked {linked}/{len(former_members)} former members to a seat")
+
+
+def reconcile_person_aliases(
+    chamber: str,
+    seats: list[dict],
+    former_members: list[dict],
+) -> dict[str, str]:
+    """Collapse source-string aliases while preserving real substitute people.
+
+    A current occupant occasionally has a second roll-call identity, and an
+    interim substitute can be printed once in abbreviated form and once in
+    full. Both cases should produce one person profile and one continuous vote
+    history. This function only merges identities already tied to the same seat,
+    plus the two audited Chamber aliases above; it never merges a titular and a
+    genuine substitute merely because they share a seat.
+    """
+    aliases = dict(AUDITED_PERSON_ALIASES[chamber])
+    seats_by_id = {seat["id"]: seat for seat in seats}
+
+    # A roll-call identity that matches the directory's current occupant is an
+    # alias, not an additional substitute. If the directory has no vote id, the
+    # roll-call id becomes its canonical identity.
+    for member in former_members:
+        if member.get("seatRole") != "en_funciones" or not member.get("seatId"):
+            continue
+        seat = seats_by_id[member["seatId"]]
+        current_id = seat.get("currentPersonId")
+        if current_id:
+            aliases[str(member["personId"])] = str(current_id)
+        else:
+            seat["currentPersonId"] = str(member["personId"])
+
+    # The same concluded substitute can also arrive under two spellings. Only
+    # compare records already resolved to the same seat and role.
+    concluded = [
+        member
+        for member in former_members
+        if member.get("seatId") and member.get("seatRole") == "suplencia_concluida"
+    ]
+    for index, left in enumerate(concluded):
+        for right in concluded[index + 1 :]:
+            if left["seatId"] != right["seatId"]:
+                continue
+            left_tokens = name_tokens(left["name"])
+            right_tokens = name_tokens(right["name"])
+            if not (
+                covers_name(left_tokens, right_tokens)
+                or covers_name(right_tokens, left_tokens)
+            ):
+                continue
+            # Prefer the fuller, human-cased display string as the canonical id.
+            quality = lambda row: (
+                not str(row["name"]).isupper(),
+                len(name_tokens(row["name"])),
+                len(str(row["name"])),
+            )
+            canonical, alternate = sorted((left, right), key=quality, reverse=True)
+            aliases[str(alternate["personId"])] = str(canonical["personId"])
+
+    def canonical(person_id: object) -> str:
+        value = str(person_id)
+        seen: set[str] = set()
+        while value in aliases and value not in seen:
+            seen.add(value)
+            value = aliases[value]
+        return value
+
+    # Flatten any chains before the mapping is serialized or applied.
+    aliases = {source: canonical(target) for source, target in aliases.items()}
+    for seat in seats:
+        for field in ("electedPersonId", "currentPersonId"):
+            if seat.get(field):
+                seat[field] = canonical(seat[field])
+
+    canonical_ids = {
+        str(seat[field])
+        for seat in seats
+        for field in ("electedPersonId", "currentPersonId")
+        if seat.get(field)
+    }
+    former_members[:] = [
+        member
+        for member in former_members
+        if str(member["personId"]) not in aliases
+        and str(member["personId"]) not in canonical_ids
+    ]
+    return aliases
+
+
+def canonical_histories(
+    people: set[str],
+    vote_rows: list[dict],
+    aliases: dict[str, str],
+    votes: list[dict],
+) -> dict[str, list[list[str]]]:
+    """Merge audited source identities without losing the raw attribution."""
+    histories: dict[str, dict[str, str]] = {
+        aliases.get(str(person), str(person)): {} for person in people
+    }
+    for row in vote_rows:
+        person_id = aliases.get(str(row["personId"]), str(row["personId"]))
+        prior = histories.setdefault(person_id, {}).get(str(row["voteId"]))
+        if prior is not None and prior != row["choice"]:
+            raise ValueError(
+                f"Conflicting alias votes for {person_id} on {row['voteId']}: "
+                f"{prior} vs {row['choice']}"
+            )
+        histories[person_id][str(row["voteId"])] = row["choice"]
+    order = {str(vote["id"]): index for index, vote in enumerate(votes)}
+    return {
+        person_id: [
+            [vote_id, choice]
+            for vote_id, choice in sorted(
+                choices.items(), key=lambda item: order.get(item[0], len(order))
+            )
+        ]
+        for person_id, choices in histories.items()
+    }
+
+
+def build_seat_vote_data(
+    seats: list[dict],
+    former_members: list[dict],
+    histories: dict[str, list[list[str]]],
+    votes: list[dict],
+    roster_source_url: str,
+) -> tuple[dict[str, list[list[str]]], dict[str, list[dict]], list[dict]]:
+    """Build a seat history while retaining who actually cast every vote."""
+    person_to_seat: dict[str, str] = {}
+    seat_members: dict[str, list[dict]] = {seat["id"]: [] for seat in seats}
+
+    def add_member(
+        seat_id: str,
+        person_id: object,
+        name: str,
+        party: str,
+        role: str,
+        source_url: str | None,
+    ) -> None:
+        if not person_id:
+            return
+        person = str(person_id)
+        previous = person_to_seat.get(person)
+        if previous and previous != seat_id:
+            raise ValueError(f"Person {person} resolves to both {previous} and {seat_id}")
+        person_to_seat[person] = seat_id
+        existing = next(
+            (member for member in seat_members[seat_id] if member["personId"] == person),
+            None,
+        )
+        if existing:
+            return
+        seat_members[seat_id].append(
+            {
+                "personId": person,
+                "name": name,
+                "party": party,
+                "role": role,
+                "sourceUrl": source_url,
+                "voteCount": len(histories.get(person, [])),
+            }
+        )
+
+    for seat in seats:
+        add_member(
+            seat["id"], seat.get("electedPersonId"), seat["electedName"],
+            seat["electedParty"], seat["electedNameRole"], INE_INTEGRATION_PUBLIC_URL,
+        )
+        if seat.get("currentPersonId") != seat.get("electedPersonId"):
+            add_member(
+                seat["id"], seat.get("currentPersonId"), seat.get("currentName") or "Vacante",
+                seat["currentParty"], "suplente", roster_source_url,
+            )
+    for member in former_members:
+        if member.get("seatId"):
+            add_member(
+                member["seatId"], member["personId"], member["name"], member["party"],
+                "suplente", member.get("relationshipSourceUrl"),
+            )
+
+    order = {str(vote["id"]): index for index, vote in enumerate(votes)}
+    role_by_person = {
+        member["personId"]: member["role"]
+        for members in seat_members.values()
+        for member in members
+    }
+    member_index = {
+        (seat_id, member["personId"]): index
+        for seat_id, members in seat_members.items()
+        for index, member in enumerate(members)
+    }
+    seat_histories: dict[str, list[list[str]]] = {seat["id"]: [] for seat in seats}
+    candidates: dict[tuple[str, str], list[list[str]]] = {}
+    for person_id, history in histories.items():
+        seat_id = person_to_seat.get(person_id)
+        if not seat_id:
+            continue
+        for vote_id, choice in history:
+            candidates.setdefault((seat_id, vote_id), []).append(
+                [vote_id, choice, person_id, role_by_person[person_id]]
+            )
+    conflicts: list[dict] = []
+    for (seat_id, vote_id), entries in candidates.items():
+        if len(entries) == 1:
+            entry = entries[0]
+            seat_histories[seat_id].append(
+                [entry[0], entry[1], member_index[(seat_id, entry[2])]]
+            )
+            continue
+        # A constitutional seat cannot cast two votes. Preserve every raw vote
+        # in the person histories, but count the titular once in the combined
+        # seat history and publish the collision for audit instead of inflating
+        # the hemicycle. This currently catches one official Senado page that
+        # lists both María Guadalupe Murguía and her suplente Sonia Rocha.
+        titular = [entry for entry in entries if entry[3] == "titular"]
+        chosen = titular[0] if len(titular) == 1 else entries[0]
+        seat_histories[seat_id].append(
+            [chosen[0], chosen[1], member_index[(seat_id, chosen[2])]]
+        )
+        conflicts.append(
+            {
+                "seatId": seat_id,
+                "voteId": vote_id,
+                "countedPersonId": chosen[2],
+                "reportedPersonIds": [entry[2] for entry in entries],
+            }
+        )
+    for history in seat_histories.values():
+        history.sort(key=lambda row: order.get(str(row[0]), len(order)))
+    return seat_histories, seat_members, conflicts
 
 
 def load_mr_election_results() -> dict[tuple[int, int], dict]:
@@ -449,6 +861,8 @@ def export() -> None:
                 diputado_id AS id,
                 gaceta_deputy_id AS electedPersonId,
                 display_name AS electedName,
+                ine_candidate_name AS titularName,
+                ine_substitute_name AS substituteName,
                 party_key AS electedParty,
                 seat_type AS seatType,
                 id_estado AS stateId,
@@ -463,6 +877,7 @@ def export() -> None:
             """,
         )
         roster, roster_meta = load_current_roster(conn, "DIP")
+        add_registered_seat_names(seats)
         apply_roster(seats, roster)
         for seat in seats:
             result = (
@@ -502,7 +917,6 @@ def export() -> None:
                 """,
             )
         }
-        people = sorted(linked_people | voter_people)
         former_members = []
         for member in rows(
             conn,
@@ -530,27 +944,32 @@ def export() -> None:
             if member["personId"] not in linked_people:
                 member["party"] = canonical_party(member["party"] or "SG")
                 former_members.append(member)
-
-        histories: dict[str, list[list[str]]] = {person: [] for person in people}
-        placeholders = ",".join("?" * len(people))
-        for row in rows(
+        link_former_members("DIP", former_members, seats, load_substitutes(conn, "DIP"))
+        aliases = reconcile_person_aliases("DIP", seats, former_members)
+        people = {
+            aliases.get(str(person), str(person))
+            for person in (linked_people | voter_people)
+        }
+        vote_rows = rows(
             conn,
-            f"""
+            """
             SELECT f.deputy_id AS personId, f.gaceta_vote_id AS voteId, f.vote_choice AS choice
             FROM fact_gaceta_deputy_vote f
             JOIN dim_gaceta_vote v USING (gaceta_vote_id)
-            WHERE v.legislature = 66 AND f.deputy_id IN ({placeholders})
+            WHERE v.legislature = 66
             ORDER BY f.deputy_id, v.vote_date DESC, f.gaceta_vote_id DESC
             """,
-            tuple(people),
-        ):
-            histories[row["personId"]].append([row["voteId"], row["choice"]])
+        )
+        histories = canonical_histories(people, vote_rows, aliases, votes)
+        seat_histories, seat_members, seat_vote_conflicts = build_seat_vote_data(
+            seats, former_members, histories, votes, roster_meta["sourceUrl"]
+        )
 
         party_votes = camara_party_votes(conn)
 
     payload = {
         "manifest": {
-            "schemaVersion": 3,
+            "schemaVersion": 6,
             "legislature": 66,
             "chamber": "diputados",
             "sourceThrough": max(vote["date"] for vote in votes),
@@ -562,8 +981,11 @@ def export() -> None:
         },
         "seats": seats,
         "formerMembers": former_members,
+        "personAliases": aliases,
         "votes": votes,
         "histories": histories,
+        "seatMembers": seat_members,
+        "seatVoteConflicts": seat_vote_conflicts,
         "partyVotes": party_votes,
     }
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -584,6 +1006,8 @@ def export_senate() -> None:
                 senador_seat_id AS id,
                 CAST(senador_id AS TEXT) AS electedPersonId,
                 display_name AS electedName,
+                ine_candidate_name AS titularName,
+                ine_substitute_name AS substituteName,
                 party_key AS electedParty,
                 seat_type AS seatType,
                 id_estado AS stateId,
@@ -598,6 +1022,7 @@ def export_senate() -> None:
             """,
         )
         roster, roster_meta = load_current_roster(conn, "SEN")
+        add_registered_seat_names(seats)
         apply_roster(seats, roster)
         for seat in seats:
             result = (
@@ -633,7 +1058,6 @@ def export_senate() -> None:
                 """,
             )
         }
-        people = sorted(linked_people | voter_people)
         former_members = []
         for member in rows(
             conn,
@@ -661,32 +1085,41 @@ def export_senate() -> None:
             if member["personId"] not in linked_people:
                 member["party"] = canonical_party(member["party"])
                 former_members.append(member)
-
-        histories: dict[str, list[list[str]]] = {person: [] for person in people}
-        placeholders = ",".join("?" * len(people))
-        for row in rows(
+        link_former_members("SEN", former_members, seats, load_substitutes(conn, "SEN"))
+        aliases = reconcile_person_aliases("SEN", seats, former_members)
+        people = {
+            aliases.get(str(person), str(person))
+            for person in (linked_people | voter_people)
+        }
+        vote_rows = rows(
             conn,
-            f"""
+            """
             SELECT
                 CAST(f.senador_id AS TEXT) AS personId,
                 CAST(f.votacion_id AS TEXT) AS voteId,
                 f.voto AS choice
             FROM fact_senador_vote f
             JOIN dim_senado_vote v USING (votacion_id)
-            WHERE v.legislature = 66 AND CAST(f.senador_id AS TEXT) IN ({placeholders})
+            WHERE v.legislature = 66
             ORDER BY f.senador_id, v.vote_date DESC, f.votacion_id DESC
             """,
-            tuple(people),
-        ):
+        )
+        normalized_rows = []
+        for row in vote_rows:
             choice = SENATE_CHOICE.get(row["choice"])
             if choice:
-                histories[row["personId"]].append([row["voteId"], choice])
+                row["choice"] = choice
+                normalized_rows.append(row)
+        histories = canonical_histories(people, normalized_rows, aliases, votes)
+        seat_histories, seat_members, seat_vote_conflicts = build_seat_vote_data(
+            seats, former_members, histories, votes, roster_meta["sourceUrl"]
+        )
 
         party_votes = senado_party_votes(conn)
 
     payload = {
         "manifest": {
-            "schemaVersion": 3,
+            "schemaVersion": 6,
             "legislature": 66,
             "sourceThrough": max(vote["date"] for vote in votes),
             "chamber": "senado",
@@ -698,8 +1131,11 @@ def export_senate() -> None:
         },
         "seats": seats,
         "formerMembers": former_members,
+        "personAliases": aliases,
         "votes": votes,
         "histories": histories,
+        "seatMembers": seat_members,
+        "seatVoteConflicts": seat_vote_conflicts,
         "partyVotes": party_votes,
     }
     SENATE_OUT_PATH.write_text(

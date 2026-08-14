@@ -373,7 +373,6 @@ def chrome_header(active: str = "articulos") -> str:
     )
     visualizations = (
         ("/visualizaciones/trayectoria", "Geografía electoral", "Elecciones"),
-        ("/visualizaciones/perfiles", "Perfiles legislativos", "Congreso"),
         ("/visualizaciones/votaciones", "Buscador de votaciones", "Congreso"),
         ("/visualizaciones/diputados", "Cámara de Diputados", "Congreso"),
         ("/visualizaciones/senado", "Senado de la República", "Congreso"),

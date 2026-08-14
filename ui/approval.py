@@ -4,9 +4,7 @@ Presidential approval ratings page.
 
 from __future__ import annotations
 
-import re
-import zipfile
-import xml.etree.ElementTree as ET
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -14,9 +12,8 @@ import plotly.express as px
 import streamlit as st
 
 
-DATA_DIR = Path("aux_scripts/approval_rates")
-RECENT_PATH = DATA_DIR / "table-aprobacion.xlsx"
-ARCHIVE_PATH = DATA_DIR / "table-aprobacion_archivo.xlsx"
+ROOT = Path(__file__).resolve().parents[1]
+DB_PATH = ROOT / "election_data.db"
 
 PRESIDENT_COLORS = {
     "EZPL": "#2E7D32",
@@ -28,86 +25,66 @@ PRESIDENT_COLORS = {
 }
 
 PRESIDENT_LABELS = {
-    "EZPL": "Zedillo",
-    "VFQ": "Fox",
-    "FCH": "Calderón",
-    "EPN": "Peña Nieto",
-    "AMLO": "AMLO",
-    "Sheinbaum": "Sheinbaum",
+    "EZPL": "Ernesto Zedillo",
+    "VFQ": "Vicente Fox",
+    "FCH": "Felipe Calderón",
+    "EPN": "Enrique Peña Nieto",
+    "AMLO": "Andrés Manuel López Obrador",
+    "Sheinbaum": "Claudia Sheinbaum",
 }
 
 PRESIDENT_ORDER = list(PRESIDENT_LABELS)
 
 
-def _col_to_idx(cell_ref: str) -> int:
-    letters = "".join(ch for ch in cell_ref if ch.isalpha())
-    idx = 0
-    for ch in letters:
-        idx = idx * 26 + ord(ch.upper()) - 64
-    return idx - 1
-
-
-def _read_xlsx_first_sheet(path: Path) -> pd.DataFrame:
-    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-    with zipfile.ZipFile(path) as zf:
-        root = ET.fromstring(zf.read("xl/worksheets/sheet1.xml"))
-
-    rows: list[list[str]] = []
-    for row in root.findall(".//m:sheetData/m:row", ns):
-        cells: dict[int, str] = {}
-        for cell in row.findall("m:c", ns):
-            idx = _col_to_idx(cell.attrib["r"])
-            if cell.attrib.get("t") == "inlineStr":
-                node = cell.find("m:is/m:t", ns)
-            else:
-                node = cell.find("m:v", ns)
-            cells[idx] = node.text if node is not None and node.text is not None else ""
-        if cells:
-            rows.append([cells.get(i, "") for i in range(max(cells) + 1)])
-
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows[1:], columns=rows[0])
-
-
-def _clean_pollster(value: str) -> str:
-    return re.sub(r"/(?:tel|viv|online)\b", "", str(value), flags=re.IGNORECASE).strip()
-
-
-def _method(value: str) -> str:
-    text = str(value).lower()
-    if re.search(r"telef|/tel|telefon", text):
-        return "Telefónica"
-    if re.search(r"vivien|/viv", text):
-        return "Vivienda"
-    if re.search(r"online|web|internet", text):
-        return "Online"
-    return "No especificado"
+def _file_version(path: Path) -> tuple[int, int]:
+    """Cheap, hashable cache key that changes whenever the loader rebuilds the DB."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return (0, 0)
+    return (stat.st_mtime_ns, stat.st_size)
 
 
 @st.cache_data(show_spinner="Cargando aprobación presidencial...")
-def load_approval_data() -> pd.DataFrame:
-    if not RECENT_PATH.exists() or not ARCHIVE_PATH.exists():
+def load_approval_data(db_version: tuple[int, int]) -> pd.DataFrame:
+    """Read fact_approval_poll straight from the warehouse.
+
+    encuestadora_clean = pollster_name as stored, which is already the house
+    name with its /tel, /viv, /online suffix stripped at ingest time (see
+    clean_pollster() in ingestion/approval_ingest.py) — distinct houses that
+    happen to share a base name (BGC / BGC Telefonica / BGC Vivienda) stay
+    separate rows, matching how the old xlsx-derived column behaved.
+    """
+    del db_version
+    if not DB_PATH.exists():
         return pd.DataFrame()
 
-    archive = _read_xlsx_first_sheet(ARCHIVE_PATH)
-    archive["source"] = "archive"
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        df = pd.read_sql_query(
+            """
+            SELECT
+                f.poll_month, f.president AS "Presidente",
+                d.pollster_name AS "Encuestadora",
+                f.metodo, f.aprueba AS "Aprueba", f.desaprueba AS "Desaprueba",
+                f.extraction
+            FROM fact_approval_poll f
+            JOIN dim_approval_pollster d USING (pollster_id)
+            WHERE f.aprueba IS NOT NULL AND f.desaprueba IS NOT NULL
+            """,
+            conn,
+        )
+    finally:
+        conn.close()
 
-    recent = _read_xlsx_first_sheet(RECENT_PATH)
-    recent["fecha"] = pd.to_datetime(recent["Mes"], format="%b %Y", errors="coerce")
-    recent["Presidente"] = recent["fecha"].apply(
-        lambda x: "Sheinbaum" if pd.notna(x) and x >= pd.Timestamp("2024-10-01") else "AMLO"
-    )
-    recent["source"] = "recent"
-
-    df = pd.concat([archive, recent], ignore_index=True, sort=False)
-    df["fecha"] = pd.to_datetime(df["Mes"], format="%b %Y", errors="coerce")
-    df["Aprueba"] = pd.to_numeric(df["Aprueba"], errors="coerce")
-    df["Desaprueba"] = pd.to_numeric(df["Desaprueba"], errors="coerce")
-    df["ratio_ad"] = pd.to_numeric(df.get("(A) / (D)"), errors="coerce")
-    df["metodo"] = df["Encuestadora"].map(_method)
-    df["encuestadora_clean"] = df["Encuestadora"].map(_clean_pollster)
+    df["fecha"] = pd.to_datetime(df["poll_month"], format="%Y-%m", errors="coerce")
+    df["ratio_ad"] = df["Aprueba"] / df["Desaprueba"]
+    df["metodo"] = df["metodo"].fillna("No especificado")
+    df["encuestadora_clean"] = df["Encuestadora"]
     df["Presidente"] = pd.Categorical(df["Presidente"], categories=PRESIDENT_ORDER, ordered=True)
+    df["source"] = df["extraction"].map(
+        lambda x: "sin verificar" if x == "grafica" else "verificado"
+    )
     return df.dropna(subset=["fecha", "Aprueba"]).sort_values("fecha")
 
 
@@ -155,9 +132,9 @@ def _house_effects_by_president(df: pd.DataFrame, min_n: int = 3) -> pd.DataFram
 
 
 def render_approval():
-    df = load_approval_data()
+    df = load_approval_data(_file_version(DB_PATH))
     if df.empty:
-        st.error("No se encontraron los archivos de aprobación presidencial.")
+        st.error("No se encontró election_data.db, o fact_approval_poll está vacía.")
         return
 
     c1, c2, c3 = st.columns(3)
@@ -258,7 +235,7 @@ def render_approval():
             "fecha": "Fecha",
             "metodo": "Método",
             "ratio_ad": "A/D",
-            "source": "Fuente archivo",
+            "source": "Verificación",
         }),
         use_container_width=True,
         hide_index=True,

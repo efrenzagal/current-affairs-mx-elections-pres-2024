@@ -1,0 +1,10 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+poll_month,TEXT,Composite primary key component,Mes al que corresponde la evaluacion tematica.,Month to which the topic evaluation belongs.,YYYY-MM,Aligned to the reporting month of the survey.
+pollster_id,INTEGER,Composite primary key component; foreign key,Identificador de la casa encuestadora que produjo la evaluacion.,Identifier of the polling house that produced the evaluation.,References dim_approval_pollster.pollster_id,Part of the composite row identity.
+tema,TEXT,Composite primary key component,Tema con la etiqueta reportada por la fuente.,Topic using the label reported by the source.,Non-empty text,Preserved even when no taxonomy mapping exists.
+tema_politica,TEXT,Nullable attribute,Clave normalizada de politica publica para el tema.,Normalized public-policy key for the topic.,Text or NULL,Supports grouping equivalent source labels.
+bien,REAL,Nullable measure,Porcentaje con evaluacion positiva del tema.,Percentage with a positive evaluation of the topic.,0-100 or NULL,Stored in percentage points.
+mal,REAL,Nullable measure,Porcentaje con evaluacion negativa del tema.,Percentage with a negative evaluation of the topic.,0-100 or NULL,Stored in percentage points.
+resto,REAL,Nullable measure,Porcentaje restante de la evaluacion tematica.,Residual percentage for the topic evaluation.,0-100 or NULL,Usually represents neutral non-response or another reported category.
+source_id,INTEGER,Nullable foreign key,Fuente documental de la evaluacion.,Source document for the evaluation.,References dim_approval_source.source_id or NULL,Logical foreign key.
+extraction,TEXT,Required provenance field,Metodo con el que se incorporo la evaluacion.,Method by which the evaluation was incorporated.,e.g. grafica or tabla,Indicates the extraction workflow.

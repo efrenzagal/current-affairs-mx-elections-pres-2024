@@ -1,0 +1,8 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+source_id,INTEGER,Primary key,Identificador numerico de la fuente documental.,Numeric identifier for the source document.,Positive integer,Referenced by approval facts when a source is available.
+source_kind,TEXT,Required attribute,Tipo de fuente capturada.,Kind of captured source.,e.g. articulo or reporte,Describes the source container rather than the survey method.
+source_ref,TEXT,Required natural key,Referencia unica de la fuente, normalmente una URL.,Unique source reference, usually a URL.,Unique non-empty text,May point to a PDF or web article.
+published_at,TEXT,Nullable attribute,Fecha de publicacion reportada por la fuente.,Publication date reported by the source.,ISO date text or NULL,Kept as supplied or derived during source capture.
+headline,TEXT,Nullable attribute,Titular o titulo de la fuente.,Headline or title of the source.,Text or NULL,May be absent for report PDFs.
+methodology,TEXT,Nullable attribute,Notas metodologicas extraidas de la fuente.,Methodology notes extracted from the source.,Text or empty string,Not a standardized methodological classification.
+retrieved_at,TEXT,Required provenance field,Fecha y hora de recuperacion de la fuente.,Timestamp when the source was retrieved.,ISO 8601 timestamp,Records collection provenance rather than publication time.

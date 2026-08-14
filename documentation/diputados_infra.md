@@ -117,6 +117,11 @@ zero-filled. Deputies need ≥10 active votes to appear in alignment output.
 
 ## Known quirks
 
+The charts include every LXVI vote record published and downloaded from the
+official source, mapped to a constitutional seat. Seats omitted by the source
+remain **“Sin registro”**; they are not imputed as absent or assigned a
+fabricated vote.
+
 - **Vote-choice vocabulary drifts by legislature era**: `Favor`/`Contra` vs.
   `A favor`/`En contra`, plus `Quórum *` (present but not voting) and
   `Abstención`/`Abstencion`. `gaceta_ingest.py`'s `KNOWN_VOTE_CHOICES` and

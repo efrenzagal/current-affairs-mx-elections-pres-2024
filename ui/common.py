@@ -69,25 +69,25 @@ PARTY_GROUPS = {
 CYCLE_BLOCS: dict[str, dict] = {
     "PRE_1994": {
         "A": {"label": "Cárdenas — PRD",                   "color": "#FFCC00"},
-        "B": {"label": "Fernández de Cevallos — PAN",      "color": "#003893"},
+        "B": {"label": "Fernández de Cevallos — PAN",      "color": "#1E90FF"},
         "C": {"label": "Zedillo — PRI",                    "color": "#006847"},
         "map": {"PRD": "A", "PAN": "B", "PRI": "C"},
     },
     "PRE_2000": {
         "A": {"label": "Cárdenas — Alianza por México",    "color": "#FFCC00"},
-        "B": {"label": "Fox — Alianza por el Cambio",      "color": "#003893"},
+        "B": {"label": "Fox — Alianza por el Cambio",      "color": "#1E90FF"},
         "C": {"label": "Labastida — PRI",                  "color": "#006847"},
         "map": {"A. MEX.": "A", "A. CAM.": "B", "PRI": "C"},
     },
     "PRE_2006": {
         "A": {"label": "AMLO — Por el Bien de Todos",      "color": "#FFCC00"},
-        "B": {"label": "Calderón — PAN",                   "color": "#003893"},
+        "B": {"label": "Calderón — PAN",                   "color": "#1E90FF"},
         "C": {"label": "Madrazo — Alianza por México",     "color": "#006847"},
         "map": {"PBT": "A", "PAN": "B", "APM": "C"},
     },
     "PRE_2012": {
         "A": {"label": "AMLO — PRD+PT+MC",                 "color": "#FFCC00"},
-        "B": {"label": "Vázquez Mota — PAN",               "color": "#003893"},
+        "B": {"label": "Vázquez Mota — PAN",               "color": "#1E90FF"},
         "C": {"label": "Peña Nieto — PRI+PVEM",            "color": "#006847"},
         "map": {
             "PRD": "A", "C_PRD_PT_MC": "A", "C_PRD_PT": "A",
@@ -98,7 +98,7 @@ CYCLE_BLOCS: dict[str, dict] = {
     },
     "PRE_2018": {
         "A": {"label": "AMLO — Juntos Haremos Historia",   "color": "#8B0000"},
-        "B": {"label": "Anaya — Por México al Frente",     "color": "#003893"},
+        "B": {"label": "Anaya — Por México al Frente",     "color": "#1E90FF"},
         "C": {"label": "Meade — Todos por México",         "color": "#006847"},
         "map": {
             "MORENA": "A", "PT": "A", "ENCUENTRO SOCIAL": "A",

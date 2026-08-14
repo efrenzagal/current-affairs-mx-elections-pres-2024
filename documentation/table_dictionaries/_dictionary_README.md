@@ -4,7 +4,7 @@ This folder documents the normalized tables in `election_data.db`, the clean
 electoral parquet inputs used to build them, and representative raw INE source
 layouts.
 
-Start with `overview.csv`. It lists all 22 normalized tables currently present
+Start with `overview.csv`. It lists all 27 normalized tables currently present
 in the SQLite warehouse, including their primary keys, row grains, purposes,
 and important joins. The table-specific CSVs define columns and domains.
 

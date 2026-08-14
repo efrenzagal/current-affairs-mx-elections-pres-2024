@@ -26,7 +26,6 @@ test("server-renders the landing page", async () => {
   }
   for (const href of [
     "/visualizaciones/trayectoria",
-    "/visualizaciones/perfiles",
     "/visualizaciones/votaciones",
     "/visualizaciones/diputados",
     "/visualizaciones/senado",
@@ -45,31 +44,57 @@ test("server-renders the landing page", async () => {
 });
 
 test("server-renders the electoral and congressional dashboards and their index", async () => {
-  const [index, trayectoria, diputados, senado, perfiles, votaciones] = await Promise.all([
+  const [index, trayectoria, diputados, senado, votaciones] = await Promise.all([
     render("/visualizaciones"),
     render("/visualizaciones/trayectoria"),
     render("/visualizaciones/diputados"),
     render("/visualizaciones/senado"),
-    render("/visualizaciones/perfiles"),
     render("/visualizaciones/votaciones"),
   ]);
   assert.equal(index.status, 200);
   assert.equal(trayectoria.status, 200);
   assert.equal(diputados.status, 200);
   assert.equal(senado.status, 200);
-  assert.equal(perfiles.status, 200);
   assert.equal(votaciones.status, 200);
   const indexHtml = await index.text();
   assert.match(indexHtml, /Visualizaciones interactivas/);
-  assert.match(indexHtml, /Perfiles legislativos/);
   assert.match(indexHtml, /Geografía electoral/);
   assert.match(indexHtml, /Buscador de votaciones/);
+  // Person search folded into the hemicycle explorers: the standalone profile
+  // dashboard is gone, and nothing may still advertise it.
+  assert.doesNotMatch(indexHtml, /Perfiles legislativos/);
+  assert.ok(!indexHtml.includes('href="/visualizaciones/perfiles"'));
   // Each explorer loads only its own chamber, so both open on the same shell.
   assert.match(await diputados.text(), /Preparando el pleno/);
   assert.match(await senado.text(), /Preparando el pleno/);
-  assert.match(await perfiles.text(), /Preparando los perfiles/);
   assert.match(await trayectoria.text(), /Preparando el mapa/);
   assert.match(await votaciones.text(), /Preparando las votaciones/);
+});
+
+test("every person with a roll-call record is reachable from a chamber explorer", async () => {
+  // The merge rests on this: a name is findable as a sitting member, as the
+  // titular who won the seat, or as a former member with no curul. Anyone in
+  // `histories` outside those three sets would be a profile the site dropped
+  // when `/visualizaciones/perfiles` went away.
+  for (const file of ["legislature-66.json", "senate-66.json"]) {
+    const data = JSON.parse(
+      await readFile(new URL(`../public/data/${file}`, import.meta.url), "utf8"),
+    );
+    const reachable = new Set();
+    for (const seat of data.seats) {
+      if (seat.currentPersonId && seat.currentStatus !== "vacante") {
+        reachable.add(seat.currentPersonId);
+      }
+      if (seat.electedPersonId) reachable.add(seat.electedPersonId);
+    }
+    for (const member of data.formerMembers ?? []) reachable.add(member.personId);
+
+    const orphans = Object.keys(data.histories).filter((id) => !reachable.has(id));
+    assert.deepEqual(orphans, [], `${file}: voting records with no searchable profile`);
+    // And the dark-hemicycle case must actually exist, or the empty state ships
+    // untested.
+    assert.ok((data.formerMembers ?? []).length > 0, `${file}: no former members`);
+  }
 });
 
 test("ships complete state and national trajectories for all federal contests", async () => {
@@ -155,8 +180,8 @@ test("carries the current occupancy overlay, not only the 2024 winners", async (
     ["diputados", JSON.parse(data)],
     ["senado", JSON.parse(senateData)],
   ]) {
-    const { manifest, seats, formerMembers, histories } = payload;
-    assert.equal(manifest.schemaVersion, 3, `${slug} exports the occupancy and former-member schema`);
+    const { manifest, seats, formerMembers, histories, seatMembers } = payload;
+    assert.equal(manifest.schemaVersion, 5, `${slug} exports attributed seat histories`);
     assert.equal(manifest.chamber, slug);
     assert.ok(manifest.roster.observedAt, `${slug} records its roster cutoff`);
     assert.ok(manifest.roster.sourceUrl.startsWith("https://"));
@@ -166,6 +191,42 @@ test("carries the current occupancy overlay, not only the 2024 winners", async (
       formerMembers.every((member) => histories[member.personId]?.length > 0),
       `${slug} gives every former legislator a voting history`,
     );
+
+    // The seat linkage is what lets the explorer mark a seat of origin instead
+    // of blanking the chamber. A seatId must name a real seat, and it must come
+    // with the role that says whether the person is still sitting in it.
+    const seatIds = new Set(seats.map((seat) => seat.id));
+    for (const member of formerMembers) {
+      assert.ok(
+        member.seatId === null || seatIds.has(member.seatId),
+        `${slug} former member ${member.personId} links to a real seat`,
+      );
+      assert.equal(
+        member.seatId === null,
+        member.seatRole === null,
+        `${slug} former member ${member.personId} pairs its seat with a role`,
+      );
+      assert.ok(
+        [null, "en_funciones", "suplencia_concluida"].includes(member.seatRole),
+        `${slug} former member role ${member.seatRole} is a known state`,
+      );
+    }
+    // If this ever hits zero the substitute-name match has stopped resolving and
+    // every former member would silently fall back to a fully dark hemicycle.
+    assert.ok(
+      formerMembers.filter((member) => member.seatId !== null).length > 0,
+      `${slug} places at least some former members on a seat`,
+    );
+    // A person the directory still shows in the seat must actually be the one
+    // that seat names today, or the explorer would refuse to dim for someone
+    // who really has left.
+    for (const member of formerMembers.filter((m) => m.seatRole === "en_funciones")) {
+      const seat = seats.find((candidate) => candidate.id === member.seatId);
+      assert.ok(
+        seat.currentName,
+        `${slug} ${member.personId} sits in a seat with a named occupant`,
+      );
+    }
 
     // The whole point of the overlay: some seats are held by someone other than
     // the person INE recorded winning them. If this ever hits zero, the roster
@@ -205,6 +266,24 @@ test("carries the current occupancy overlay, not only the 2024 winners", async (
       `${slug} histories are keyed by person, not by seat`,
     );
 
+    // A hemicycle click can reconstruct the constitutional seat across all of
+    // its attributed people. Every member keeps an explicit role and source.
+    for (const seat of seats) {
+      const members = seatMembers[seat.id];
+      assert.ok(Array.isArray(members), `${slug} ${seat.id} has attributed members`);
+      for (const member of members) {
+        assert.ok(
+          ["titular", "suplente"].includes(member.role),
+          `${slug} ${seat.id} labels titular versus suplencia`,
+        );
+        assert.equal(
+          histories[member.personId]?.length ?? 0,
+          member.voteCount,
+          `${slug} ${seat.id} keeps the attributed person's vote total`,
+        );
+      }
+    }
+
     // One party vocabulary across the page. The Gaceta writes MRN for MORENA,
     // so without canonicalization the legend and the vote breakdown disagree.
     const seatParties = new Set(
@@ -231,6 +310,33 @@ test("carries the current occupancy overlay, not only the 2024 winners", async (
       assert.equal(tally.Contra ?? 0, vote.contra, `${slug} ${voteId} contra totals agree`);
     }
   }
+});
+
+test("merges source-name aliases but keeps substitute votes attributed", async () => {
+  const deputies = JSON.parse(
+    await readFile(new URL("../public/data/legislature-66.json", import.meta.url), "utf8"),
+  );
+  const senate = JSON.parse(
+    await readFile(new URL("../public/data/senate-66.json", import.meta.url), "utf8"),
+  );
+
+  assert.equal(deputies.personAliases.DEP_0AC343D3EC5E, "DEP_10ACE730EC87");
+  assert.equal(deputies.personAliases.DEP_62F86822CD67, "DEP_A9A4258198C3");
+  assert.equal(deputies.histories.DEP_10ACE730EC87.length, 295);
+  assert.equal(deputies.histories.DEP_A9A4258198C3.length, 295);
+  assert.ok(!("DEP_0AC343D3EC5E" in deputies.histories));
+  assert.ok(!("DEP_62F86822CD67" in deputies.histories));
+
+  const vilaSeat = "SEN_4D4CFB205261";
+  const raymundo = senate.seatMembers[vilaSeat].find((member) => member.personId === "1805");
+  assert.ok(raymundo, "Raymundo Bolaños is linked to Mauricio Vila's seat");
+  assert.equal(raymundo.role, "suplente");
+  assert.equal(raymundo.voteCount, 195);
+  assert.match(raymundo.sourceUrl, /^https:\/\/sil\.gobernacion\.gob\.mx\//);
+  assert.equal(senate.histories[raymundo.personId].length, 195);
+
+  assert.equal(senate.seatVoteConflicts.length, 1);
+  assert.deepEqual(senate.seatVoteConflicts[0].reportedPersonIds.sort(), ["1566", "1661"]);
 });
 
 /**

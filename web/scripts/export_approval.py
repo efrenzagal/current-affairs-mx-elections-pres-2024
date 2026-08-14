@@ -19,12 +19,12 @@ DB_PATH = ROOT / "election_data.db"
 OUT_PATH = ROOT / "web" / "public" / "data" / "approval.json"
 
 PRESIDENT_LABELS = {
-    "EZPL": "Zedillo",
-    "VFQ": "Fox",
-    "FCH": "Calderón",
-    "EPN": "Peña Nieto",
-    "AMLO": "AMLO",
-    "Sheinbaum": "Sheinbaum",
+    "EZPL": "Ernesto Zedillo",
+    "VFQ": "Vicente Fox",
+    "FCH": "Felipe Calderón",
+    "EPN": "Enrique Peña Nieto",
+    "AMLO": "Andrés Manuel López Obrador",
+    "Sheinbaum": "Claudia Sheinbaum",
 }
 PRESIDENT_COLORS = {
     "EZPL": "#2E7D32",
@@ -35,6 +35,10 @@ PRESIDENT_COLORS = {
     "Sheinbaum": "#C84B31",
 }
 PRESIDENT_ORDER = list(PRESIDENT_LABELS)
+
+# Oraculus stopped publishing, so its polls have no single article to link to;
+# every chart-transcribed poll instead carries its own article's URL.
+ORACULUS_URL = "https://oraculus.mx/aprobacion-presidencial/"
 
 # Inauguration month ("YYYY-MM") -- month 0 of each term's approval series.
 # Sheinbaum is the first term under the reformed Oct 1 inauguration date;
@@ -65,9 +69,11 @@ def export() -> None:
             """
             SELECT
                 f.poll_month, f.president, d.familia AS pollster,
-                f.aprueba AS approve
+                f.aprueba AS approve, f.desaprueba AS disapprove, f.resto AS residual,
+                s.source_kind, s.source_ref
             FROM fact_approval_poll f
             JOIN dim_approval_pollster d USING (pollster_id)
+            JOIN dim_approval_source s USING (source_id)
             WHERE f.aprueba IS NOT NULL AND f.president IS NOT NULL
             """,
             conn,
@@ -90,7 +96,10 @@ def export() -> None:
             "month": row.monthsInOffice,
             "date": row.poll_month,
             "approve": round(float(row.approve), 1),
+            "disapprove": round(float(row.disapprove), 1),
+            "residual": round(float(row.residual), 1),
             "pollster": row.pollster,
+            "sourceUrl": row.source_ref if row.source_kind == "articulo" else ORACULUS_URL,
         }
         for row in df.itertuples()
     ]

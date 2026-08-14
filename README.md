@@ -94,9 +94,17 @@ available cycle.
 - Cámara de Diputados roll calls originate in the **Gaceta Parlamentaria**;
   Senado roll calls originate in **Senado.gob.mx**. Individual vote pages
   retain their source URLs in both cases.
-- Presidential approval data is stored locally from **Oraculus**-compiled
-  spreadsheets and is analyzed here as a secondary series, not collected by
-  the app in real time.
+- The charts include every LXVI vote record published and downloaded from the
+  official source, mapped to a constitutional seat. Seats omitted by the source
+  remain **“Sin registro”**; they are not imputed as absent or assigned a
+  fabricated vote.
+- Presidential approval history originates in **Oraculus**-compiled
+  spreadsheets covering Feb 1995 – Sep 2025. Oraculus has stopped publishing,
+  so the series is now carried forward from **El Financiero**'s monthly
+  *Encuesta EF*. It is refreshed on request rather than collected in real time:
+  the figures are printed only inside chart images, and transcribing them is a
+  manual step guarded by an overlap check against the historical spreadsheets.
+  See `documentation/approval_refresh_runbook.md`.
 
 The ideological trajectory is an analytical construct. Its Left / Right /
 Center party and coalition assignments are maintained in `ui/common.py` and
@@ -620,6 +628,41 @@ vote calendars.
 There is no Senado equivalent of `gaceta_materialize.py` yet — alignment,
 cohesion, and classification metrics exist for the Cámara only. See
 `documentation/senado_infra.md`.
+
+### Export classified legislative votes to Google Sheets
+
+Open
+`aux_scripts/legislative_vote_review/export_legislative_votes_to_google_sheets.R`
+in RStudio,
+edit its configuration block, and click **Source**. The script reads the local
+SQLite warehouse without modifying it and writes `Cobertura`, `Diputados`, and
+`Senado` tabs. It includes the source vote totals, the applied OpenAI labels,
+review fields, and model/prompt/timestamp provenance. Authentication is handled
+interactively by `googlesheets4`; no project key is needed.
+
+The Google account hint and Sheet ID are loaded from the gitignored
+`config/legislative_vote_review.env`; copy the tracked `.env.example` file on a
+new checkout. Do not store passwords, OAuth tokens, or API keys there.
+
+The current configuration exports legislature 66. Set, for example,
+`LEGISLATURES <- c(64, 65, 66)` for a larger validation cut or `NULL` for every
+available legislature. Set `LEGISLATIVE_REVIEW_SHEET_ID` in the private env file
+to update an existing Sheet.
+
+To promote manual classification edits from those tabs back into the local
+warehouse, source
+`aux_scripts/legislative_vote_review/apply_google_sheet_classification_revisions.R`.
+Calling `apply_google_sheet_revisions(spreadsheet = "...")` produces a
+read-only before/after preview. Rerun with `apply = TRUE` only after inspection;
+the importer validates IDs and taxonomy values, updates both chambers in one
+transaction, preserves the original OpenAI provenance, and writes a local CSV
+audit under `data/legislative_vote_manual_revisions/`. Vote totals and other
+official-source fields are never overwritten from the Sheet. A changed Cámara
+classification must also set `review_status` to `audited` and explain the
+decision in `review_notes`. After applying revisions, rerun
+`python3 web/scripts/export_gaceta_web.py` to refresh the website's static data.
+The complete entry/exit contract, Parquet cache layout, and recovery guidance
+are documented in `aux_scripts/legislative_vote_review/README.md`.
 
 ### Update warehouse schema
 
