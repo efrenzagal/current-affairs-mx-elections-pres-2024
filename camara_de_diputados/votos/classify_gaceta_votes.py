@@ -7,19 +7,19 @@ OpenAI Python SDK and OPENAI_API_KEY to be configured by the user.
 
 Examples:
     # Safe: creates data/gaceta_vote_classification/requests.jsonl only.
-    python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py prepare
+    python3 camara_de_diputados/votos/classify_gaceta_votes.py prepare
 
     # Explicitly submit the already-prepared requests to OpenAI's Batch API.
-    python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py submit
+    python3 camara_de_diputados/votos/classify_gaceta_votes.py submit
 
     # Download a completed batch and turn its structured responses into CSV.
-    python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py retrieve BATCH_ID
+    python3 camara_de_diputados/votos/classify_gaceta_votes.py retrieve BATCH_ID
 
     # Apply deterministic checks and write review statuses locally.
-    python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py review
+    python3 camara_de_diputados/votos/classify_gaceta_votes.py review
 
     # After resolving needs_review rows, persist the reviewed CSV to SQLite.
-    python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py apply \
+    python3 camara_de_diputados/votos/classify_gaceta_votes.py apply \
         data/gaceta_vote_classification/classifications_reviewed.csv
 
 The default scope is Legislature 66. Model self-confidence is intentionally

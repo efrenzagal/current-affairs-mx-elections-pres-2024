@@ -10,10 +10,10 @@ legislature senado.gob.mx currently publishes structured vote pages for):
 
 ```text
 senado.gob.mx (HTML list page + per-vote pages + AJAX detail endpoint)
-  -> aux_scripts/senado_votes/crawl_senado_votes.py  (fetch + cache + parse -> CSV)
+  -> camara_de_senadores/votos/crawl_senado_votes.py  (fetch + cache + parse -> CSV)
   -> ingestion/senado_ingest.py                      (CSV -> election_data.db)
   -> ingestion/senadores_ingest.py                   (INE seats -> dim_senadores bridge)
-  -> aux_scripts/senado_votes/classify_senado_votes.py (optional Batch API classification)
+  -> camara_de_senadores/votos/classify_senado_votes.py (optional Batch API classification)
   -> ui/senado.py                                    (Streamlit rendering)
 ```
 
@@ -42,7 +42,7 @@ structural gap versus the Diputados pipeline (see `diputados_infra.md`).
 
 | Path | Responsibility |
 | --- | --- |
-| `aux_scripts/senado_votes/crawl_senado_votes.py` | Fetch/cache/backoff crawler (mirrors the Gaceta crawler's pattern). Caches every page under `data/raw_senado_votes/`; writes `dim_senado_vote.csv` and `senado_vote_detail.csv` to `data/clean_senado_votes/`. |
+| `camara_de_senadores/votos/crawl_senado_votes.py` | Fetch/cache/backoff crawler (mirrors the Gaceta crawler's pattern). Caches every page under `data/raw_senado_votes/`; writes `dim_senado_vote.csv` and `senado_vote_detail.csv` to `data/clean_senado_votes/`. |
 | `ingestion/senado_ingest.py` | Loads the clean CSVs into `election_data.db` (`dim_senado_vote`, `dim_senador`, `fact_senador_vote`), runs QA, then calls `senadores_ingest.py`. |
 | `ingestion/senadores_ingest.py` | Builds `dim_senadores`: matches all 128 official 2024 INE seats to `dim_senador` identities. |
 | `ui/senado.py` | Senator voting-calendar view and vote-detail party grid. Entry point: `render_senado()`. Reuses `ui/gaceta.py`'s tile/calendar plotting helpers rather than re-deriving the layout math. |
@@ -55,9 +55,10 @@ structural gap versus the Diputados pipeline (see `diputados_infra.md`).
 | `dim_senador` | one normalized senator name | 184 | `senador_id` is the numeric ID senado.gob.mx itself uses (from `/66/votaciones/{id}#info` links) — not a derived hash, unlike `dim_gaceta_deputy`. |
 | `dim_senadores` | one official 2024 seat | 128 | Bridges INE seat/candidate identity to `dim_senador`. See "Identity bridge" below. |
 | `fact_senador_vote` | `(votacion_id, senador_id)` | 39,944 | `grupo_parlamentario`, `voto` (PRO/CONTRA/ABSTENCIÓN/AUSENTE), `voto_detail` (e.g. "COMISIÓN OFICIAL" reason on some AUSENTE rows). |
+| `dim_senado_iniciativa` | one initiative | 4,663 | Proposer name/party (when a named legislator), committee referral, publication date. See "Initiative proposers" below. No vote join exists yet. |
 
 No column-level dictionary CSVs exist yet under `documentation/table_dictionaries/`
-for these four tables — only `overview.csv`-style prose here.
+for these five tables — only `overview.csv`-style prose here.
 
 ## Identity bridge (`dim_senadores`)
 
@@ -87,6 +88,36 @@ Rebuild after refreshing the INE integration file or the Senado warehouse:
 ```bash
 python -m ingestion.senadores_ingest
 ```
+
+## Initiative proposers
+
+`camara_de_senadores/iniciativas/crawl_senado_iniciativas.py` uses a
+different mechanism than the vote crawler: senado.gob.mx's own "Listado de
+Asuntos Publicados" tool
+(`/66/emergente/asuntosTurnados/asuntos.php?tipo=Inic`) returns every
+tracked initiative in a single response — proposer name/title,
+parliamentary group, committee referral, date, and a numeric
+"ID Publicación" used as the primary key:
+
+```bash
+python3 camara_de_senadores/iniciativas/crawl_senado_iniciativas.py
+python3 -m ingestion.senado_iniciativas_ingest --force
+```
+
+No `--legislature` flag: the endpoint's own `legislatura` parameter doesn't
+narrow the result set in practice, and the response is already entirely
+within LXVI's date range regardless of what's passed. The single response
+is treated the same as a growing vote-list page — always force-refreshed,
+never trusted from cache.
+
+`tipo=Inic` only covers legislator-authored initiatives; the same tool
+exposes separate `tipo=PEF` (Ejecutivo federal) and `tipo=Minutas` feeds
+that this crawler does not cover. Proposer text is regex-classified the
+same way as the Diputados side (`proposer_type='legislador'` with captured
+name/party, or `'otro'` + `needs_review=1` when it doesn't match — mostly
+multi-signatory joint initiatives, ~4% of rows). Unlike
+`dim_gaceta_iniciativa`, no direct link to `dim_senado_vote` was found on
+this pass — flagged as future work.
 
 ## Known quirks
 
@@ -127,13 +158,13 @@ metadata. `prepare` is entirely local; network access occurs only with the
 explicit `submit` and `retrieve` commands:
 
 ```bash
-python3 aux_scripts/senado_votes/classify_senado_votes.py prepare
-python3 aux_scripts/senado_votes/classify_senado_votes.py submit
-python3 aux_scripts/senado_votes/classify_senado_votes.py retrieve BATCH_ID
+python3 camara_de_senadores/votos/classify_senado_votes.py prepare
+python3 camara_de_senadores/votos/classify_senado_votes.py submit
+python3 camara_de_senadores/votos/classify_senado_votes.py retrieve BATCH_ID
 # Preserve the raw model CSV and apply the documented audited corrections:
-python3 aux_scripts/senado_votes/classify_senado_votes.py review
+python3 camara_de_senadores/votos/classify_senado_votes.py review
 # Review classifications_reviewed.csv before applying it:
-python3 aux_scripts/senado_votes/classify_senado_votes.py apply \
+python3 camara_de_senadores/votos/classify_senado_votes.py apply \
   data/senado_vote_classification/classifications_reviewed.csv
 ```
 
@@ -149,7 +180,7 @@ topic and voting stage.
 ## Current roster overlay
 
 The official Senate "en funciones" directory is collected independently from
-roll calls by `aux_scripts/congress_rosters/crawl_congress_rosters.py` and
+roll calls by `camara_de_senadores/composicion/crawl_senadores_roster.py` and
 resolved by `ingestion/congress_roster_ingest.py`. Official Senate profile IDs
 are preferred; registered titular/suplente names and audited seat-specific
 overrides cover changed profile IDs. A directory below 128 members produces
@@ -163,7 +194,7 @@ The snapshot cutoff, source URL and content hash are stored in
 
 ```bash
 # 1. Crawl (polite cache/backoff; --all-votes for the full legislature, default is last 10)
-python3 aux_scripts/senado_votes/crawl_senado_votes.py --all-votes
+python3 camara_de_senadores/votos/crawl_senado_votes.py --all-votes
 
 # 2. Load into the warehouse + rebuild the identity bridge
 python -m ingestion.senado_ingest --force

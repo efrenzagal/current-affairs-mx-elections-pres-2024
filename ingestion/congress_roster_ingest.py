@@ -134,6 +134,47 @@ def canonical_party(value: object) -> str:
     return PARTY_ALIASES.get(party, party)
 
 
+# Unlike PARTY_ALIASES (short codes only, from clean official directories),
+# initiative proposer text is free-form: official full names, casing
+# variants, and -- for multi-signatory initiatives -- a party abbreviation
+# trailing a list of co-signer names. canonical_party_from_text() handles
+# that shape; PARTY_NAME_ALIASES intentionally omits SIN GRUPO/SG, which
+# never appears as a proposer's party.
+PARTY_NAME_ALIASES = {
+    "MORENA": "MORENA",
+    "PAN": "PAN", "PARTIDO ACCION NACIONAL": "PAN",
+    "PRI": "PRI", "PARTIDO REVOLUCIONARIO INSTITUCIONAL": "PRI",
+    "PRD": "PRD", "PARTIDO DE LA REVOLUCION DEMOCRATICA": "PRD",
+    "PVEM": "PVEM", "PARTIDO VERDE ECOLOGISTA DE MEXICO": "PVEM",
+    "PARTIDO VERDE ECOLOGISTA": "PVEM", "PARTIDO VERDE": "PVEM",
+    "PT": "PT", "PARTIDO DEL TRABAJO": "PT", "PARTIDO TRABAJO": "PT",
+    "MC": "MC", "MOVIMIENTO CIUDADANO": "MC",
+    "IND": "IND", "INDEPENDIENTE": "IND", "CAND_INDEPENDIENTE": "IND",
+}
+
+
+def canonical_party_from_text(value: object) -> str | None:
+    """Best-effort party normalization for free-text proposer strings.
+
+    Tries the whole string first, then each comma/semicolon-separated
+    segment (handles both "NAME1, NAME2, PARTY" and "PARTY; y suscrita por
+    ..." shapes). Returns None rather than guessing when nothing in the
+    string matches a known party name or abbreviation -- callers should
+    keep the raw text alongside this column rather than treat None as an
+    error.
+    """
+    if not value:
+        return None
+    text = str(value)
+    candidates = [text] + re.split(r"[,;]", text)
+    for candidate in candidates:
+        key = candidate.strip().upper()
+        key = "".join(c for c in unicodedata.normalize("NFD", key) if unicodedata.category(c) != "Mn")
+        if key in PARTY_NAME_ALIASES:
+            return PARTY_NAME_ALIASES[key]
+    return None
+
+
 def _stable_id(prefix: str, *parts: object) -> str:
     payload = "|".join(str(part or "") for part in parts)
     return f"{prefix}_{hashlib.sha1(payload.encode('utf-8')).hexdigest()[:16].upper()}"

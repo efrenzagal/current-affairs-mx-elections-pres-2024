@@ -69,6 +69,11 @@ ELECTION_META = {
         "seat_method": "fptp", "total_seats": 96, "term_years": 6,
         "clean_dir": Path("data/electoral_data_clean/clean_2006"),
     },
+    "DIP_MR_2009": {
+        "year": 2009, "election_type": "DIP", "chamber": "deputies",
+        "seat_method": "fptp", "total_seats": 300, "term_years": 3,
+        "clean_dir": Path("data/electoral_data_clean/clean_2009"),
+    },
     "PRE_2012": {
         "year": 2012, "election_type": "PRE", "chamber": None,
         "seat_method": "direct", "total_seats": 1, "term_years": 6,
@@ -229,6 +234,30 @@ SCHEMA_MAP = {
         },
         "fact": {
             "num_votos_validos":  "VALIDOS",
+            "num_votos_nulos":    "VN",
+            "num_votos_can_nreg": "CNR",
+            "total_votos":        "TOTAL_VOTOS",
+        },
+    },
+    2009: {
+        "geography": {
+            "id_municipio":               "ID_MUNICIPIO",
+            "municipio":                  "MUNICIPIO",
+            "id_distrito_federal":        "ID_DISTRITO",
+            "cabecera_distrital_federal": "CABECERA_DISTRITAL",
+            "circunscripcion":            "CIRCUNSCRIPCION",
+        },
+        "casilla": {
+            # The compact B/C/E/SRP source code is authoritative. It is used
+            # as both the clean source identity and warehouse acta reference.
+            "acta_casilla_mec": "CASILLA",
+            "urna_electronica": None,
+            "lista_nominal":    "LISTA_NOMINAL",
+        },
+        "fact": {
+            # The published 2009 source has no valid-vote aggregate. Keep it
+            # NULL rather than deriving it from total/nulo/no-registrado rows.
+            "num_votos_validos":  None,
             "num_votos_nulos":    "VN",
             "num_votos_can_nreg": "CNR",
             "total_votos":        "TOTAL_VOTOS",

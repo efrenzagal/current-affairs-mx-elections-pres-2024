@@ -93,6 +93,20 @@ def display_sample(value: object, max_length: int = 100) -> str:
     return rendered
 
 
+def open_read_connection(db_path: Path) -> sqlite3.Connection:
+    """Open the warehouse for dictionary samples without requiring URI support.
+
+    SQLite URI read-only mode is preferable, but some mounted workspaces reject
+    it even though a normal connection can read the same database.  This script
+    executes SELECT-only queries, so the fallback remains non-mutating.
+    """
+    uri = f"file:{db_path.resolve()}?mode=ro"
+    try:
+        return sqlite3.connect(uri, uri=True)
+    except sqlite3.OperationalError:
+        return sqlite3.connect(str(db_path))
+
+
 def load_table_examples(
     db_path: Path, tables: OrderedDict[str, dict[str, object]]
 ) -> dict[str, dict[str, list[str]]]:
@@ -101,8 +115,7 @@ def load_table_examples(
         return {}
 
     examples: dict[str, dict[str, list[str]]] = {}
-    uri = f"file:{db_path.resolve()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as conn:
+    with open_read_connection(db_path) as conn:
         available_tables = {
             row[0]
             for row in conn.execute(
@@ -148,8 +161,7 @@ def warehouse_tables(db_path: Path) -> set[str]:
     """Names of the tables that actually exist in the warehouse right now."""
     if not db_path.exists():
         return set()
-    uri = f"file:{db_path.resolve()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as conn:
+    with open_read_connection(db_path) as conn:
         return {
             row[0]
             for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -173,8 +185,7 @@ def raw_row_examples(metadata: dict[str, str]) -> dict[str, list[str]]:
 def load_election_coverage(db_path: Path) -> list[dict[str, object]]:
     if not db_path.exists():
         return []
-    uri = f"file:{db_path.resolve()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as conn:
+    with open_read_connection(db_path) as conn:
         rows = conn.execute(
             "SELECT year, election_type FROM dim_election ORDER BY year, election_type"
         ).fetchall()
@@ -225,8 +236,7 @@ def load_legislative_coverage(db_path: Path) -> dict[str, list[dict[str, object]
     if not db_path.exists():
         return coverage
 
-    uri = f"file:{db_path.resolve()}?mode=ro"
-    with sqlite3.connect(uri, uri=True) as conn:
+    with open_read_connection(db_path) as conn:
         available_tables = {
             row[0]
             for row in conn.execute(

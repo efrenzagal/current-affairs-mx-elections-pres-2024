@@ -66,13 +66,13 @@ const PARTY_COLORS: Record<string, string> = {
 const TRAJECTORY_COLORS: Record<string, string> = {
   "Base Izquierda": "#8B0000",
   "Base Derecha": "#1E90FF",
-  "Base Otros": "#006847",
+  "Base Centro": "#006847",
   "Plural Izquierda": "#B85C5C",
   "Plural Derecha": "#5CA3D9",
-  "Plural Otros": "#4CA37A",
-  "Contenciosa Izquierda-Otros": "#CC7A00",
+  "Plural Centro": "#4CA37A",
+  "Contenciosa Izquierda-Centro": "#CC7A00",
   "Contenciosa Izquierda-Derecha": "#7B2D8B",
-  "Contenciosa Otros-Derecha": "#1F8A8A",
+  "Contenciosa Centro-Derecha": "#1F8A8A",
   "Empate": "#8b8f8c",
 };
 const CONTEST_META: Record<ContestKey, {
@@ -276,7 +276,7 @@ function TrajectoryTriangle({ geography, year, contestLabel, onYear }: { geograp
         </g>
         <text className="vertex-left" x="35" y="418">Izquierda</text>
         <text className="vertex-right" x="465" y="418" textAnchor="end">Derecha</text>
-        <text className="vertex-other" x="250" y="24" textAnchor="middle">Otros</text>
+        <text className="vertex-other" x="250" y="24" textAnchor="middle">Centro</text>
         {points.slice(1).map((point, index) => (
           <line
             key={`${point.year}-line`}
@@ -294,7 +294,7 @@ function TrajectoryTriangle({ geography, year, contestLabel, onYear }: { geograp
             className={`trajectory-point${point.year === year ? " selected" : ""}`}
             role="button"
             tabIndex={0}
-            aria-label={`${point.year}: izquierda ${point.left}%, derecha ${point.right}%, otros ${point.other}%`}
+            aria-label={`${point.year}: izquierda ${point.left}%, derecha ${point.right}%, centro ${point.other}%`}
             onClick={() => onYear(point.year)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") onYear(point.year);
@@ -315,7 +315,7 @@ function TrajectoryTriangle({ geography, year, contestLabel, onYear }: { geograp
           <strong>{year}</strong>
           <span>Izquierda {selected.left}%</span>
           <span>Derecha {selected.right}%</span>
-          <span>Otros {selected.other}%</span>
+          <span>Centro {selected.other}%</span>
           <small>{selected.category}</small>
         </div>
       )}
@@ -450,7 +450,7 @@ export default function TrajectoryExplorer() {
                 Metodología →
               </a>
             </header>
-            <p className="trajectory-definition">“Otros” reúne el voto no asignado a las tradiciones PRD/Morena o PAN; no representa una ideología única.</p>
+            <p className="trajectory-definition">“Centro” reúne el voto no asignado a las tradiciones PRD/Morena o PAN; no representa una ideología única.</p>
             <TrajectoryTriangle geography={geography} year={year} contestLabel={meta.trajectoryLabel} onYear={setYear} />
           </section>
         </div>
@@ -475,7 +475,7 @@ export default function TrajectoryExplorer() {
           <summary>Cómo se construye la trayectoria</summary>
           <p>
             El triángulo compara tres componentes estables entre ciclos: la tradición PRD/Morena,
-            la tradición PAN y un componente residual de otros partidos. Las coaliciones mixtas se
+            la tradición PAN y un componente centro residual del resto de partidos. Las coaliciones mixtas se
             distribuyen entre sus integrantes cuando la fuente permite observar el voto por partido.
             Los resultados inferiores conservan la configuración particular de cada elección.
           </p>

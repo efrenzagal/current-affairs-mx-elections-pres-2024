@@ -5,7 +5,7 @@ Build the official-senator to Senado.gob.mx identity bridge.
 assignment published by INE. It preserves the official seat attributes and
 maps the titular -- or the officially listed substitute who actually appears
 in the roll calls -- to ``dim_senador`` (the roster scraped from
-senado.gob.mx by aux_scripts/senado_votes/crawl_senado_votes.py) only when
+senado.gob.mx by camara_de_senadores/votos/crawl_senado_votes.py) only when
 the identity is reliable.
 
 Usage:

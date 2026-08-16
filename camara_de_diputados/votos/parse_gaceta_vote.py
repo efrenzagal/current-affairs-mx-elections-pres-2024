@@ -2,14 +2,14 @@
 Parse Camara de Diputados Gaceta voting tables.
 
 Example:
-    python3 aux_scripts/parse_gaceta_vote.py \
+    python3 camara_de_diputados/votos/parse_gaceta_vote.py \
       https://gaceta.diputados.gob.mx/Gaceta/Votaciones/66/tabla2ex1-1.php3
 
 Outputs:
-    aux_scripts/gaceta_votes/<slug>_dim_gaceta_vote.csv
-    aux_scripts/gaceta_votes/<slug>_dim_gaceta_deputy.csv
-    aux_scripts/gaceta_votes/<slug>_fact_gaceta_vote_summary.csv
-    aux_scripts/gaceta_votes/<slug>_fact_gaceta_deputy_vote.csv
+    camara_de_diputados/votos/<slug>_dim_gaceta_vote.csv
+    camara_de_diputados/votos/<slug>_dim_gaceta_deputy.csv
+    camara_de_diputados/votos/<slug>_fact_gaceta_vote_summary.csv
+    camara_de_diputados/votos/<slug>_fact_gaceta_deputy_vote.csv
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from bs4 import BeautifulSoup
 
 
 DEFAULT_URL = "https://gaceta.diputados.gob.mx/Gaceta/Votaciones/66/tabla2ex1-1.php3"
-OUT_DIR = Path("aux_scripts/gaceta_votes")
+OUT_DIR = Path("camara_de_diputados/votos")
 
 
 PARTY_ALIASES = {

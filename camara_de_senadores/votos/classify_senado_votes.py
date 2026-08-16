@@ -5,11 +5,11 @@ JSONL. Only the explicit ``submit`` and ``retrieve`` commands use the network.
 
 Examples::
 
-    python3 aux_scripts/senado_votes/classify_senado_votes.py prepare
-    python3 aux_scripts/senado_votes/classify_senado_votes.py submit
-    python3 aux_scripts/senado_votes/classify_senado_votes.py retrieve BATCH_ID
-    python3 aux_scripts/senado_votes/classify_senado_votes.py review
-    python3 aux_scripts/senado_votes/classify_senado_votes.py apply \
+    python3 camara_de_senadores/votos/classify_senado_votes.py prepare
+    python3 camara_de_senadores/votos/classify_senado_votes.py submit
+    python3 camara_de_senadores/votos/classify_senado_votes.py retrieve BATCH_ID
+    python3 camara_de_senadores/votos/classify_senado_votes.py review
+    python3 camara_de_senadores/votos/classify_senado_votes.py apply \
         data/senado_vote_classification/classifications_reviewed.csv
 
 Review ``requiere_revision = true`` rows and a hand-labelled sample before

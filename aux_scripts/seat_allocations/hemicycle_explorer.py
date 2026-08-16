@@ -35,8 +35,8 @@ from aux_scripts.seat_allocations.common import (
     largest_remainder,
     connect as _sa_connect,
 )
-from aux_scripts.seat_allocations import diputados as dip_mod
-from aux_scripts.seat_allocations import senadores as sen_mod
+from camara_de_diputados.escanos import diputados as dip_mod
+from camara_de_senadores.escanos import senadores as sen_mod
 from ingestion.diputados_ingest import diputado_id_for_row
 from ingestion.senadores_ingest import senador_id_for_row
 from ui.person_names import display_person_name

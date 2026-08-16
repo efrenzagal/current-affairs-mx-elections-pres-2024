@@ -12,9 +12,9 @@ The default run is intentionally small. Use --all only after inspecting a
 sample. Every GET and POST response is cached so reruns are cheap.
 
 Examples:
-    python3 aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py --max-vote-pages 10
-    python3 aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py --all
-    python3 aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py \
+    python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py --max-vote-pages 10
+    python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py --all
+    python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py \
       --legislature 58 --all --request-delay 0.25 \
       --out-dir data/clean_gaceta_votes_l58_delay025
 """

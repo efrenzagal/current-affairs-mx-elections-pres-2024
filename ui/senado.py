@@ -164,6 +164,24 @@ def load_senado_classification(
 
 
 @st.cache_data
+def load_iniciativas_senado(database_version: tuple[tuple[int, int], ...]) -> pd.DataFrame:
+    conn = get_senado_connection(database_version)
+    df = pd.read_sql_query(
+        """
+        SELECT
+            senado_iniciativa_id, category, title, proposer_type,
+            proposer_name, proposer_party, proposer_party_canonical,
+            comision, fecha, source_url, needs_review
+        FROM dim_senado_iniciativa
+        ORDER BY fecha DESC, senado_iniciativa_id DESC
+        """,
+        conn,
+    )
+    df["fecha"] = pd.to_datetime(df["fecha"], errors="coerce")
+    return df
+
+
+@st.cache_data
 def load_vote_senadores(
     votacion_id: int, database_version: tuple[tuple[int, int], ...]
 ) -> pd.DataFrame:

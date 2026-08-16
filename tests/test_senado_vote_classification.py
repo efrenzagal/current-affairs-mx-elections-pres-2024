@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aux_scripts.senado_votes.classify_senado_votes import (
+from camara_de_senadores.votos.classify_senado_votes import (
     AUDITED_OVERRIDES,
     PROMPT_VERSION,
     apply,

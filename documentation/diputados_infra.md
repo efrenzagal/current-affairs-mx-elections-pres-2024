@@ -10,11 +10,11 @@ vote records.
 
 ```text
 gaceta.diputados.gob.mx (HTML pages)
-  -> aux_scripts/gaceta_votes/crawl_gaceta_metadata.py   (fetch + cache raw HTML)
-  -> aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py (parse cached HTML -> parquet)
+  -> camara_de_diputados/votos/crawl_gaceta_metadata.py   (fetch + cache raw HTML)
+  -> camara_de_diputados/votos/parse_gaceta_vote_batch.py (parse cached HTML -> parquet)
   -> ingestion/gaceta_ingest.py                          (parquet -> election_data.db)
   -> ingestion/diputados_ingest.py                       (INE seats -> dim_diputados bridge)
-  -> aux_scripts/gaceta_votes/classify_gaceta_votes.py    (optional: LLM topic/stage labels)
+  -> camara_de_diputados/votos/classify_gaceta_votes.py    (optional: LLM topic/stage labels)
   -> ingestion/gaceta_materialize.py                      (db -> Streamlit-ready parquet)
   -> ui/gaceta.py                                         (Streamlit rendering)
 ```
@@ -23,12 +23,12 @@ gaceta.diputados.gob.mx (HTML pages)
 
 | Path | Responsibility |
 | --- | --- |
-| `aux_scripts/gaceta_votes/crawl_gaceta_metadata.py` | Polite fetch/cache/backoff crawler. Caches every page under `data/raw_gaceta_votes/`; cache hits never re-hit the server. Vote-summary page fetching is opt-in and capped. |
-| `aux_scripts/gaceta_votes/parse_gaceta_vote.py` | Parses a single cached vote page into summary counts and deputy-level rows. Pure parsing helpers, reused by the batch script. |
-| `aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py` | Walks cached pages, applies `parse_gaceta_vote.py`, writes per-legislature parquet under `data/gaceta_votes/clean/by_legislature/`. |
+| `camara_de_diputados/votos/crawl_gaceta_metadata.py` | Polite fetch/cache/backoff crawler. Caches every page under `data/raw_gaceta_votes/`; cache hits never re-hit the server. Vote-summary page fetching is opt-in and capped. |
+| `camara_de_diputados/votos/parse_gaceta_vote.py` | Parses a single cached vote page into summary counts and deputy-level rows. Pure parsing helpers, reused by the batch script. |
+| `camara_de_diputados/votos/parse_gaceta_vote_batch.py` | Walks cached pages, applies `parse_gaceta_vote.py`, writes per-legislature parquet under `data/gaceta_votes/clean/by_legislature/`. |
 | `ingestion/gaceta_ingest.py` | Loads the per-legislature parquet into `election_data.db`, deduplicates deputies across legislatures, runs hard/soft QA (referential integrity, duplicate keys, unexpected vote-choice values, summary/detail reconciliation). |
 | `ingestion/diputados_ingest.py` | Builds `dim_diputados`: matches all 500 official 2024 INE seats to `dim_gaceta_deputy` identities. |
-| `aux_scripts/gaceta_votes/classify_gaceta_votes.py` | Legislatura 66 classification via OpenAI Batch API: `prepare` (local, no network) → `submit` → `retrieve BATCH_ID` → `review` → `apply classifications_reviewed.csv`. Writes `fact_gaceta_vote_classification`. |
+| `camara_de_diputados/votos/classify_gaceta_votes.py` | Legislatura 66 classification via OpenAI Batch API: `prepare` (local, no network) → `submit` → `retrieve BATCH_ID` → `review` → `apply classifications_reviewed.csv`. Writes `fact_gaceta_vote_classification`. |
 | `ingestion/gaceta_materialize.py` | Computes alignment/cohesion/correlation metrics from the warehouse and writes Streamlit-ready parquet to `data/materialized/`. |
 | `ui/gaceta.py` | Deputy voting-calendar view and LLM-classification explorer. Entry point: `render_gaceta()`. |
 
@@ -42,6 +42,7 @@ gaceta.diputados.gob.mx (HTML pages)
 | `fact_gaceta_vote_summary` | `(gaceta_vote_id, vote_choice, party_key)` | 291,252 | Summary matrix as shown on the Gaceta page, including `Total` rows/columns. |
 | `fact_gaceta_deputy_vote` | `(gaceta_vote_id, deputy_id)` | 2,603,711 | Individual deputy vote choices. `party_key` is recorded per-fact because affiliation is time-specific. |
 | `fact_gaceta_vote_classification` | one row per vote | 5,245 | `origen`, `etapa_votacion`, `tipo_instrumento`, `tema_politica`, `requiere_revision`, `evidencia`, local `review_status`/`review_notes`, plus model/prompt/timestamp provenance. The current workflow updates Legislatura 66 only. |
+| `dim_gaceta_iniciativa` | one initiative | 6,720 (legislatura 66) | Proposer name/party (when a named legislator), committee referral, and `vote_url` joining to `dim_gaceta_vote.source_url` when the initiative reached a floor vote. See "Initiative proposers" below. |
 
 Column-level detail: `documentation/table_dictionaries/*.csv`, starting with `overview.csv`.
 
@@ -75,7 +76,8 @@ The election bridge remains immutable historical context. Current occupants
 and parliamentary groups come from the official LXVI SITL group directories:
 
 ```bash
-python3 aux_scripts/congress_rosters/crawl_congress_rosters.py --refresh
+python3 camara_de_diputados/composicion/crawl_diputados_roster.py --refresh
+python3 camara_de_senadores/composicion/crawl_senadores_roster.py --refresh
 python3 -m ingestion.congress_roster_ingest
 python3 aux_scripts/build_hemicycle_cache.py
 ```
@@ -115,6 +117,31 @@ Alignment/cohesion only use votes where `detail_complete = 1` in
 `gaceta_vote_quality` — incomplete detail scrapes are excluded, not
 zero-filled. Deputies need ≥10 active votes to appear in alignment output.
 
+## Initiative proposers
+
+`camara_de_diputados/iniciativas/crawl_gaceta_iniciativas.py` walks the
+separate `/Gaceta/Iniciativas/` page tree (not `/Gaceta/Votaciones/`), which
+lists who proposed each initiative rather than how it was voted:
+
+```bash
+python3 camara_de_diputados/iniciativas/crawl_gaceta_iniciativas.py --legislature 66
+python3 -m ingestion.gaceta_iniciativas_ingest --force
+```
+
+`--legislature` defaults to the current (highest) legislature on the index.
+Only the target legislature's period pages are force-refreshed on each run —
+closed legislatures are immutable — mirroring the fix already applied to the
+votes crawler for the same "don't cache a growing list forever" bug.
+
+Each entry is regex-classified into `proposer_type`: `legislador` (named
+deputy/senator + parliamentary group), `ejecutivo` (Ejecutivo federal), or
+`minuta` (sent over by the other chamber); anything that doesn't match a
+known template gets `proposer_type='otro'` and `needs_review=1`, with the
+raw text always preserved regardless. About 4–5% of rows land in
+`needs_review`, mostly multi-signatory joint initiatives. When the
+initiative reached a floor vote, `vote_url` resolves exactly against
+`dim_gaceta_vote.source_url` — verified 1:1 on the current data.
+
 ## Known quirks
 
 The charts include every LXVI vote record published and downloaded from the
@@ -143,22 +170,22 @@ fabricated vote.
 
 ```bash
 # 1. Crawl (polite cache/backoff; safe to interrupt and resume)
-python3 aux_scripts/gaceta_votes/crawl_gaceta_metadata.py --fetch-vote-pages
+python3 camara_de_diputados/votos/crawl_gaceta_metadata.py --fetch-vote-pages
 
 # 2. Parse cached pages into parquet
-python3 aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py
+python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py
 
 # 3. Load into the warehouse + rebuild the identity bridge
 python3 ingestion/gaceta_ingest.py
 python -m ingestion.diputados_ingest
 
 # 4. (optional) LLM classification
-python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py prepare
-python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py submit
-python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py retrieve BATCH_ID
-python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py review
+python3 camara_de_diputados/votos/classify_gaceta_votes.py prepare
+python3 camara_de_diputados/votos/classify_gaceta_votes.py submit
+python3 camara_de_diputados/votos/classify_gaceta_votes.py retrieve BATCH_ID
+python3 camara_de_diputados/votos/classify_gaceta_votes.py review
 # Resolve needs_review rows, then:
-python3 aux_scripts/gaceta_votes/classify_gaceta_votes.py apply \
+python3 camara_de_diputados/votos/classify_gaceta_votes.py apply \
   data/gaceta_vote_classification/classifications_reviewed.csv
 
 # 5. Rebuild Streamlit-ready parquet

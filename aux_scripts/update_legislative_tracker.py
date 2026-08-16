@@ -39,14 +39,15 @@ def current_gaceta_legislature() -> int:
 
 def refresh_rosters() -> None:
     print("\n=== Rosters (Diputados + Senado composition) ===")
-    run(PYTHON, "aux_scripts/congress_rosters/crawl_congress_rosters.py", "--refresh")
+    run(PYTHON, "camara_de_diputados/composicion/crawl_diputados_roster.py", "--refresh")
+    run(PYTHON, "camara_de_senadores/composicion/crawl_senadores_roster.py", "--refresh")
     run(PYTHON, "-m", "ingestion.congress_roster_ingest")
     run(PYTHON, "aux_scripts/build_hemicycle_cache.py")
 
 
 def refresh_senado_votes() -> None:
     print("\n=== Senado roll-call votes ===")
-    run(PYTHON, "aux_scripts/senado_votes/crawl_senado_votes.py", "--all-votes")
+    run(PYTHON, "camara_de_senadores/votos/crawl_senado_votes.py", "--all-votes")
     run(PYTHON, "-m", "ingestion.senado_ingest", "--force")
 
 
@@ -58,7 +59,7 @@ def refresh_gaceta_votes() -> int:
     # cheap cache hits rather than real network requests.
     run(
         PYTHON,
-        "aux_scripts/gaceta_votes/crawl_gaceta_metadata.py",
+        "camara_de_diputados/votos/crawl_gaceta_metadata.py",
         "--all-periods",
         "--fetch-vote-pages",
         "--max-vote-pages",
@@ -68,7 +69,7 @@ def refresh_gaceta_votes() -> int:
     print(f"Current legislature: {legislature}")
     run(
         PYTHON,
-        "aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py",
+        "camara_de_diputados/votos/parse_gaceta_vote_batch.py",
         "--legislature",
         str(legislature),
         "--all",

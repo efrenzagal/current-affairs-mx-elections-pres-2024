@@ -35,13 +35,13 @@ GEO_OUT_PATH = ROOT / "web" / "public" / "data" / "electoral-states.geojson"
 
 CONGRESSIONAL_YEARS = {
     "SEN": [2000, 2006, 2012, 2018, 2024],
-    "DIP": [2000, 2006, 2012, 2015, 2018, 2021, 2024],
+    "DIP": [2000, 2006, 2009, 2012, 2015, 2018, 2021, 2024],
 }
 CONGRESSIONAL_SOURCE_PREFIX = {"SEN": "SEN_MR", "DIP": "DIP_MR"}
 CONGRESSIONAL_BLOCS = {
     "A": {"label": "Izquierda · PRD/Morena", "color": "#8B0000"},
     "B": {"label": "Derecha · PAN", "color": "#1E90FF"},
-    "C": {"label": "Otros partidos", "color": "#006847"},
+    "C": {"label": "Centro", "color": "#006847"},
 }
 # The triangle's third vertex is explicitly residual: parties outside the
 # PRD/Morena and PAN traditions belong here without implying one ideology.
@@ -50,6 +50,7 @@ CONGRESSIONAL_IDEOLOGY = {
     "CONVERGENCIA": "C",
     "PAS": "C",
     "PSN": "C",
+    "PSD": "L",
     "PES": "C",
     "PH": "C",
     "FXM": "C",
@@ -83,7 +84,7 @@ def trajectory_rows(data: pd.DataFrame, state_id: int | None) -> list[dict]:
             "left": float(row.pct_L),
             "right": float(row.pct_R),
             "other": float(row.pct_C),
-            "category": str(row.category).replace("Centro", "Otros"),
+            "category": str(row.category),
             "votes": number(row.total_votos),
         }
         for row in prepared.itertuples()
@@ -184,7 +185,7 @@ def congressional_trajectory_rows(
             "left": round(left, 1),
             "right": round(right, 1),
             "other": round(other, 1),
-            "category": classify_ternary(left, right, other).replace("Centro", "Otros"),
+            "category": classify_ternary(left, right, other),
             "votes": number(total),
         })
     return rows

@@ -2,7 +2,7 @@
 Crawler for Senado de la Republica roll-call votes, LXVI Legislatura only.
 
 Mirrors the cautious fetch/cache pattern used by
-aux_scripts/gaceta_votes/crawl_gaceta_metadata.py:
+camara_de_diputados/votos/crawl_gaceta_metadata.py:
   - every fetched page (and AJAX response) is cached to disk;
   - cache hits do not sleep or re-hit the server;
   - 429s back off and retry;
@@ -17,9 +17,9 @@ via an AJAX endpoint (/66/app/votaciones/functions/viewTableVot.php), which
 we call directly.
 
 Examples:
-    python3 aux_scripts/senado_votes/crawl_senado_votes.py --max-votes 10
+    python3 camara_de_senadores/votos/crawl_senado_votes.py --max-votes 10
 
-    python3 aux_scripts/senado_votes/crawl_senado_votes.py --all-votes
+    python3 camara_de_senadores/votos/crawl_senado_votes.py --all-votes
 """
 
 from __future__ import annotations

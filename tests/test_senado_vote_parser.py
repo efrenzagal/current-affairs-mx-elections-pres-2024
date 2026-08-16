@@ -1,6 +1,6 @@
 import unittest
 
-from aux_scripts.senado_votes.crawl_senado_votes import parse_vote_page
+from camara_de_senadores.votos.crawl_senado_votes import parse_vote_page
 
 
 class SenadoVotePageTests(unittest.TestCase):

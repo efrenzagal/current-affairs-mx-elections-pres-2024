@@ -2,7 +2,7 @@
 Load Senado de la Republica roll-call vote data into the warehouse.
 
 Reads the LXVI-legislature CSVs produced by
-aux_scripts/senado_votes/crawl_senado_votes.py and populates three tables in
+camara_de_senadores/votos/crawl_senado_votes.py and populates three tables in
 election_data.db:
 
     dim_senado_vote   — one row per roll-call vote page

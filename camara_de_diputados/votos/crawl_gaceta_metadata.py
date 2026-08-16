@@ -10,9 +10,9 @@ ingestion/dat_to_arrow_2000.py:
   - vote-summary page fetching is opt-in and capped.
 
 Examples:
-    python3 aux_scripts/gaceta_votes/crawl_gaceta_metadata.py --max-periods 3
+    python3 camara_de_diputados/votos/crawl_gaceta_metadata.py --max-periods 3
 
-    python3 aux_scripts/gaceta_votes/crawl_gaceta_metadata.py \
+    python3 camara_de_diputados/votos/crawl_gaceta_metadata.py \
       --max-periods 3 --fetch-vote-pages --max-vote-pages 10
 """
 

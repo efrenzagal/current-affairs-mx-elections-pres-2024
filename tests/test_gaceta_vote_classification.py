@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aux_scripts.gaceta_votes.classify_gaceta_votes import (
+from camara_de_diputados.votos.classify_gaceta_votes import (
     PROMPT_VERSION,
     apply,
     load_votes,

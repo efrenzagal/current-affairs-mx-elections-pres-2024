@@ -71,7 +71,7 @@ The project uses three related but distinct data layers:
 
 ## Federal Election Coverage
 
-`dim_election` currently holds 18 contests across eight federal cycles, all
+`dim_election` currently holds 19 contests across nine federal cycles, all
 backed by populated `fact_casilla_vote` rows:
 
 | Year | President · 6 years | Deputies MR · 3 years | Senate MR · 6 years |
@@ -81,14 +81,14 @@ backed by populated `fact_casilla_vote` rows:
 | 2000 | Loaded | Loaded | Loaded |
 | 2003 | Not held | **Missing** | Not held |
 | 2006 | Loaded | Loaded | Loaded |
-| 2009 | Not held | **Missing** | Not held |
+| 2009 | Not held | Loaded | Not held |
 | 2012 | Loaded | Loaded | Loaded |
 | 2015 | Not held | Loaded | Not held |
 | 2018 | Loaded | Loaded | Loaded |
 | 2021 | Not held | Loaded | Not held |
 | 2024 | Loaded | Loaded | Loaded |
 
-The 1997, 2003, and 2009 midterm gaps apply only to Deputies results.
+The 1997 and 2003 midterm gaps apply only to Deputies results.
 President and Senate are marked “Not held” because those contests follow
 six-year cycles. This election-result coverage is separate from the legislative
 roll-call coverage described below.
@@ -129,7 +129,7 @@ These tables are created and populated by `ingestion/electoral_ingest.py`:
 ### Cámara de Diputados Roll Calls
 
 These tables are populated from Cámara de Diputados Gaceta Parlamentaria data
-using `aux_scripts/gaceta_votes/` and `ingestion/gaceta_ingest.py`:
+using `camara_de_diputados/votos/` and `ingestion/gaceta_ingest.py`:
 
 The warehouse currently contains roll-call votes for Legislatures **LVIII
 through LXVI** (2000-2026 coverage dates in the current snapshot).
@@ -146,11 +146,17 @@ through LXVI** (2000-2026 coverage dates in the current snapshot).
 - `fact_gaceta_vote_classification.csv` — one topical and procedural
   classification per classified Gaceta vote, including deterministic review
   status, review notes, evidence, model, and prompt lineage.
+- `dim_gaceta_iniciativa.csv` — one initiative from the separate
+  `/Gaceta/Iniciativas/` page tree, populated by
+  `camara_de_diputados/iniciativas/crawl_gaceta_iniciativas.py` and
+  `ingestion/gaceta_iniciativas_ingest.py`: proposer name/party, committee
+  referral, and a `vote_url` joining to `dim_gaceta_vote.source_url` when the
+  initiative reached a floor vote.
 
 ### Senado de la República Roll Calls
 
 These tables are populated from Senado roll-call pages using
-`aux_scripts/senado_votes/`, `ingestion/senado_ingest.py`, and
+`camara_de_senadores/votos/`, `ingestion/senado_ingest.py`, and
 `ingestion/senadores_ingest.py`:
 
 Senado roll-call coverage currently includes only the most recent legislature,
@@ -163,11 +169,17 @@ Senado roll-call coverage currently includes only the most recent legislature,
   and RP, bridged to observed Senado identities with auditable match metadata.
 - `fact_senador_vote.csv` — one senator observation per roll call, including
   parliamentary group, normalized vote, and source-detail text.
+- `dim_senado_iniciativa.csv` — one initiative from senado.gob.mx's "Listado
+  de Asuntos Publicados" tool, populated by
+  `camara_de_senadores/iniciativas/crawl_senado_iniciativas.py` and
+  `ingestion/senado_iniciativas_ingest.py`: proposer name/party and committee
+  referral. No vote join exists yet.
 
 ### Current Congreso Rosters
 
 These tables are populated independently of the roll-call crawlers by
-`aux_scripts/congress_rosters/crawl_congress_rosters.py` and
+`camara_de_diputados/composicion/crawl_diputados_roster.py`,
+`camara_de_senadores/composicion/crawl_senadores_roster.py`, and
 `ingestion/congress_roster_ingest.py`:
 
 - `dim_congress_roster_snapshot.csv` — observation cutoff, official source,
@@ -184,6 +196,7 @@ cycle-specific converter in `ingestion/raw_electoral_data_converters/`.
 - `[1994] 1994_PRE_CAS_94.csv` — semicolon-delimited 1994 presidential layout.
 - `[2000] 2000_DAT_DISTRITALES_CAS.csv` — district DAT layout used in 2000.
 - `[2006] 2006_ESTADISTICAS_TXT_CAS.csv` — pipe-delimited 2006 TXT layout.
+- `[2009] 2009_SEE_DIP_FED_MR_NAL_CAS.csv` — comma-delimited 2009 federal-deputies casilla layout. Its same-schema RP counterpart is retained as a supplement: it duplicates every MR row and adds 778 RP-only `SRP` special-casilla rows.
 - `[2015] DIPUTADOS_CAS.csv` — 2015 deputies CSV layout.
 - `[2021] DIPUTACIONES_CAS.csv` — 2021 deputies CSV layout.
 - `[2024] 2024_SEE_PRE_NAL_CAS.csv` — 2024 presidential CSV layout.

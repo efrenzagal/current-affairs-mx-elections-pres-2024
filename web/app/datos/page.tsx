@@ -310,7 +310,7 @@ export default function DictionaryPage() {
                     </table>
                   </div>
                   <p className="dict-note">
-                    <b>Años intermedios.</b> En 1997, 2003 y 2009 sólo faltan resultados de diputaciones.
+                    <b>Años intermedios.</b> En 1997 y 2003 faltan resultados de diputaciones.
                     La Presidencia y el Senado aparecen como «No hubo» porque esas elecciones no se
                     celebraron en años intermedios.
                   </p>

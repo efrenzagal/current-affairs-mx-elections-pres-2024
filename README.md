@@ -249,6 +249,7 @@ Current converters:
 - `dat_to_arrow_1994.py`
 - `dat_to_arrow_2000.py`
 - `dat_to_arrow_2006.py`
+- `csv_to_arrow_2009.py`
 - `csv_to_arrow_2012.py`
 - `csv_to_arrow_2015.py`
 - `csv_to_arrow_2018.py`
@@ -274,52 +275,22 @@ sources but do not write back into it.
 
 Provides official seat-integration readers plus experimental Cámara de
 Diputados and Senado reconstructions from warehouse vote data. The dashboard
-uses the official INE integration, not the reconstructions.
+uses the official INE integration, not the reconstructions. The per-chamber
+seat readers now live under `camara_de_diputados/escanos/` and
+`camara_de_senadores/escanos/` (see below); this folder keeps only what's
+genuinely shared across both chambers.
 
-- `diputados.py` — computes 300 MR district winners and provides a QA-only
-  approximation of 200 RP seats using natural quotient/largest remainder,
-  with Mexico's overrepresentation limits. It is not a substitute for INE's
-  final assignment.
-- `senadores.py` — reconstructs Senado seat counts from MR and first-minority
-  results and provides a QA-only RP approximation.
 - `hemicycle_explorer.py` — generates an interactive in-browser hemicycle
-  visualization with party summaries and a state filter.
-- `build_hemicycle_cache.py` — materializes the official 2024 Congreso
-  composition figures and summaries used by Streamlit.
+  visualization with party summaries and a state filter, comparing both
+  chambers side by side. Imports the two chamber-specific seat readers.
 - `common.py` — shared helpers for official integration counts, actor totals,
-  and natural-quotient/largest-remainder QA calculations.
+  and natural-quotient/largest-remainder QA calculations, used by both
+  chamber-specific seat readers.
 
-### `aux_scripts/gaceta_votes/`
-
-Scrapes and parses Cámara de Diputados roll-call votes from Gaceta
-Parlamentaria. Results feed the `dim_gaceta_*` and `fact_gaceta_*` tables
-documented in `documentation/table_dictionaries/`.
-
-- `crawl_gaceta_metadata.py` — fetches and caches vote-page metadata (title,
-  legislature, URL, detail endpoint). Uses polite fetch/cache/backoff pattern;
-  vote-summary fetching is opt-in.
-- `parse_gaceta_vote.py` — parses a single Gaceta vote page into summary
-  counts and deputy-level roll-call rows.
-- `parse_gaceta_vote_batch.py` — batch version; walks cached metadata and
-  produces parquet outputs ready for warehouse ingestion.
-- `classify_gaceta_votes.py` — optional Legislatura 66 topic/stage
-  classification via the OpenAI Batch API (`prepare` → `submit` → `retrieve`
-  → local rule `review` → `apply`). The model does not emit a confidence score.
-
-Full detail: `documentation/diputados_infra.md`.
-
-### `aux_scripts/senado_votes/`
-
-Scrapes and parses Senado de la República roll-call votes for legislature 66,
-the only legislature senado.gob.mx publishes structured vote pages for.
-
-- `crawl_senado_votes.py` — fetches the legislature's vote list, each vote
-  page, and the AJAX endpoint that serves the senator-by-senator breakdown.
-  Same cautious cache/backoff pattern as the Gaceta crawler; the default run
-  only fetches a handful of votes, use `--all-votes` for the full legislature.
-  Writes CSVs to `data/clean_senado_votes/`.
-
-Full detail: `documentation/senado_infra.md`.
+`build_hemicycle_cache.py` (one level up, `aux_scripts/build_hemicycle_cache.py`)
+materializes the official 2024 Congreso composition figures and summaries
+used by Streamlit — kept as one shared pipeline since it renders both
+chambers from the same parameterized function.
 
 ### `aux_scripts/qa_reports/`
 
@@ -342,6 +313,89 @@ party change.R`).
 ### `aux_scripts/turnout/`
 
 State-level turnout change analysis across cycles (`turnout_change_by_state.R`).
+
+### `aux_scripts/update_legislative_tracker.py`
+
+One-shot refresh of everything MIEL (the legislative tracker) depends on:
+current Diputados/Senado rosters plus Diputados/Senado roll-call votes.
+Chains the individually documented crawl/parse/ingest steps below in the
+right order, and reads the current (highest) LXVI legislature number for the
+Gaceta parse/ingest steps instead of hardcoding it, so it keeps working
+unchanged once a new legislature starts.
+
+```bash
+/usr/bin/python3 aux_scripts/update_legislative_tracker.py
+```
+
+Writes a rows/last-vote-date summary per source to
+`documentation/legislative_tracker_status.md` after each run.
+
+## Camara de Diputados / Camara de Senadores
+
+Chamber-specific scrape/parse pipelines live in two top-level folders, one
+per chamber, each organized by process:
+
+```
+camara_de_diputados/
+  votos/         crawl/parse/classify Gaceta roll-call votes -> dim_gaceta_*
+  iniciativas/   crawl initiative proposers -> dim_gaceta_iniciativa
+  composicion/   crawl the current Camara roster -> data/clean_congress_rosters/
+  escanos/       official MR/RP seat readers (diputados.py)
+
+camara_de_senadores/
+  votos/         crawl/parse/classify Senado roll-call votes -> dim_senado_*
+  iniciativas/   crawl initiative proposers -> dim_senado_iniciativa
+  composicion/   crawl the current Senado roster -> data/clean_congress_rosters/
+  escanos/       official MR/FM/RP seat readers (senadores.py)
+```
+
+`ingestion/*.py` (warehouse loading) is unaffected by this split and still
+lives at the repo root, one script per table family — see the workflow
+sections below. Full detail per chamber: `documentation/diputados_infra.md`,
+`documentation/senado_infra.md`.
+
+### Scrape initiative proposers
+
+Diputados (Gaceta `/Gaceta/Iniciativas/` pages — lists proposer name/party,
+committee referral, and a direct link to the resulting vote page when one
+exists):
+
+```bash
+python3 camara_de_diputados/iniciativas/crawl_gaceta_iniciativas.py --legislature 66
+python3 -m ingestion.gaceta_iniciativas_ingest --force
+```
+
+Senado (the "Listado de Asuntos Publicados" tool — a single response
+already scoped to the current legislature; no `--legislature` flag, since
+the source's own filter doesn't narrow it):
+
+```bash
+python3 camara_de_senadores/iniciativas/crawl_senado_iniciativas.py
+python3 -m ingestion.senado_iniciativas_ingest --force
+```
+
+Both write a `needs_review` flag for proposer text that doesn't match a
+known template (joint/collective sponsorships, mostly) — raw text is always
+preserved regardless. `dim_gaceta_iniciativa.vote_url` joins to
+`dim_gaceta_vote.source_url`; `dim_senado_iniciativa` has no vote join yet.
+
+## `articles/` — Long-form Quarto write-ups
+
+Standalone Quarto/R analysis pieces, one subfolder per article. These read
+the warehouse read-only and are not part of the Streamlit app or the
+`ingestion/` pipeline.
+
+- `articles/article_brujula_politica/` — the Brújula Política ideological-
+  trajectory piece. `quarto/brujula_politica.qmd` renders to
+  `quarto/brujula_politica.html`; `01_party_counts_per_election.R` and
+  `graveyard/` hold earlier drafts and exploratory work.
+- `articles/intro_MIEL/queries.R` — exploratory SQL/R for a MIEL (Monitor
+  Integral y Estadístico Legislativo) piece: per-vote party-cohesion and
+  initiative-proposer queries across both chambers. No `.qmd` yet.
+
+Published articles reach the public site via
+`web/scripts/build_article_pages.py`, which wraps the rendered Quarto HTML
+with site chrome — see `web/README.md`.
 
 ## Data Layout
 
@@ -396,7 +450,7 @@ SEN_MR_<year>
 Examples:
 
 - `PRE_1994`, `PRE_2000`, `PRE_2006`, `PRE_2012`, `PRE_2018`, `PRE_2024`
-- `DIP_MR_2000`, `DIP_MR_2006`, `DIP_MR_2012`, `DIP_MR_2015`,
+- `DIP_MR_2000`, `DIP_MR_2006`, `DIP_MR_2009`, `DIP_MR_2012`, `DIP_MR_2015`,
   `DIP_MR_2018`, `DIP_MR_2021`, `DIP_MR_2024`
 - `SEN_MR_2000`, `SEN_MR_2006`, `SEN_MR_2012`, `SEN_MR_2018`, `SEN_MR_2024`
 
@@ -549,7 +603,7 @@ python -m ingestion.electoral_materialize --force
 
 Usually open:
 
-- `aux_scripts/seat_allocations/diputados.py`
+- `camara_de_diputados/escanos/diputados.py`
 - `aux_scripts/seat_allocations/hemicycle_explorer.py`
 
 Then run:
@@ -558,14 +612,17 @@ Then run:
 python3 aux_scripts/seat_allocations/hemicycle_explorer.py
 ```
 
-This opens an interactive hemicycle in the browser. Use `diputados.py` or
-`senadores.py` directly for tabular seat counts or QA against official results.
+This opens an interactive hemicycle in the browser. Use
+`camara_de_diputados/escanos/diputados.py` or
+`camara_de_senadores/escanos/senadores.py` directly for tabular seat counts
+or QA against official results.
 
 To refresh the official rosters and pre-built assets used by the
 **Congreso · Composición** tab (no vote recrawl is involved):
 
 ```bash
-python3 aux_scripts/congress_rosters/crawl_congress_rosters.py --refresh
+python3 camara_de_diputados/composicion/crawl_diputados_roster.py --refresh
+python3 camara_de_senadores/composicion/crawl_senadores_roster.py --refresh
 python3 -m ingestion.congress_roster_ingest
 python3 aux_scripts/build_hemicycle_cache.py
 ```
@@ -583,17 +640,17 @@ Source for the electoral baseline:
 
 Usually open:
 
-- `aux_scripts/gaceta_votes/crawl_gaceta_metadata.py`
-- `aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py`
+- `camara_de_diputados/votos/crawl_gaceta_metadata.py`
+- `camara_de_diputados/votos/parse_gaceta_vote_batch.py`
 
 Then run:
 
 ```bash
 # Crawl vote-page metadata (polite cache/backoff included)
-python3 aux_scripts/gaceta_votes/crawl_gaceta_metadata.py --fetch-vote-pages
+python3 camara_de_diputados/votos/crawl_gaceta_metadata.py --fetch-vote-pages
 
 # Parse cached pages into parquet
-python3 aux_scripts/gaceta_votes/parse_gaceta_vote_batch.py
+python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py
 
 # Load parsed roll calls into the local SQLite warehouse, then refresh the app data
 python3 ingestion/gaceta_ingest.py
@@ -604,14 +661,14 @@ python3 ingestion/gaceta_materialize.py --force
 
 Usually open:
 
-- `aux_scripts/senado_votes/crawl_senado_votes.py`
+- `camara_de_senadores/votos/crawl_senado_votes.py`
 - `ingestion/senado_ingest.py`
 
 Then run:
 
 ```bash
 # Crawl + parse in one step (cache/backoff included; omit --all-votes to sample)
-python3 aux_scripts/senado_votes/crawl_senado_votes.py --all-votes
+python3 camara_de_senadores/votos/crawl_senado_votes.py --all-votes
 
 # Load parsed CSVs into the warehouse, then rebuild the identity bridge
 /usr/bin/python3 ingestion/senado_ingest.py
@@ -691,13 +748,18 @@ both chambers. It is not part of the Streamlit pipeline and does not run in
 this repo's Python environment.
 
 It is a **static snapshot** application: `web/scripts/export_gaceta_web.py`
-reads `election_data.db` plus the INE integration CSV and materializes two
-JSON files under `web/public/data/`. The browser loads those directly — there
-is no live database at runtime.
+reads `election_data.db` plus the INE integration CSV and materializes the
+roll-call hemicycle JSON files under `web/public/data/`.
+`web/scripts/export_iniciativas_web.py` separately reads
+`dim_gaceta_iniciativa`/`dim_senado_iniciativa` and writes
+`web/public/data/iniciativas.json` — who proposed each initiative, kept apart
+from the roll-call vote data. The browser loads these directly — there is no
+live database at runtime.
 
 ```bash
-python3 web/scripts/export_gaceta_web.py   # refresh snapshots from the warehouse
-cd web && npm test                          # production build + data invariants
+python3 web/scripts/export_gaceta_web.py       # refresh roll-call snapshots
+python3 web/scripts/export_iniciativas_web.py  # refresh initiative-proposer snapshot
+cd web && npm test                              # production build + data invariants
 ```
 
 It deploys to **Cloudflare Workers** (`npm run deploy`). It was originally

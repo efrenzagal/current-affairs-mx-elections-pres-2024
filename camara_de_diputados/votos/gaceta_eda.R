@@ -1,7 +1,7 @@
 # Exploratory data analysis for Gaceta Parlamentaria roll-call votes.
 #
 # Run from the repository root in RStudio:
-#   source("aux_scripts/gaceta_votes/gaceta_eda.R")
+#   source("camara_de_diputados/votos/gaceta_eda.R")
 #
 # Required packages:
 # install.packages(c("arrow", "DBI", "dplyr", "ggplot2", "plotly", "RSQLite",

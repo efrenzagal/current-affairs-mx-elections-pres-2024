@@ -215,6 +215,27 @@ def load_classification(database_version: tuple[tuple[int, int], ...]) -> pd.Dat
 
 
 @st.cache_data
+def load_iniciativas(database_version: tuple[tuple[int, int], ...]) -> pd.DataFrame:
+    conn = get_connection(database_version)
+    df = pd.read_sql_query(
+        """
+        SELECT
+            i.gaceta_iniciativa_id, i.legislature, i.sequence_number, i.title,
+            i.proposer_type, i.proposer_name, i.proposer_party, i.proposer_party_canonical,
+            i.comision, i.gaceta_date, i.vote_url, i.needs_review,
+            v.gaceta_vote_id AS linked_vote_id
+        FROM dim_gaceta_iniciativa AS i
+        LEFT JOIN dim_gaceta_vote AS v ON v.source_url = i.vote_url
+        ORDER BY i.legislature, i.sequence_number
+        """,
+        conn,
+    )
+    df["gaceta_date"] = pd.to_datetime(df["gaceta_date"], errors="coerce")
+    df["con_votacion"] = df["vote_url"].notna()
+    return df
+
+
+@st.cache_data
 def load_deputy_calendar(
     deputy_id: str, leg_sel: int, database_version: tuple[tuple[int, int], ...]
 ) -> pd.DataFrame:
