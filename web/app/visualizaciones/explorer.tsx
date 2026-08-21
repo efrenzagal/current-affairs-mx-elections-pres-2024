@@ -385,6 +385,8 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
       : new URLSearchParams(window.location.search).get("q") ?? "",
   );
   const [partyFilter, setPartyFilter] = useState("Todos");
+  const [voteFilterParty, setVoteFilterParty] = useState("Todos");
+  const [stateFilter, setStateFilter] = useState("Todos");
   const [topic, setTopic] = useState(ALL_TOPICS);
   const [historyMode, setHistoryMode] = useState<HistoryMode>("all");
   const pendingScroll = useRef(false);
@@ -564,11 +566,6 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
     : NO_HISTORY;
   const selectedVote = selectedVoteId ? votesById.get(selectedVoteId) ?? null : null;
 
-  const memberForEntry = (entry: HistoryEntry) => {
-    if (!isSeatHistory || !selectedSeat || entry[2] === null) return null;
-    return data?.seatMembers[selectedSeat.id]?.[entry[2]] ?? null;
-  };
-
   const topics = useMemo(() => {
     const counts = new Map<string, number>();
     for (const [voteId] of fullHistory) {
@@ -602,6 +599,16 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
     }
     return counts;
   }, [occupants]);
+
+  // Only MR/FM seats carry a state; RP/list seats run on a national ballot and
+  // stay muted whenever a specific state is chosen, same as the Python explorer
+  // this hemicycle replaced.
+  const states = useMemo(() => {
+    if (!data) return [];
+    return [...new Set(data.seats.map((seat) => seat.state).filter((state): state is string => Boolean(state)))].sort(
+      (a, b) => a.localeCompare(b, "es"),
+    );
+  }, [data]);
 
   const queryNormalized = normalize(query);
   const results = useMemo(() => {
@@ -675,13 +682,39 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
 
   const unrecordedSeats = data ? data.seats.length - choiceBySeat.size : 0;
 
-  // Party chips mute seats; the name search no longer does. Searching now picks
-  // a person outright, and a filter that also dimmed the chamber on every
-  // keystroke made the two controls fight over the same pixels.
+  // Party and state both mute seats rather than remove them, so the chamber's
+  // shape never jumps as a filter changes. The name search no longer mutes:
+  // searching now picks a person outright, and a filter that also dimmed the
+  // chamber on every keystroke made the two controls fight over the same pixels.
   const isSeatVisible = (seat: Seat) => {
+    if (stateFilter !== "Todos" && seat.state !== stateFilter) return false;
     const occupant = occupants.get(seat.id);
     if (!occupant) return true;
     return partyFilter === "Todos" || occupant.party === partyFilter;
+  };
+
+  // Whoever actually cast this seat's vote on the open roll call, which is
+  // its own historical fact rather than something either tab's occupant
+  // snapshot can stand in for. A seat that has since changed hands or party
+  // still shows here under the party that cast the vote, not today's or
+  // 2024's tenant — those tabs answer "who sits here", not "who voted".
+  const voteVoterBySeat = useMemo(() => {
+    const map = new Map<string, SeatMember>();
+    if (!data || !selectedVoteId) return map;
+    for (const [seatId, members] of Object.entries(data.seatMembers)) {
+      const entry = (seatHistories.get(seatId) ?? NO_HISTORY).find(
+        ([voteId]) => voteId === selectedVoteId,
+      );
+      const memberIndex = entry?.[2] ?? null;
+      const member = memberIndex !== null ? members[memberIndex] : null;
+      if (member) map.set(seatId, member);
+    }
+    return map;
+  }, [data, selectedVoteId, seatHistories]);
+
+  const isVoteSeatVisible = (seat: Seat) => {
+    if (stateFilter !== "Todos" && seat.state !== stateFilter) return false;
+    return voteFilterParty === "Todos" || voteVoterBySeat.get(seat.id)?.party === voteFilterParty;
   };
 
   /** Every selection resets the reading below it; only the route differs. */
@@ -702,6 +735,9 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
     // to wait for the render that creates it (see the effect above).
     pendingScroll.current = true;
     setSelectedVoteId(voteId);
+    // Belongs to the previous roll call's party lineup, which the new vote
+    // does not share.
+    setVoteFilterParty("Todos");
   }
 
   /**
@@ -861,6 +897,21 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
               </div>
             </div>
 
+            <div className="toolbar">
+              <span className="toolbar-label">Estado</span>
+              <label className="toolbar-select">
+                <span className="sr-only">Filtrar por estado</span>
+                <select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}>
+                  <option value="Todos">Todos los estados</option>
+                  {states.map((state) => (
+                    <option key={state} value={state}>
+                      {state}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             <div
               id="hemiciclo"
               className={`hemicycle ${isSenate ? "senate-hemicycle" : ""} ${
@@ -1003,51 +1054,6 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
               <span><i className="key-circle" /> Representación proporcional · {data.seats.filter((seat) => seat.seatType === "RP").length}</span>
             </div>
 
-            <div className="vote-calendar">
-              <div className="calendar-heading">
-                <span>Calendario de votaciones</span>
-                <span>
-                  {isSeatHistory ? "Historial del escaño" : reading.name} · {history.length} registros
-                  {topic !== ALL_TOPICS ? ` de ${fullHistory.length}` : ""}
-                </span>
-              </div>
-              {calendarYears.length === 0 && (
-                <p className="calendar-empty">
-                  {topic !== ALL_TOPICS
-                    ? "No hay votaciones de este tema en el historial de esta persona."
-                    : profilePersonId
-                      ? "Este escaño todavía no tiene votaciones registradas."
-                      : "Esta persona aún no tiene votaciones nominales enlazadas en la base local."}
-                </p>
-              )}
-              {calendarYears.map(({ year, entries }) => (
-                <div className="calendar-year" key={year}>
-                  <span className="calendar-year-label">{year}</span>
-                  <div className="calendar-track" role="group" aria-label={`Votaciones de ${year}`}>
-                    {entries.map(({ voteId, choice, date, title, member }) => (
-                      <button
-                        type="button"
-                        key={voteId}
-                        className={`calendar-cell ${selectedVoteId === voteId ? "selected" : ""}`}
-                        style={{ background: CHOICE_COLORS[choice] ?? "#8b8b86" }}
-                        title={`${shortDate(date)} · ${voteLabel(choice)}${member ? ` · ${member.name}${member.role === "suplente" ? " (suplencia)" : ""}` : ""} · ${shortTitle(title)}`}
-                        aria-label={`${shortDate(date)}, ${voteLabel(choice)}${member ? `, emitido por ${member.name}${member.role === "suplente" ? " como suplente" : ""}` : ""}, ${shortTitle(title)}`}
-                        aria-pressed={selectedVoteId === voteId}
-                        onClick={() => openVote(voteId)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-              <div className="calendar-key">
-                <span><i style={{ background: CHOICE_COLORS.Favor }} /> Favor</span>
-                <span><i style={{ background: CHOICE_COLORS.Contra }} /> Contra</span>
-                <span><i style={{ background: CHOICE_COLORS["Abstención"] }} /> Abst.</span>
-                <span><i style={{ background: CHOICE_COLORS.Ausente }} /> Ausente</span>
-                {!isSenate && <span><i style={{ background: CHOICE_COLORS["Quórum *"] }} /> Presente, sin voto</span>}
-                <span className="calendar-hint">Cada rectángulo es una votación, en orden cronológico.</span>
-              </div>
-            </div>
           </div>
 
           <aside className="deputy-panel" id="historial">
@@ -1281,7 +1287,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
             </div>
 
             <div className="history-label">
-              <span>Historial de votación</span>
+              <span>Calendario de votación</span>
               <label className="history-topic">
                 <span className="sr-only">Filtrar el historial por tema</span>
                 <select
@@ -1301,32 +1307,45 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                 </select>
               </label>
             </div>
-            <div className="vote-history">
-              {history.map((entry) => {
-                const [voteId, choice] = entry;
-                const vote = votesById.get(voteId);
-                if (!vote) return null;
-                const member = memberForEntry(entry);
-                return (
-                  <button
-                    type="button"
-                    key={voteId}
-                    className={selectedVoteId === voteId ? "selected" : ""}
-                    onClick={() => openVote(voteId)}
-                  >
-                    <span className="choice-dot" style={{ background: CHOICE_COLORS[choice] ?? "#8b8b86" }} />
-                    <span className="history-copy">
-                      <small>
-                        {shortDate(vote.date)} · {topicLabel(vote.topic)}
-                        {member ? ` · ${member.name}${member.role === "suplente" ? " (suplencia)" : ""}` : ""}
-                      </small>
-                      <strong>{cleanTitle(vote.title)}</strong>
-                    </span>
-                    <span className="choice-label">{voteLabel(choice)}</span>
-                    <span className="arrow" aria-hidden="true">↗</span>
-                  </button>
-                );
-              })}
+            <div className="panel-calendar">
+              {calendarYears.length === 0 && (
+                <p className="calendar-empty">
+                  {topic !== ALL_TOPICS
+                    ? "No hay votaciones de este tema en el historial de esta persona."
+                    : profilePersonId
+                      ? "Este escaño todavía no tiene votaciones registradas."
+                      : "Esta persona aún no tiene votaciones nominales enlazadas en la base local."}
+                </p>
+              )}
+              {calendarYears.map(({ year, entries }) => (
+                <div className="calendar-year" key={year}>
+                  <span className="calendar-year-label">{year}</span>
+                  <div className="calendar-track" role="group" aria-label={`Votaciones de ${year}`}>
+                    {entries.map(({ voteId, choice, date, title, member }) => (
+                      <button
+                        type="button"
+                        key={voteId}
+                        className={`calendar-cell ${selectedVoteId === voteId ? "selected" : ""}`}
+                        style={{ background: CHOICE_COLORS[choice] ?? "#8b8b86" }}
+                        title={`${shortDate(date)} · ${voteLabel(choice)}${member ? ` · ${member.name}${member.role === "suplente" ? " (suplencia)" : ""}` : ""} · ${shortTitle(title)}`}
+                        aria-label={`${shortDate(date)}, ${voteLabel(choice)}${member ? `, emitido por ${member.name}${member.role === "suplente" ? " como suplente" : ""}` : ""}, ${shortTitle(title)}`}
+                        aria-pressed={selectedVoteId === voteId}
+                        onClick={() => openVote(voteId)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {calendarYears.length > 0 && (
+                <div className="calendar-key">
+                  <span><i style={{ background: CHOICE_COLORS.Favor }} /> Favor</span>
+                  <span><i style={{ background: CHOICE_COLORS.Contra }} /> Contra</span>
+                  <span><i style={{ background: CHOICE_COLORS["Abstención"] }} /> Abst.</span>
+                  <span><i style={{ background: CHOICE_COLORS.Ausente }} /> Ausente</span>
+                  {!isSenate && <span><i style={{ background: CHOICE_COLORS["Quórum *"] }} /> Presente, sin voto</span>}
+                  <span className="calendar-hint">Cada rectángulo, una votación.</span>
+                </div>
+              )}
             </div>
           </aside>
         </div>
@@ -1379,24 +1398,42 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
               <div>
                 <p className="panel-kicker">Decisión en el pleno</p>
               </div>
+              <div className="party-filter" aria-label="Filtrar por partido">
+                {["Todos", ...partyVotePercentages.map((row) => row.party)].map((party) => (
+                  <button
+                    key={party}
+                    className={voteFilterParty === party ? "active" : ""}
+                    onClick={() => setVoteFilterParty(party)}
+                    type="button"
+                  >
+                    {party}
+                  </button>
+                ))}
+              </div>
             </div>
             <div
               className={`hemicycle decision-hemicycle ${isSenate ? "senate-hemicycle" : ""}`}
               role="img"
-              aria-label={`Hemiciclo de ${data.manifest.seatCount} escaños, coloreado por sentido del voto`}
+              aria-label={`Hemiciclo de ${data.manifest.seatCount} escaños, coloreado por sentido del voto${
+                voteFilterParty !== "Todos" ? `, atenuado a ${voteFilterParty}` : ""
+              }`}
             >
               <div className="dais" aria-hidden="true" />
               {coords.map((seat) => {
                 const occupant = occupants.get(seat.id)!;
                 const choice = choiceBySeat.get(seat.id);
                 const unrecorded = !choice;
+                // The tooltip and the filter both read the person who actually cast
+                // this vote, which for a seat that changed hands or party since can
+                // differ from either tab's occupant.
+                const voter = voteVoterBySeat.get(seat.id);
                 return (
                   <span
                     key={seat.id}
                     className={`seat-dot seat-${seat.seatType.toLowerCase()} ${
                       seat.id === floorSeatId ? "selected" : ""
-                    } ${unrecorded ? "no-record" : ""}`}
-                    title={`${occupant.name} · ${occupant.party}: ${choice ? voteLabel(choice) : "sin registro en esta votación"}`}
+                    } ${unrecorded ? "no-record" : ""} ${isVoteSeatVisible(seat) ? "" : "muted"}`}
+                    title={`${voter?.name ?? occupant.name} · ${voter?.party ?? occupant.party}: ${choice ? voteLabel(choice) : "sin registro en esta votación"}`}
                     style={{
                       left: `${seat.x}%`,
                       top: `${seat.y}%`,
