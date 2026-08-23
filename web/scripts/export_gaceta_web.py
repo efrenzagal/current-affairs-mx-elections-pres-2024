@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 # independents as "CAND_INDEPENDIENTE", so without this the hemicycle legend and
 # the vote breakdown on the same page label the same bench differently.
 from ingestion.congress_roster_ingest import canonical_party  # noqa: E402
-from ui.person_names import display_person_name  # noqa: E402
+from ingestion.person_names import display_person_name  # noqa: E402
 
 # Quorum and the three majority thresholds are derived, not stored. Import the
 # derivation the Streamlit app reads through data/materialized/ rather than

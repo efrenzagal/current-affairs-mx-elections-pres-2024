@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ui.person_names import match_person_name, person_name_similarity, person_name_tokens
+from ingestion.person_names import match_person_name, person_name_similarity, person_name_tokens
 
 
 ROOT = Path(__file__).resolve().parents[1]

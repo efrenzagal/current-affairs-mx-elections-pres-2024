@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ui.person_names import (
+from ingestion.person_names import (
     display_person_name,
     match_person_name,
     person_name_similarity,

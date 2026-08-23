@@ -1,6 +1,6 @@
 import unittest
 
-from ui.person_names import match_person_name
+from ingestion.person_names import match_person_name
 
 
 class PersonNameMatchingTests(unittest.TestCase):

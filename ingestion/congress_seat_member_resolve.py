@@ -41,7 +41,7 @@ from ingestion.audited_overrides import (  # noqa: E402
     load_seat_overrides,
 )
 from ingestion.congress_roster_ingest import canonical_party  # noqa: E402
-from ui.person_names import display_person_name  # noqa: E402
+from ingestion.person_names import display_person_name  # noqa: E402
 
 
 DB_PATH = ROOT / "election_data.db"
