@@ -387,6 +387,9 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
   const [partyFilter, setPartyFilter] = useState("Todos");
   const [voteFilterParty, setVoteFilterParty] = useState("Todos");
   const [stateFilter, setStateFilter] = useState("Todos");
+  const [districtFilter, setDistrictFilter] = useState("Todos");
+  const [districtQuery, setDistrictQuery] = useState("");
+  const [districtOpen, setDistrictOpen] = useState(false);
   const [topic, setTopic] = useState(ALL_TOPICS);
   const [historyMode, setHistoryMode] = useState<HistoryMode>("all");
   const pendingScroll = useRef(false);
@@ -610,6 +613,18 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
     );
   }, [data]);
 
+  // Districts only exist under a chosen state (numbering restarts at 1 in
+  // every state) and only for MR seats — the Senado runs no district ballot,
+  // so this stays empty there and the control disappears rather than search
+  // a filter with nothing to find.
+  const districtsForState = useMemo(() => {
+    if (!data || stateFilter === "Todos") return [];
+    return data.seats
+      .filter((seat): seat is Seat & { district: number } => seat.state === stateFilter && seat.district !== null)
+      .map((seat) => ({ district: seat.district, label: `Distrito ${seat.district}${seat.districtSeat ? ` · ${seat.districtSeat}` : ""}` }))
+      .sort((a, b) => a.district - b.district);
+  }, [data, stateFilter]);
+
   const queryNormalized = normalize(query);
   const results = useMemo(() => {
     if (queryNormalized.length < 2) return [];
@@ -688,6 +703,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
   // chamber on every keystroke made the two controls fight over the same pixels.
   const isSeatVisible = (seat: Seat) => {
     if (stateFilter !== "Todos" && seat.state !== stateFilter) return false;
+    if (districtFilter !== "Todos" && String(seat.district) !== districtFilter) return false;
     const occupant = occupants.get(seat.id);
     if (!occupant) return true;
     return partyFilter === "Todos" || occupant.party === partyFilter;
@@ -714,6 +730,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
 
   const isVoteSeatVisible = (seat: Seat) => {
     if (stateFilter !== "Todos" && seat.state !== stateFilter) return false;
+    if (districtFilter !== "Todos" && String(seat.district) !== districtFilter) return false;
     return voteFilterParty === "Todos" || voteVoterBySeat.get(seat.id)?.party === voteFilterParty;
   };
 
@@ -901,7 +918,15 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
               <span className="toolbar-label">Estado</span>
               <label className="toolbar-select">
                 <span className="sr-only">Filtrar por estado</span>
-                <select value={stateFilter} onChange={(event) => setStateFilter(event.target.value)}>
+                <select
+                  value={stateFilter}
+                  onChange={(event) => {
+                    setStateFilter(event.target.value);
+                    setDistrictFilter("Todos");
+                    setDistrictQuery("");
+                    setDistrictOpen(false);
+                  }}
+                >
                   <option value="Todos">Todos los estados</option>
                   {states.map((state) => (
                     <option key={state} value={state}>
@@ -911,6 +936,74 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                 </select>
               </label>
             </div>
+
+            {districtsForState.length > 0 && (
+              <div className="toolbar">
+                <span className="toolbar-label">Distrito</span>
+                <div className="district-search">
+                  <label className="toolbar-select">
+                    <span className="sr-only">Buscar distrito</span>
+                    <input
+                      type="text"
+                      value={
+                        districtOpen
+                          ? districtQuery
+                          : (districtsForState.find((option) => String(option.district) === districtFilter)?.label ?? "")
+                      }
+                      placeholder="Todos los distritos"
+                      onFocus={() => {
+                        setDistrictOpen(true);
+                        setDistrictQuery("");
+                      }}
+                      onClick={() => {
+                        setDistrictOpen(true);
+                        setDistrictQuery("");
+                      }}
+                      onBlur={() => setDistrictOpen(false)}
+                      onChange={(event) => setDistrictQuery(event.target.value)}
+                    />
+                  </label>
+                  {districtOpen && (
+                    // Selecting an option must not blur the input first — a blur
+                    // would close this list before the click landed on it.
+                    <div className="district-results" role="listbox" aria-label="Distritos" onMouseDown={(event) => event.preventDefault()}>
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={districtFilter === "Todos"}
+                        onClick={() => {
+                          setDistrictFilter("Todos");
+                          setDistrictQuery("");
+                          setDistrictOpen(false);
+                        }}
+                      >
+                        Todos los distritos
+                      </button>
+                      {districtsForState
+                        .filter((option) => {
+                          const q = normalize(districtQuery);
+                          return q.length === 0 || normalize(option.label).includes(q) || String(option.district).includes(q);
+                        })
+                        .map((option) => (
+                          <button
+                            type="button"
+                            key={option.district}
+                            role="option"
+                            aria-selected={districtFilter === String(option.district)}
+                            onClick={() => {
+                              setDistrictFilter(String(option.district));
+                              setDistrictQuery("");
+                              setDistrictOpen(false);
+                            }}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div
               id="hemiciclo"

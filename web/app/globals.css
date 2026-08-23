@@ -203,7 +203,17 @@ a { color: inherit; }
 .deputy-metrics.metrics-seatless { grid-template-columns: repeat(3, 1fr); }
 .history-label { align-items: center; color: var(--muted); display: flex; font-size: 9px; font-weight: 700; gap: 12px; justify-content: space-between; letter-spacing: .1em; padding: 14px 20px 10px; text-transform: uppercase; }
 .history-topic, .toolbar-select { min-width: 0; }
-.history-topic select, .toolbar-select select { background: var(--white); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); font-size: 10px; max-width: 220px; padding: 5px 7px; }
+.history-topic select, .toolbar-select select, .toolbar-select input { background: var(--white); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); font-size: 10px; max-width: 220px; padding: 5px 7px; }
+
+/* District search. Rendered by hand rather than via <input list> + <datalist>:
+   the native combobox is inconsistent across browsers (missing option text,
+   and refocusing a filled input can hide every suggestion), so this owns its
+   own dropdown the same way the name search panel does. */
+.district-search { position: relative; }
+.district-results { background: var(--white); border: 1px solid var(--line); border-radius: 3px; box-shadow: 0 12px 28px rgba(21,35,33,.16); left: 0; max-height: 260px; overflow-y: auto; position: absolute; top: calc(100% + 4px); width: 240px; z-index: 20; }
+.district-results button { background: transparent; border: 0; border-bottom: 1px solid rgba(21,35,33,.09); color: var(--ink); cursor: pointer; display: block; font-size: 11px; padding: 8px 11px; text-align: left; width: 100%; }
+.district-results button:hover, .district-results button:focus-visible { background: #f2efe8; outline: 0; }
+.district-results button[aria-selected="true"] { background: #eef1ee; font-weight: 700; }
 
 /* Name search. It lives at the head of the person panel rather than over the
    hemicycle: searching picks *who* the panel reads, and the hemicycle is the
@@ -449,13 +459,11 @@ footer > span { justify-self: end; }
 .electoral-contest-control > div { display: flex; gap: 5px; }
 .electoral-contest-control button { background: transparent; border: 1px solid rgba(255,255,255,.24); border-radius: 20px; color: rgba(255,255,255,.7); cursor: pointer; font-size: 11px; font-weight: 700; padding: 8px 15px; }
 .electoral-contest-control button:hover, .electoral-contest-control button.active { background: var(--white); border-color: var(--white); color: var(--navy); }
-.electoral-cycle-control { align-items: center; background: var(--white); border: 1px solid var(--line); border-radius: 4px; display: grid; gap: 18px; grid-template-columns: auto 1fr auto; margin-bottom: 18px; padding: 14px 18px; }
+.electoral-cycle-control { align-items: center; background: var(--white); border: 1px solid var(--line); border-radius: 4px; display: grid; gap: 18px; grid-template-columns: auto 1fr; margin-bottom: 18px; padding: 14px 18px; }
 .electoral-cycle-control > span { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
 .electoral-cycle-control > div { display: flex; gap: 4px; }
 .electoral-cycle-control button { background: transparent; border: 1px solid var(--line); border-radius: 20px; color: var(--muted); cursor: pointer; font-size: 11px; font-weight: 700; padding: 8px 14px; }
 .electoral-cycle-control button:hover, .electoral-cycle-control button.active { background: var(--navy); border-color: var(--navy); color: var(--white); }
-.electoral-cycle-control .national-reset { border-radius: 2px; color: var(--ink); }
-.electoral-cycle-control .national-reset:disabled { cursor: default; opacity: .32; }
 .electoral-master-detail { display: grid; gap: 18px; grid-template-columns: 1.08fr .92fr; }
 .electoral-panel, .electoral-cycle-detail, .electoral-bars { background: var(--white); border: 1px solid var(--line); border-radius: 4px; min-width: 0; }
 .electoral-panel > header { align-items: start; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; min-height: 112px; padding: 22px 24px 18px; }
@@ -463,6 +471,9 @@ footer > span { justify-self: end; }
 .electoral-panel h2 { font-family: var(--serif); font-size: 29px; font-weight: 400; letter-spacing: -.035em; margin: 0; }
 .electoral-map-panel > header > p { color: var(--muted); font-size: 10px; line-height: 1.45; margin: 0; max-width: 210px; text-align: right; }
 .electoral-map-panel > header > p strong { color: var(--ink); font-family: var(--serif); font-size: 15px; }
+.electoral-map-panel .national-reset { background: transparent; border: 1px solid var(--line); border-radius: 2px; color: var(--ink); cursor: pointer; font-size: 11px; font-weight: 700; margin: 14px 24px 0; padding: 8px 14px; }
+.electoral-map-panel .national-reset:hover:not(:disabled) { background: var(--navy); border-color: var(--navy); color: var(--white); }
+.electoral-map-panel .national-reset:disabled { cursor: default; opacity: .32; }
 .electoral-map-wrap { padding: 8px 18px 16px; }
 .electoral-map { display: block; height: auto; max-height: 520px; width: 100%; }
 .electoral-state { cursor: pointer; fill-opacity: .86; outline: none; stroke: rgba(255,255,255,.78); stroke-width: .7; transition: fill-opacity .15s, stroke-width .15s; vector-effect: non-scaling-stroke; }

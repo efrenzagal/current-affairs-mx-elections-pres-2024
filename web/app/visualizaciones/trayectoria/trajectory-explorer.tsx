@@ -59,7 +59,7 @@ type StateGeoJson = { type: "FeatureCollection"; features: StateFeature[] };
 const WIDTH = 760;
 const HEIGHT = 500;
 const PARTY_COLORS: Record<string, string> = {
-  MORENA: "#8e2533", PAN: "#1769aa", PRI: "#b64048", PRD: "#d2aa18",
+  MORENA: "#8B0000", PAN: "#1769aa", PRI: "#b64048", PRD: "#d2aa18",
   PT: "#bd2734", PVEM: "#4d8d54", MC: "#e88626", PANAL: "#49a8af",
   "A. CAM.": "#1769aa", "A. MEX.": "#d2aa18", PBT: "#d2aa18", APM: "#b64048",
 };
@@ -431,7 +431,6 @@ export default function TrajectoryExplorer() {
               <button key={cycle} type="button" className={year === cycle ? "active" : ""} onClick={() => setYear(cycle)}>{cycle}</button>
             ))}
           </div>
-          <button type="button" className="national-reset" disabled={selectedState === null} onClick={() => setSelectedState(null)}>Ver nacional</button>
         </div>
 
         <div className="electoral-master-detail">
@@ -440,6 +439,7 @@ export default function TrajectoryExplorer() {
               <div><p className="eyebrow">{meta.mapTitle} · {year}</p><h2>Selecciona una entidad.</h2></div>
               <p>{mapFocusName && mapFocus ? <><strong>{mapFocusName}</strong><br />{mapFocus.winnerLabel}<br />{mapFocus.winnerPct}%</> : "Pasa el cursor o usa el teclado para explorar el mapa."}</p>
             </header>
+            <button type="button" className="national-reset" disabled={selectedState === null} onClick={() => setSelectedState(null)}>Ver nacional</button>
             <MexicoMap geojson={geojson} data={contest} year={year} selectedState={selectedState} hoveredState={hoveredState} contestLabel={meta.trajectoryLabel} onSelect={setSelectedState} onHover={setHoveredState} />
           </section>
 
