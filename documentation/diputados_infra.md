@@ -197,6 +197,8 @@ python3 ingestion/gaceta_materialize.py --force
 - **Streamlit** (`ui/gaceta.py`): deputy voting calendar (`render_gaceta("Diputado", ...)`, driven from
   the `ui/hemicycle.py` seat click via `dim_diputados`) and the LLM-classification explorer
   (`render_gaceta("Clasificación")`).
-- **`web/`** (static Next.js export): `web/scripts/export_gaceta_web.py` reads `dim_diputados`,
-  `dim_gaceta_vote`, `fact_gaceta_deputy_vote`, `fact_gaceta_vote_summary`, and classifications
-  directly from `election_data.db` — see `web/README.md`.
+- **`web/`** (static Next.js export): `ingestion/congress_seat_member_resolve.py` first resolves
+  seat occupancy, person aliases and seat/vote conflicts into the `fact_legislature_66_*` tables.
+  `web/scripts/export_gaceta_web.py` then reads those alongside `dim_diputados`, `dim_gaceta_vote`,
+  `fact_gaceta_deputy_vote`, `fact_gaceta_vote_summary`, and classifications from
+  `election_data.db` — see `web/README.md`. The exporter shapes; it no longer derives.

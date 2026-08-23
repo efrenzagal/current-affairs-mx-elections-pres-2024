@@ -1,0 +1,5 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+chamber,TEXT,Composite primary key,"Cámara en la que se observó el alias.","Chamber the alias was observed in.",DIP or SEN,"Both chambers share this table."
+person_id,TEXT,Composite primary key,"Identidad de origen tal como la imprimió la votación.","Source identity as printed by the roll call.",Person id,"The identity being collapsed away; it is absent from published person lists."
+canonical_person_id,TEXT,Required attribute,"Identidad canónica que absorbe al alias.","Canonical identity absorbing the alias.",Person id,"Alias chains are flattened before storage, so this is never itself an alias."
+created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by ingestion/congress_seat_member_resolve.py."

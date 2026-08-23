@@ -717,6 +717,7 @@ audit under `data/legislative_vote_manual_revisions/`. Vote totals and other
 official-source fields are never overwritten from the Sheet. A changed Cámara
 classification must also set `review_status` to `audited` and explain the
 decision in `review_notes`. After applying revisions, rerun
+`python3 ingestion/congress_seat_member_resolve.py` followed by
 `python3 web/scripts/export_gaceta_web.py` to refresh the website's static data.
 The complete entry/exit contract, Parquet cache layout, and recovery guidance
 are documented in `aux_scripts/legislative_vote_review/README.md`.
@@ -747,9 +748,13 @@ presents the legislature-66 roll-call data as an interactive hemicycle for
 both chambers. It is not part of the Streamlit pipeline and does not run in
 this repo's Python environment.
 
-It is a **static snapshot** application: `web/scripts/export_gaceta_web.py`
-reads `election_data.db` plus the INE integration CSV and materializes the
-roll-call hemicycle JSON files under `web/public/data/`.
+It is a **static snapshot** application. Who occupies which seat, which
+roll-call names are one person, and which seat cast a contested vote are all
+resolved in the warehouse by `ingestion/congress_seat_member_resolve.py`, which
+writes the `fact_legislature_66_*` tables. `web/scripts/export_gaceta_web.py`
+then reads those tables plus the INE integration CSV and shapes the roll-call
+hemicycle JSON files under `web/public/data/` — it does not derive identity
+itself, so the resolution step has to run first.
 `web/scripts/export_iniciativas_web.py` separately reads
 `dim_gaceta_iniciativa`/`dim_senado_iniciativa` and writes
 `web/public/data/iniciativas.json` — who proposed each initiative, kept apart
@@ -757,8 +762,9 @@ from the roll-call vote data. The browser loads these directly — there is no
 live database at runtime.
 
 ```bash
-python3 web/scripts/export_gaceta_web.py       # refresh roll-call snapshots
-python3 web/scripts/export_iniciativas_web.py  # refresh initiative-proposer snapshot
+python3 ingestion/congress_seat_member_resolve.py  # resolve seats, aliases, conflicts
+python3 web/scripts/export_gaceta_web.py          # refresh roll-call snapshots
+python3 web/scripts/export_iniciativas_web.py     # refresh initiative-proposer snapshot
 cd web && npm test                              # production build + data invariants
 ```
 

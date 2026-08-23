@@ -1,9 +1,0 @@
-Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
-seat_id,TEXT,Composite primary key; logical foreign key,"Identificador del escaño de diputación LXVI.","LXVI deputy-seat identifier.",DIP_ key,"References dim_diputados.diputado_id."
-deputy_id,TEXT,Composite primary key; logical foreign key,"Identidad observada en votaciones de la persona vinculada al escaño.","Roll-call identity linked to the seat.",DEP_ key,"References dim_gaceta_deputy.deputy_id after alias reconciliation."
-deputy_name,TEXT,Required display attribute,"Nombre publicado o reconciliado de la persona legisladora.","Published or reconciled legislator name.",Text,"Preserves the display form used by the LXVI exporter."
-party_key,TEXT,Required relationship attribute,"Grupo parlamentario asociado a la relación persona-escaño.","Parliamentary group associated with the person-seat relationship.",Party key,"Can differ from the party that originally won the seat."
-seat_role,TEXT,Required relationship attribute,"Rol de la persona dentro de la fórmula del escaño.","Person's role in the seat formula.",titular or suplente,"Former and current substitutes are both suplente."
-is_current_occupant,INTEGER,Required current flag,"Indica si la persona coincide con la ocupación enlazada en el último directorio.","Whether the person matches the linked occupant in the latest roster.",0 or 1,"A current directory member without a linked vote identity remains 0."
-relationship_source_url,TEXT,Nullable lineage,"Fuente oficial que respalda el vínculo entre persona y escaño.","Official source supporting the person-seat relationship.",URL or NULL,"Usually the INE integration or the Cámara directory."
-created_at,TIMESTAMP,System field,"Fecha de materialización de la relación.","Relationship materialization timestamp.",SQLite timestamp,"Rows are rebuilt by export_gaceta_web.py."
