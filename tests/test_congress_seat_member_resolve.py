@@ -50,6 +50,10 @@ def resolved(chamber="DIP", **overrides):
         "formerMembers": [],
         "aliases": {},
         "conflicts": [],
+        "displayNames": [
+            (chamber, "DEP_TITULAR", "Persona Titular", "seat_table"),
+            (chamber, "DEP_SUBSTITUTE", "Persona Suplente", "roll_call"),
+        ],
     }
     payload.update(overrides)
     return payload
@@ -138,6 +142,19 @@ class WriteChamberTests(unittest.TestCase):
                 " FROM fact_legislature_66_seat_vote_conflict"
             ).fetchone(),
             ("DEP_TITULAR", "DEP_TITULAR,DEP_SUBSTITUTE"),
+        )
+
+
+    def test_seat_table_spelling_wins_over_the_roll_call(self):
+        # A legislator must read the same way in the hemicycle, the profile
+        # search and the per-square tooltips.
+        write_chamber(self.conn, resolved())
+        self.assertEqual(
+            self.conn.execute(
+                "SELECT display_name, name_source FROM fact_legislature_66_person"
+                " WHERE person_id = 'DEP_TITULAR'"
+            ).fetchone(),
+            ("Persona Titular", "seat_table"),
         )
 
 

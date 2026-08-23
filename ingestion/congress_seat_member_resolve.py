@@ -249,6 +249,15 @@ CREATE TABLE IF NOT EXISTS fact_legislature_66_person_alias (
     PRIMARY KEY (chamber, person_id)
 );
 
+CREATE TABLE IF NOT EXISTS fact_legislature_66_person (
+    chamber      TEXT NOT NULL CHECK (chamber IN ('DIP', 'SEN')),
+    person_id    TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    name_source  TEXT NOT NULL CHECK (name_source IN ('seat_table', 'roll_call')),
+    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (chamber, person_id)
+);
+
 CREATE TABLE IF NOT EXISTS fact_legislature_66_seat_vote_conflict (
     chamber             TEXT NOT NULL CHECK (chamber IN ('DIP', 'SEN')),
     seat_id             TEXT NOT NULL,
@@ -801,6 +810,74 @@ def person_histories(
     )
 
 
+def senator_display_name(raw: str | None) -> str:
+    """`Sen. Martin del Campo Martin del Campo, Juan Antonio` -> given-name first.
+
+    The Senado roll call prints an honorific and puts surnames before a comma;
+    everywhere else a person reads as `Nombre Apellido`. Only the comma is
+    trusted to split the name -- the deputy roll call has no comma, and guessing
+    where its surnames end would rename people.
+    """
+    name = str(raw or "").strip()
+    if name.lower().startswith("sen."):
+        name = name[4:].strip()
+    if "," in name:
+        surnames, _, given = name.partition(",")
+        name = f"{given.strip()} {surnames.strip()}"
+    return display_person_name(name)
+
+
+def resolve_display_names(conn: sqlite3.Connection, chamber: str) -> list[tuple]:
+    """Preferred display name for everyone who cast an LXVI ballot.
+
+    The seat tables win where they have an entry, so a legislator is named the
+    same way in the hemicycle, the profile search and the per-square tooltips.
+    Roll calls reach people the seat tables never held -- substitutes who served
+    an interim -- so the chamber's own spelling is the fallback rather than
+    dropping the name and leaving a square anonymous.
+
+    `name_source` records which of the two won, so a disagreement between the
+    directory and the roll call stays visible instead of being silently absorbed.
+    """
+    if chamber == "DIP":
+        roll_call_sql = (
+            "SELECT deputy_id AS personId, deputy_name AS name FROM dim_gaceta_deputy"
+        )
+        seat_sql = """
+            SELECT gaceta_deputy_id AS personId, display_name AS name
+            FROM dim_diputados
+            WHERE legislature = 66 AND gaceta_deputy_id IS NOT NULL
+        """
+        format_name = display_person_name
+    else:
+        roll_call_sql = (
+            "SELECT CAST(senador_id AS TEXT) AS personId, senador_name AS name"
+            " FROM dim_senador"
+        )
+        seat_sql = """
+            SELECT CAST(senador_id AS TEXT) AS personId, display_name AS name
+            FROM dim_senadores
+            WHERE legislature = 66
+        """
+        format_name = senator_display_name
+
+    names = {
+        str(row["personId"]): (format_name(row["name"]), "roll_call")
+        for row in rows(conn, roll_call_sql)
+    }
+    names.update(
+        {
+            str(row["personId"]): (row["name"], "seat_table")
+            for row in rows(conn, seat_sql)
+        }
+    )
+    return [
+        (chamber, person_id, name, source)
+        for person_id, (name, source) in names.items()
+        if name
+    ]
+
+
 def resolve_chamber(conn: sqlite3.Connection, chamber: str) -> dict:
     """Everything derived about who occupies which LXVI seat in one chamber.
 
@@ -856,6 +933,7 @@ def resolve_chamber(conn: sqlite3.Connection, chamber: str) -> dict:
         "aliases": aliases,
         "seatMembers": seat_members,
         "conflicts": conflicts,
+        "displayNames": resolve_display_names(conn, chamber),
         "roster": roster_meta,
     }
 
@@ -989,6 +1067,17 @@ def write_chamber(conn: sqlite3.Connection, resolved: dict) -> dict[str, int]:
             """,
             alias_records,
         )
+        conn.execute(
+            "DELETE FROM fact_legislature_66_person WHERE chamber = ?", (chamber,)
+        )
+        conn.executemany(
+            """
+            INSERT INTO fact_legislature_66_person (
+                chamber, person_id, display_name, name_source
+            ) VALUES (?, ?, ?, ?)
+            """,
+            resolved["displayNames"],
+        )
         conn.executemany(
             """
             INSERT INTO fact_legislature_66_seat_vote_conflict (
@@ -1004,6 +1093,7 @@ def write_chamber(conn: sqlite3.Connection, resolved: dict) -> dict[str, int]:
         "former": len(former_records),
         "aliases": len(alias_records),
         "conflicts": len(conflict_records),
+        "names": len(resolved["displayNames"]),
     }
 
 
@@ -1015,7 +1105,7 @@ def materialize(db_path: Path = DB_PATH) -> None:
             print(
                 f"  {chamber}: {counts['seats']} seats, {counts['members']} members, "
                 f"{counts['former']} former, {counts['aliases']} aliases, "
-                f"{counts['conflicts']} conflicts"
+                f"{counts['conflicts']} conflicts, {counts['names']} names"
             )
 
 

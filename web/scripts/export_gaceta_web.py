@@ -18,7 +18,6 @@ from ingestion.congress_roster_ingest import (  # noqa: E402
     canonical_classification_code as canonical_code,
     canonical_party,
 )
-from ingestion.person_names import display_person_name  # noqa: E402
 
 # Seat occupancy, identity aliases and the seat/person bridge are resolved and
 # stored by the warehouse. This script reads those answers; it does not make
@@ -570,72 +569,22 @@ def export_senate() -> None:
     write_payload(SENATE_OUT_PATH, payload)
 
 
-def senator_display_name(raw: str | None) -> str:
-    """`Sen. Martín del Campo Martín del Campo, Juan Antonio` -> given-name first.
-
-    The Senado roll call prints an honorific and puts surnames before a comma;
-    everywhere else on this site a person reads as `Nombre Apellido`. Only the
-    comma is trusted to split the name — the deputy roll call has no comma and
-    guessing where its surnames end would rename people.
-    """
-    name = str(raw or "").strip()
-    if name.lower().startswith("sen."):
-        name = name[4:].strip()
-    if "," in name:
-        surnames, _, given = name.partition(",")
-        name = f"{given.strip()} {surnames.strip()}"
-    return display_person_name(name)
-
-
 def ballot_names(conn: sqlite3.Connection) -> tuple[dict[str, str], dict[str, str]]:
-    """Person ID -> display name for everyone who cast an LXVI ballot.
+    """Person id -> display name, per chamber, for everyone who cast a ballot.
 
-    Prefers the seat tables, so a legislator is named the same way here as in
-    the hemicycle and the profile search. Roll calls reach people the seat
-    tables never held — substitutes who served an interim — so the chamber's own
-    spelling is the fallback rather than dropping the name.
+    The precedence between the seat tables and the chamber's own spelling is
+    decided upstream and stored; this only reads it.
     """
-    deputies = {
-        row["personId"]: display_person_name(row["name"])
-        for row in rows(
-            conn,
-            "SELECT deputy_id AS personId, deputy_name AS name FROM dim_gaceta_deputy",
-        )
-    }
-    deputies.update(
-        {
-            row["personId"]: row["name"]
-            for row in rows(
-                conn,
-                """
-                SELECT gaceta_deputy_id AS personId, display_name AS name
-                FROM dim_diputados
-                WHERE legislature = 66 AND gaceta_deputy_id IS NOT NULL
-                """,
-            )
-        }
-    )
-    senators = {
-        row["personId"]: senator_display_name(row["name"])
-        for row in rows(
-            conn,
-            "SELECT CAST(senador_id AS TEXT) AS personId, senador_name AS name FROM dim_senador",
-        )
-    }
-    senators.update(
-        {
-            row["personId"]: row["name"]
-            for row in rows(
-                conn,
-                """
-                SELECT CAST(senador_id AS TEXT) AS personId, display_name AS name
-                FROM dim_senadores
-                WHERE legislature = 66
-                """,
-            )
-        }
-    )
-    return deputies, senators
+    names: dict[str, dict[str, str]] = {"DIP": {}, "SEN": {}}
+    for row in rows(
+        conn,
+        """
+        SELECT chamber, person_id AS personId, display_name AS name
+        FROM fact_legislature_66_person
+        """,
+    ):
+        names[row["chamber"]][row["personId"]] = row["name"]
+    return names["DIP"], names["SEN"]
 
 
 def export_ballots(party_votes: dict[str, dict[str, dict[str, int]]]) -> None:

@@ -1,0 +1,6 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+chamber,TEXT,Composite primary key,"Cámara en la que la persona emitió votos.","Chamber the person cast ballots in.",DIP or SEN,"Both chambers share this table."
+person_id,TEXT,Composite primary key; logical foreign key,"Identidad de la persona en las votaciones.","Person's roll-call identity.",DEP_ key or senador_id,"References dim_gaceta_deputy.deputy_id or dim_senador.senador_id."
+display_name,TEXT,Required display attribute,"Nombre preferente para mostrar a la persona.","Preferred display name for the person.",Text,"One spelling for the hemicycle, the profile search and the per-square tooltips alike."
+name_source,TEXT,Required lineage,"Registro del que proviene el nombre elegido.","Register the chosen name came from.",seat_table or roll_call,"The seat tables win where they have an entry; roll_call marks people the seat tables never held, such as substitutes who served an interim. Recorded so a disagreement stays visible instead of being silently absorbed."
+created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by ingestion/congress_seat_member_resolve.py."

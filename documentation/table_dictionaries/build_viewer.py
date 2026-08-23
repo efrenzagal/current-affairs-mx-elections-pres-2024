@@ -63,6 +63,7 @@ TABLE_GROUPS: OrderedDict[str, list[str]] = OrderedDict(
             "fact_legislature_66_seat_resolved",
             "fact_legislature_66_seat_member",
             "fact_legislature_66_former_member",
+            "fact_legislature_66_person",
             "fact_legislature_66_person_alias",
             "fact_legislature_66_seat_vote_conflict",
             "fact_legislature_66_seat_election_result",
