@@ -25,6 +25,10 @@ from ui.person_names import display_person_name  # noqa: E402
 # restating the arithmetic here: "mayoria calificada" must mean the same thing
 # on both front ends, and the parquet those columns live in is gitignored.
 from ingestion.gaceta_materialize import add_vote_thresholds  # noqa: E402
+from ingestion.audited_overrides import (  # noqa: E402
+    load_person_aliases,
+    load_seat_overrides,
+)
 
 DB_PATH = ROOT / "election_data.db"
 OUT_PATH = ROOT / "web" / "public" / "data" / "legislature-66.json"
@@ -50,29 +54,11 @@ INE_INTEGRATION_PUBLIC_URL = (
     "https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/"
 )
 
-# Post-election legal events can assign a substitute who does not appear in the
-# final 2024 integration CSV. Keep these small, source-backed exceptions here
-# until the licence/protest feed is ingested as a first-class temporal source.
-AUDITED_FORMER_SEAT_OVERRIDES = {
-    ("SEN", "1805"): {
-        "seatId": "SEN_4D4CFB205261",
-        "sourceUrl": (
-            "https://sil.gobernacion.gob.mx/Archivos/Documentos/2025/06/"
-            "asun_4909061_20250626_1754067805.pdf"
-        ),
-    },
-}
-
-# These roll-call strings are proven aliases of the official sitting member,
-# not substitute occupants. Their dates do not overlap and, once combined,
-# each person covers all 295 LXVI Chamber votes.
-AUDITED_PERSON_ALIASES = {
-    "DIP": {
-        "DEP_0AC343D3EC5E": "DEP_10ACE730EC87",  # G. MANCILLA CARLOS
-        "DEP_62F86822CD67": "DEP_A9A4258198C3",  # JIMÉNEZ DELGADO PATRICIA
-    },
-    "SEN": {},
-}
+# Audited seat and identity corrections, each backed by a source document and a
+# written rationale. They are data, not code: see data/audited_*.csv and the
+# loader for why a row exists at all.
+AUDITED_FORMER_SEAT_OVERRIDES = load_seat_overrides()
+AUDITED_PERSON_ALIASES = load_person_aliases()
 
 
 LXVI_DEPUTY_SEAT_MEMBER_SCHEMA = """

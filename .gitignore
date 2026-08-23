@@ -16,6 +16,8 @@ streamlit app/
 
 data/*
 !data/municipio_cvegeo_overrides.csv
+!data/audited_seat_overrides.csv
+!data/audited_person_aliases.csv
 
 .RData
 .Rhistory
