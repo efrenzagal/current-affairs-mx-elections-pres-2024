@@ -1,0 +1,11 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+gaceta_vote_id,TEXT,Primary key; logical foreign key,"Votación nominal de la Cámara.","Chamber roll call.",Gaceta vote id,"References dim_gaceta_vote.gaceta_vote_id. Cámara only: a Senado tally's total counts senators present, not the 128-seat chamber, so the same formula would compute quorum against a denominator that already excludes the absent."
+presentes,INTEGER,Required derived attribute,"Legisladores presentes en la votación.","Legislators present for the vote.",0-500,"Derived, not reported by the source."
+quorum_requerido,INTEGER,Required derived attribute,"Presencias mínimas para que haya quórum.","Minimum attendance for quorum.",Integer,"Keys off the full 500-seat chamber."
+mayoria_absoluta_requerida,INTEGER,Required derived attribute,"Votos necesarios para mayoría absoluta.","Votes required for an absolute majority.",Integer,"Half the chamber plus one."
+mayoria_calificada_requerida,INTEGER,Required derived attribute,"Votos necesarios para mayoría calificada.","Votes required for a qualified majority.",Integer,"Two thirds of those present; the threshold constitutional reforms must clear."
+quorum_ok,INTEGER,Required derived flag,"Indica si se alcanzó el quórum.","Whether quorum was met.",0 or 1,"Computed from presentes against quorum_requerido."
+mayoria_simple_ok,INTEGER,Required derived flag,"Indica si hubo mayoría simple.","Whether a simple majority was reached.",0 or 1,"More votes in favour than against."
+mayoria_absoluta_ok,INTEGER,Required derived flag,"Indica si hubo mayoría absoluta.","Whether an absolute majority was reached.",0 or 1,"Compared against mayoria_absoluta_requerida."
+mayoria_calificada_ok,INTEGER,Required derived flag,"Indica si hubo mayoría calificada.","Whether a qualified majority was reached.",0 or 1,"Compared against mayoria_calificada_requerida."
+created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by ingestion/gaceta_materialize.py."

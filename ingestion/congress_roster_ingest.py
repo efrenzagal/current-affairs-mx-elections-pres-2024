@@ -134,6 +134,28 @@ def canonical_party(value: object) -> str:
     return PARTY_ALIASES.get(party, party)
 
 
+# Both chambers classify against the same taxonomy but not the same spelling.
+# `dictamen_de_comision(es)` is one concept written two ways, and on a page that
+# lists both chambers it would otherwise render as two filter chips meaning the
+# same thing. The minuta codes look like the same case and are not: each names
+# the chamber a bill arrived *from*, so they stay distinct.
+CLASSIFICATION_ALIASES = {
+    "dictamen_de_comisiones": "dictamen_de_comision",
+}
+
+
+def canonical_classification_code(value: object) -> str | None:
+    """Collapse spelling variants of one classification code.
+
+    Same problem as `canonical_party` and solved in the same place: a label that
+    means one thing must not reach two front ends as two things.
+    """
+    if not value:
+        return None
+    code = str(value)
+    return CLASSIFICATION_ALIASES.get(code, code)
+
+
 # Unlike PARTY_ALIASES (short codes only, from clean official directories),
 # initiative proposer text is free-form: official full names, casing
 # variants, and -- for multi-signatory initiatives -- a party abbreviation

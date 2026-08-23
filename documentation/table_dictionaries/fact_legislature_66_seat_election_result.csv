@@ -1,0 +1,9 @@
+Column Name,Data Type,Role,Description (SPA),Description (ENG),Values / Domain,Notes
+chamber,TEXT,Composite primary key,"Cámara del escaño.","Chamber of the seat.",DIP or SEN,"Both chambers share this table."
+seat_id,TEXT,Composite primary key; logical foreign key,"Escaño ganado en la contienda de 2024.","Seat won in the 2024 contest.",Seat id,"References dim_diputados.diputado_id or dim_senadores.senador_seat_id. Resolved here so consumers join on seat_id instead of re-deriving the chamber-specific key."
+district_seat,TEXT,Nullable attribute,"Cabecera distrital federal del escaño.","Federal district seat town.",Text or NULL,"Cámara only; Senado seats have no district head."
+election_actor,TEXT,Nullable attribute,"Partido o coalición que ganó el escaño.","Party or coalition that won the seat.",Text or NULL,"As printed by the INE, not canonicalized to a party key."
+winning_votes,INTEGER,Required attribute,"Votos obtenidos por la fórmula ganadora.","Votes obtained by the winning formula.",Non-negative integer,"From the INE integration CSV."
+winning_pct,REAL,Required attribute,"Porcentaje de la votación obtenido por la ganadora.","Percentage of the vote won.",0-100,"Percent sign stripped at load."
+source_url,TEXT,Required lineage,"Publicación oficial del INE que respalda el resultado.","Official INE publication backing the result.",URL,"The integration page for the 2023-2024 federal process."
+created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by ingestion/legislature_66_election_results.py."

@@ -94,6 +94,71 @@ def add_vote_thresholds(votes: pd.DataFrame) -> pd.DataFrame:
     return votes
 
 
+LXVI_VOTE_THRESHOLD_SCHEMA = """
+CREATE TABLE IF NOT EXISTS fact_legislature_66_vote_threshold (
+    gaceta_vote_id                TEXT NOT NULL PRIMARY KEY,
+    presentes                     INTEGER NOT NULL,
+    quorum_requerido              INTEGER NOT NULL,
+    mayoria_absoluta_requerida    INTEGER NOT NULL,
+    mayoria_calificada_requerida  INTEGER NOT NULL,
+    quorum_ok                     INTEGER NOT NULL CHECK (quorum_ok IN (0, 1)),
+    mayoria_simple_ok             INTEGER NOT NULL CHECK (mayoria_simple_ok IN (0, 1)),
+    mayoria_absoluta_ok           INTEGER NOT NULL CHECK (mayoria_absoluta_ok IN (0, 1)),
+    mayoria_calificada_ok         INTEGER NOT NULL CHECK (mayoria_calificada_ok IN (0, 1)),
+    created_at                    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+
+def materialize_lxvi_vote_thresholds(conn: sqlite3.Connection) -> int:
+    """Store quorum and the three majority thresholds for the LXVI Camara.
+
+    Camara-only on purpose. The arithmetic keys off `total` meaning the full
+    500-seat chamber, which is what the Gaceta tally reports. A Senado tally's
+    total is the number of senators recorded in that roll call, not the 128-seat
+    chamber, so the same formula there would compute a quorum floor against a
+    denominator that already excludes the absent.
+
+    Persisted rather than recomputed per consumer: "mayoria calificada" has to
+    mean the same thing in Streamlit and on the website, and the parquet the
+    Streamlit app reads is gitignored, so the static exporter could not share it.
+    """
+    votes = load_votes(conn)
+    votes = votes[votes["legislature"] == 66]
+    if votes.empty:
+        return 0
+    derived = add_vote_thresholds(votes)
+
+    conn.executescript(LXVI_VOTE_THRESHOLD_SCHEMA)
+    with conn:
+        conn.execute("DELETE FROM fact_legislature_66_vote_threshold")
+        conn.executemany(
+            """
+            INSERT INTO fact_legislature_66_vote_threshold (
+                gaceta_vote_id, presentes, quorum_requerido,
+                mayoria_absoluta_requerida, mayoria_calificada_requerida,
+                quorum_ok, mayoria_simple_ok, mayoria_absoluta_ok,
+                mayoria_calificada_ok
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    str(row.gaceta_vote_id),
+                    int(row.presentes),
+                    int(row.quorum_requerido),
+                    int(row.mayoria_absoluta_requerida),
+                    int(row.mayoria_calificada_requerida),
+                    int(bool(row.quorum_ok)),
+                    int(bool(row.mayoria_simple_ok)),
+                    int(bool(row.mayoria_absoluta_ok)),
+                    int(bool(row.mayoria_calificada_ok)),
+                )
+                for row in derived.itertuples()
+            ],
+        )
+    return len(derived)
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     return sqlite3.connect(db_path)
 

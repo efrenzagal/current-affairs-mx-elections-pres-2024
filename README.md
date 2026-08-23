@@ -763,6 +763,8 @@ live database at runtime.
 
 ```bash
 python3 ingestion/congress_seat_member_resolve.py  # resolve seats, aliases, conflicts
+python3 ingestion/legislature_66_election_results.py  # winning margins per seat
+python3 ingestion/gaceta_materialize.py --force   # vote thresholds (and Streamlit parquet)
 python3 web/scripts/export_gaceta_web.py          # refresh roll-call snapshots
 python3 web/scripts/export_iniciativas_web.py     # refresh initiative-proposer snapshot
 cd web && npm test                              # production build + data invariants

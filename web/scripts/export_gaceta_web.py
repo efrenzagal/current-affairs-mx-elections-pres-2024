@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import json
 import sqlite3
 import sys
@@ -15,14 +14,12 @@ sys.path.insert(0, str(ROOT))
 # One alias table for the whole project. The Gaceta prints MORENA as "MRN" and
 # independents as "CAND_INDEPENDIENTE", so without this the hemicycle legend and
 # the vote breakdown on the same page label the same bench differently.
-from ingestion.congress_roster_ingest import canonical_party  # noqa: E402
+from ingestion.congress_roster_ingest import (  # noqa: E402
+    canonical_classification_code as canonical_code,
+    canonical_party,
+)
 from ingestion.person_names import display_person_name  # noqa: E402
 
-# Quorum and the three majority thresholds are derived, not stored. Import the
-# derivation the Streamlit app reads through data/materialized/ rather than
-# restating the arithmetic here: "mayoria calificada" must mean the same thing
-# on both front ends, and the parquet those columns live in is gitignored.
-from ingestion.gaceta_materialize import add_vote_thresholds  # noqa: E402
 # Seat occupancy, identity aliases and the seat/person bridge are resolved and
 # stored by the warehouse. This script reads those answers; it does not make
 # them. person_histories is the one derivation still applied at read time --
@@ -40,18 +37,6 @@ BALLOTS_OUT_PATH = ROOT / "web" / "public" / "data" / "vote-ballots-66.json"
 # Just the manifests, so the /visualizaciones index can print live counts
 # without pulling the 6 MB of seats and histories behind them.
 SUMMARY_PATH = ROOT / "web" / "public" / "data" / "visualizaciones.json"
-INE_INTEGRATION_PATH = (
-    ROOT
-    / "data"
-    / "electoral_data_raw"
-    / "raw_2024"
-    / "PRESIDENCIA_2024"
-    / "CSV"
-    / "INTEGRACION_CARGOS_PEF_2024.csv"
-)
-INE_INTEGRATION_PUBLIC_URL = (
-    "https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/"
-)
 def rows(conn: sqlite3.Connection, query: str, params: tuple = ()) -> list[dict]:
     conn.row_factory = sqlite3.Row
     return [dict(row) for row in conn.execute(query, params)]
@@ -73,38 +58,6 @@ def roster_stats(seats: list[dict]) -> dict:
     }
 
 
-def load_mr_election_results() -> dict[tuple[int, int], dict]:
-    results: dict[tuple[int, int], dict] = {}
-    with INE_INTEGRATION_PATH.open(encoding="utf-8-sig", newline="") as source:
-        for row in csv.DictReader(source):
-            if row["TIPO_DE_CANDIDATURA"] != "DIP_MR":
-                continue
-            pct = row["PORCENTAJE_VOTACION_GANADOR"].replace("%", "").strip()
-            results[(int(row["ID_ESTADO"]), int(row["ID_DISTRITO_FEDERAL"]))] = {
-                "districtSeat": row["CABECERA_DISTRITAL_FEDERAL"].strip() or None,
-                "electionActor": row["NOMBRE_ACTOR_POLITICO"].strip() or None,
-                "winningVotes": int(row["VOTACION_GANADOR"]),
-                "winningPct": float(pct),
-            }
-    return results
-
-
-def load_senate_election_results() -> dict[tuple[int, int], dict]:
-    results: dict[tuple[int, int], dict] = {}
-    with INE_INTEGRATION_PATH.open(encoding="utf-8-sig", newline="") as source:
-        for row in csv.DictReader(source):
-            if row["TIPO_DE_CANDIDATURA"] != "SEN_MR":
-                continue
-            pct = row["PORCENTAJE_VOTACION_GANADOR"].replace("%", "").strip()
-            results[(int(row["ID_ESTADO"]), int(row["NUMERO_LISTA"]))] = {
-                "districtSeat": None,
-                "electionActor": row["NOMBRE_ACTOR_POLITICO"].strip() or None,
-                "winningVotes": int(row["VOTACION_GANADOR"]),
-                "winningPct": float(pct),
-            }
-    return results
-
-
 SENATE_CHOICE = {
     "PRO": "Favor",
     "CONTRA": "Contra",
@@ -123,19 +76,6 @@ MESES_ES = {
 # lists both chambers it would otherwise render as two separate filter chips
 # meaning the same thing. The minuta codes look like the same case and are not:
 # each one names the chamber the bill arrived *from*, so they stay distinct.
-CLASSIFICATION_ALIASES = {
-    "dictamen_de_comisiones": "dictamen_de_comision",
-}
-
-
-def canonical_code(value: str | None) -> str | None:
-    """Collapse spelling variants of one classification code. Compare with
-    `canonical_party` — same problem, same reason to solve it in the exporter."""
-    if not value:
-        return None
-    return CLASSIFICATION_ALIASES.get(value, value)
-
-
 def gaceta_issue_url(gaceta_date: str | None) -> str | None:
     """Daily Gaceta Parlamentaria issue carrying a vote's dictamen. A vote's own
     `source_url` points only at its tally table, never at the bill text."""
@@ -221,44 +161,43 @@ def camara_votes(conn: sqlite3.Connection) -> list[dict]:
             "status": vote.pop("reviewStatus"),
             "requiresReview": bool(vote.pop("requiresReview")),
         }
-    return add_camara_thresholds(votes)
+    return add_camara_thresholds(conn, votes)
 
 
-def add_camara_thresholds(votes: list[dict]) -> list[dict]:
-    """Attach quorum and the three majority thresholds to each Camara vote.
+def add_camara_thresholds(
+    conn: sqlite3.Connection, votes: list[dict]
+) -> list[dict]:
+    """Attach the stored quorum and majority thresholds to each Camara vote.
 
-    Camara-only on purpose. The arithmetic keys off `total` meaning the full
-    500-seat chamber, which is what the Gaceta tally reports. A Senado tally's
-    total is the number of senators recorded in that roll call, not the 128-seat
-    chamber, so the same formula there would compute a quorum floor against a
-    denominator that already excludes the absent.
+    Camara-only, because the arithmetic keys off `total` meaning the full
+    500-seat chamber. Read rather than recomputed: the derivation lives in
+    ingestion/gaceta_materialize.py so that "mayoria calificada" means the same
+    thing in Streamlit and here.
     """
-    if not votes:
-        return votes
-    import pandas as pd
-
-    frame = pd.DataFrame(
-        {
-            "favor": [vote["favor"] for vote in votes],
-            "contra": [vote["contra"] for vote in votes],
-            "abstencion": [vote["abstention"] for vote in votes],
-            "quorum": [vote["presentNoVote"] for vote in votes],
-            "ausente": [vote["absent"] for vote in votes],
-            "total": [vote["total"] for vote in votes],
-        }
-    )
-    derived = add_vote_thresholds(frame)
-    for vote, (_, row) in zip(votes, derived.iterrows()):
-        vote["thresholds"] = {
-            "present": int(row["presentes"]),
-            "quorumRequired": int(row["quorum_requerido"]),
-            "absoluteRequired": int(row["mayoria_absoluta_requerida"]),
-            "qualifiedRequired": int(row["mayoria_calificada_requerida"]),
+    stored = {
+        row.pop("id"): {
+            "present": row["presentes"],
+            "quorumRequired": row["quorum_requerido"],
+            "absoluteRequired": row["mayoria_absoluta_requerida"],
+            "qualifiedRequired": row["mayoria_calificada_requerida"],
             "quorumOk": bool(row["quorum_ok"]),
             "simpleOk": bool(row["mayoria_simple_ok"]),
             "absoluteOk": bool(row["mayoria_absoluta_ok"]),
             "qualifiedOk": bool(row["mayoria_calificada_ok"]),
         }
+        for row in rows(
+            conn,
+            "SELECT gaceta_vote_id AS id, * FROM fact_legislature_66_vote_threshold",
+        )
+    }
+    missing = [vote["id"] for vote in votes if vote["id"] not in stored]
+    if missing:
+        raise SystemExit(
+            f"{len(missing)} Camara votes have no stored thresholds "
+            f"(first: {missing[0]}). Run ingestion/gaceta_materialize.py first."
+        )
+    for vote in votes:
+        vote["thresholds"] = stored[vote["id"]]
     return votes
 
 
@@ -389,10 +328,16 @@ RESOLVED_SEAT_SQL = {
             r.current_name AS currentName,
             r.current_party AS currentParty,
             r.current_status AS currentStatus,
-            r.current_person_id AS currentPersonId
+            r.current_person_id AS currentPersonId,
+            e.district_seat AS districtSeat,
+            e.election_actor AS electionActor,
+            e.winning_votes AS winningVotes,
+            e.winning_pct AS winningPct
         FROM dim_diputados d
         JOIN fact_legislature_66_seat_resolved r
           ON r.seat_id = d.diputado_id AND r.chamber = 'DIP'
+        LEFT JOIN fact_legislature_66_seat_election_result e
+          ON e.seat_id = r.seat_id AND e.chamber = 'DIP'
         WHERE d.legislature = 66
         ORDER BY d.party_key, d.display_name
     """,
@@ -414,25 +359,23 @@ RESOLVED_SEAT_SQL = {
             r.current_name AS currentName,
             r.current_party AS currentParty,
             r.current_status AS currentStatus,
-            r.current_person_id AS currentPersonId
+            r.current_person_id AS currentPersonId,
+            e.district_seat AS districtSeat,
+            e.election_actor AS electionActor,
+            e.winning_votes AS winningVotes,
+            e.winning_pct AS winningPct
         FROM dim_senadores s
         JOIN fact_legislature_66_seat_resolved r
           ON r.seat_id = s.senador_seat_id AND r.chamber = 'SEN'
+        LEFT JOIN fact_legislature_66_seat_election_result e
+          ON e.seat_id = r.seat_id AND e.chamber = 'SEN'
         WHERE s.legislature = 66
         ORDER BY s.party_key, s.display_name
     """,
 }
 
-NO_ELECTION_RESULT = {
-    "districtSeat": None,
-    "electionActor": None,
-    "winningVotes": None,
-    "winningPct": None,
-}
-
-
 def load_resolved_seats(conn: sqlite3.Connection, chamber: str) -> list[dict]:
-    """Seats with occupancy already resolved upstream.
+    """Seats with occupancy and winning margin already resolved upstream.
 
     Raises rather than degrading if the resolution tables are missing: an empty
     hemicycle published as if it were the real chamber is worse than no build.
@@ -445,7 +388,8 @@ def load_resolved_seats(conn: sqlite3.Connection, chamber: str) -> list[dict]:
         # rather than surfacing "no such table" from four frames down.
         raise SystemExit(
             f"Cannot export {chamber}: {error}. "
-            "Run ingestion/congress_seat_member_resolve.py first."
+            "Run ingestion/congress_seat_member_resolve.py and "
+            "ingestion/legislature_66_election_results.py first."
         ) from error
     if not seats:
         raise SystemExit(
@@ -453,32 +397,6 @@ def load_resolved_seats(conn: sqlite3.Connection, chamber: str) -> list[dict]:
             "Run ingestion/congress_seat_member_resolve.py first."
         )
     return seats
-
-
-def apply_election_results(
-    seats: list[dict], results: dict[tuple, dict], chamber: str
-) -> None:
-    """Attach the winning margin to the seats that were won outright.
-
-    Chamber-explicit on purpose. A Camara district is identified by its federal
-    district number and only MR seats have one; a Senado seat is identified by
-    its position on the state list, and both MR and first-minority seats carry a
-    result. Collapsing the two into one key would quietly mis-join.
-    """
-    for seat in seats:
-        if chamber == "DIP":
-            result = (
-                results.get((seat["stateId"], seat["district"]))
-                if seat["seatType"] == "MR"
-                else None
-            )
-        else:
-            result = (
-                results.get((seat["stateId"], seat["listNumber"]))
-                if seat["seatType"] in {"MR", "FM"}
-                else None
-            )
-        seat.update(result or NO_ELECTION_RESULT)
 
 
 def load_roster_meta(conn: sqlite3.Connection, chamber: str) -> dict:
@@ -593,7 +511,6 @@ def build_chamber_payload(
     chamber: str,
     votes: list[dict],
     party_votes: dict,
-    election_results: dict[tuple, dict],
     schema_version: int = 6,
 ) -> dict:
     """Assemble one chamber's hemicycle payload from the resolved warehouse.
@@ -604,7 +521,6 @@ def build_chamber_payload(
     reads those answers and shapes them; it does not re-derive any of them.
     """
     seats = load_resolved_seats(conn, chamber)
-    apply_election_results(seats, election_results, chamber)
 
     return {
         "manifest": {
@@ -639,19 +555,17 @@ def write_payload(path: Path, payload: dict) -> None:
 
 
 def export() -> None:
-    election_results = load_mr_election_results()
     with sqlite3.connect(DB_PATH) as conn:
         payload = build_chamber_payload(
-            conn, "DIP", camara_votes(conn), camara_party_votes(conn), election_results
+            conn, "DIP", camara_votes(conn), camara_party_votes(conn)
         )
     write_payload(OUT_PATH, payload)
 
 
 def export_senate() -> None:
-    election_results = load_senate_election_results()
     with sqlite3.connect(DB_PATH) as conn:
         payload = build_chamber_payload(
-            conn, "SEN", senado_votes(conn), senado_party_votes(conn), election_results
+            conn, "SEN", senado_votes(conn), senado_party_votes(conn)
         )
     write_payload(SENATE_OUT_PATH, payload)
 
