@@ -441,9 +441,15 @@ def canonical_histories(
     aliases: dict[str, str],
     votes: list[dict],
 ) -> dict[str, list[list[str]]]:
-    """Merge audited source identities without losing the raw attribution."""
+    """Merge audited source identities without losing the raw attribution.
+
+    `people` is a set, so it is seeded in sorted order: iterating it directly
+    let Python's hash randomization reorder the output dict on every run, which
+    made a 5.9 MB payload register as changed when nothing about the data had.
+    The values were never affected, only the key order.
+    """
     histories: dict[str, dict[str, str]] = {
-        aliases.get(str(person), str(person)): {} for person in people
+        aliases.get(str(person), str(person)): {} for person in sorted(people)
     }
     for row in vote_rows:
         person_id = aliases.get(str(row["personId"]), str(row["personId"]))
