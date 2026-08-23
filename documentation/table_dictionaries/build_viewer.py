@@ -60,6 +60,7 @@ TABLE_GROUPS: OrderedDict[str, list[str]] = OrderedDict(
             "fact_congress_roster_seat",
             "fact_congress_seat_occupancy",
             "fact_congress_party_membership",
+            "fact_legislature_66_deputy_seat_member",
         ],
     }
 )

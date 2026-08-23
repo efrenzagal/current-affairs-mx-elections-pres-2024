@@ -75,6 +75,26 @@ AUDITED_PERSON_ALIASES = {
 }
 
 
+LXVI_DEPUTY_SEAT_MEMBER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS fact_legislature_66_deputy_seat_member (
+    seat_id                  TEXT NOT NULL,
+    deputy_id                TEXT NOT NULL,
+    deputy_name              TEXT NOT NULL,
+    party_key                TEXT NOT NULL,
+    seat_role                TEXT NOT NULL CHECK (seat_role IN ('titular', 'suplente')),
+    is_current_occupant      INTEGER NOT NULL CHECK (is_current_occupant IN (0, 1)),
+    relationship_source_url TEXT,
+    created_at               TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (seat_id, deputy_id),
+    FOREIGN KEY (seat_id) REFERENCES dim_diputados(diputado_id),
+    FOREIGN KEY (deputy_id) REFERENCES dim_gaceta_deputy(deputy_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lxvi_deputy_seat_member_person
+    ON fact_legislature_66_deputy_seat_member(deputy_id);
+"""
+
+
 def rows(conn: sqlite3.Connection, query: str, params: tuple = ()) -> list[dict]:
     conn.row_factory = sqlite3.Row
     return [dict(row) for row in conn.execute(query, params)]
@@ -558,6 +578,51 @@ def build_seat_vote_data(
     return seat_histories, seat_members, conflicts
 
 
+def materialize_lxvi_deputy_seat_members(
+    conn: sqlite3.Connection,
+    seats: list[dict],
+    seat_members: dict[str, list[dict]],
+) -> int:
+    """Persist the LXVI Camara seat/person bridge assembled for the web view.
+
+    The generic roster tables only know people observed at directory snapshot
+    dates. This table retains the exporter’s audited links for titulares,
+    current suplentes and concluded suplencias across LXVI roll calls.
+    """
+    current_by_seat = {
+        str(seat["id"]): str(seat["currentPersonId"])
+        if seat.get("currentPersonId")
+        else None
+        for seat in seats
+    }
+    records = [
+        (
+            seat_id,
+            str(member["personId"]),
+            member["name"],
+            member["party"],
+            member["role"],
+            int(current_by_seat.get(seat_id) == str(member["personId"])),
+            member.get("sourceUrl"),
+        )
+        for seat_id, members in seat_members.items()
+        for member in members
+    ]
+
+    conn.executescript(LXVI_DEPUTY_SEAT_MEMBER_SCHEMA)
+    conn.execute("DELETE FROM fact_legislature_66_deputy_seat_member")
+    conn.executemany(
+        """
+        INSERT INTO fact_legislature_66_deputy_seat_member (
+            seat_id, deputy_id, deputy_name, party_key, seat_role,
+            is_current_occupant, relationship_source_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        records,
+    )
+    return len(records)
+
+
 def load_mr_election_results() -> dict[tuple[int, int], dict]:
     results: dict[tuple[int, int], dict] = {}
     with INE_INTEGRATION_PATH.open(encoding="utf-8-sig", newline="") as source:
@@ -964,6 +1029,7 @@ def export() -> None:
         seat_histories, seat_members, seat_vote_conflicts = build_seat_vote_data(
             seats, former_members, histories, votes, roster_meta["sourceUrl"]
         )
+        materialize_lxvi_deputy_seat_members(conn, seats, seat_members)
 
         party_votes = camara_party_votes(conn)
 
