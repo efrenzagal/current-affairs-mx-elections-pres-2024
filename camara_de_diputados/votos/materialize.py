@@ -41,9 +41,9 @@ Alignment definition:
     votes_with_active_vote.
 
 Usage:
-    /usr/bin/python3 ingestion/gaceta_materialize.py
-    /usr/bin/python3 ingestion/gaceta_materialize.py --db path/to/other.db
-    /usr/bin/python3 ingestion/gaceta_materialize.py --force
+    /usr/bin/python3 camara_de_diputados/votos/materialize.py
+    /usr/bin/python3 camara_de_diputados/votos/materialize.py --db path/to/other.db
+    /usr/bin/python3 camara_de_diputados/votos/materialize.py --force
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT        = Path(__file__).resolve().parents[1]
+ROOT        = Path(__file__).resolve().parents[2]
 DB_PATH     = ROOT / "election_data.db"
 OUT_DIR     = ROOT / "data" / "materialized"
 

@@ -647,7 +647,7 @@ def render_trajectory():
     )
     if df_ts.empty:
         st.info("No se encontró el archivo de series de tiempo. "
-                "Ejecuta `python ingestion/electoral_materialize.py timeseries` primero.")
+                "Ejecuta `python electoral/materialize.py timeseries` primero.")
     else:
         render_timeseries_for_estado(df_ts, id_estado_geo, ts_label)
 

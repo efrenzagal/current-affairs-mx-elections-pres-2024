@@ -1,7 +1,9 @@
 import sqlite3
 import unittest
 
-from ingestion.congress_roster_ingest import (
+# DIP fixtures throughout, so this exercises the Camara's copy of the temporal
+# rebuild; the Senado's is pinned to it by tests/test_chamber_pipeline_parity.py.
+from camara_de_diputados.composicion.ingest import (
     SCHEMA,
     _rebuild_occupancy_history,
     _rebuild_party_membership_history,

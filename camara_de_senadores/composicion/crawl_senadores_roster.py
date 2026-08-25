@@ -3,7 +3,7 @@
 The Senate publishes all senators currently in office on a single
 group-labelled directory page. Raw HTML is cached for auditability and the
 parsed snapshot is written as a CSV file consumed by
-``ingestion.congress_roster_ingest``.
+``camara_de_senadores.composicion.ingest``.
 
 Run from the repository root::
 

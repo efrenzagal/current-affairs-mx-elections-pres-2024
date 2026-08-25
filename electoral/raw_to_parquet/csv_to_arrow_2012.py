@@ -297,7 +297,7 @@ def build_dim_candidatos(election_type: str) -> pd.DataFrame:
 
 def build_fact(df: pd.DataFrame, party_keys: list, election_id: str) -> pd.DataFrame:
     """
-    Vote metadata mapping (2012 → canonical names for ingestion/electoral_ingest.py SCHEMA_MAP):
+    Vote metadata mapping (2012 → canonical names for electoral/ingest.py SCHEMA_MAP):
       NO_REGISTRADOS → CNR        (NUM_VOTOS_CAN_NREG in 2024, CNR in 2018)
       NULOS          → VN         (NUM_VOTOS_NULOS in 2024, VN in 2018)
       TOTAL_VOTOS    → TOTAL_VOTOS (same as 2024; TOTAL_VOTOS_CALCULADOS in 2018)
@@ -412,10 +412,14 @@ if not dim_candidatos_final.empty:
 else:
     print("  ⚠️  dim_candidatos is empty — skipping parquet write")
 
+# delete_matching clears each partition before writing. Without it pyarrow
+# defaults to overwrite_or_ignore, which drops a second randomly-named copy
+# of every row into the existing partition dir on each re-run.
 fact_final.to_parquet(
     OUT / "fact_casilla_vote.parquet",
     index=False,
     partition_cols=["election_id"],
+    existing_data_behavior="delete_matching",
 )
 
 print("\nWritten to", OUT.resolve())

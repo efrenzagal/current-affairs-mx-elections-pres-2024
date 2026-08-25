@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 # One alias table for the whole project. The Gaceta prints MORENA as "MRN" and
 # independents as "CAND_INDEPENDIENTE", so without this the hemicycle legend and
 # the vote breakdown on the same page label the same bench differently.
-from ingestion.congress_roster_ingest import (  # noqa: E402
+from lib.canonical import (  # noqa: E402
     canonical_classification_code as canonical_code,
     canonical_party,
 )
@@ -22,8 +22,19 @@ from ingestion.congress_roster_ingest import (  # noqa: E402
 # Seat occupancy, identity aliases and the seat/person bridge are resolved and
 # stored by the warehouse. This script reads those answers; it does not make
 # them. person_histories is the one derivation still applied at read time --
-# see its docstring for why it is not a stored table.
-from ingestion.congress_seat_member_resolve import person_histories  # noqa: E402
+# see its docstring for why it is not a stored table. Each chamber resolves its
+# own, so this exporter picks the right one rather than passing a chamber flag.
+from camara_de_diputados.escanos.seat_members import (  # noqa: E402
+    person_histories as camara_person_histories,
+)
+from camara_de_senadores.escanos.seat_members import (  # noqa: E402
+    person_histories as senado_person_histories,
+)
+
+PERSON_HISTORIES = {
+    "DIP": camara_person_histories,
+    "SEN": senado_person_histories,
+}
 
 DB_PATH = ROOT / "election_data.db"
 OUT_PATH = ROOT / "web" / "public" / "data" / "legislature-66.json"
@@ -170,7 +181,7 @@ def add_camara_thresholds(
 
     Camara-only, because the arithmetic keys off `total` meaning the full
     500-seat chamber. Read rather than recomputed: the derivation lives in
-    ingestion/gaceta_materialize.py so that "mayoria calificada" means the same
+    camara_de_diputados/votos/materialize.py so that "mayoria calificada" means the same
     thing in Streamlit and here.
     """
     stored = {
@@ -193,7 +204,7 @@ def add_camara_thresholds(
     if missing:
         raise SystemExit(
             f"{len(missing)} Camara votes have no stored thresholds "
-            f"(first: {missing[0]}). Run ingestion/gaceta_materialize.py first."
+            f"(first: {missing[0]}). Run camara_de_diputados/votos/materialize.py first."
         )
     for vote in votes:
         vote["thresholds"] = stored[vote["id"]]
@@ -306,7 +317,7 @@ def senado_party_votes(conn: sqlite3.Connection) -> dict[str, dict[str, dict[str
 
 # The seat payload joins two things: the immutable electoral identity in
 # dim_diputados/dim_senadores, and the resolved occupancy the warehouse worked
-# out in ingestion/congress_seat_member_resolve.py. Column order here is the
+# out in each chamber's escanos/seat_members.py. Column order here is the
 # published key order, so keep it stable.
 RESOLVED_SEAT_SQL = {
     "DIP": """
@@ -387,13 +398,13 @@ def load_resolved_seats(conn: sqlite3.Connection, chamber: str) -> list[dict]:
         # rather than surfacing "no such table" from four frames down.
         raise SystemExit(
             f"Cannot export {chamber}: {error}. "
-            "Run ingestion/congress_seat_member_resolve.py and "
-            "ingestion/legislature_66_election_results.py first."
+            "Run this chamber's escanos/seat_members.py and "
+            "escanos/seat_margins.py first."
         ) from error
     if not seats:
         raise SystemExit(
             f"No resolved seats for {chamber}. "
-            "Run ingestion/congress_seat_member_resolve.py first."
+            "Run this chamber's escanos/seat_members.py first."
         )
     return seats
 
@@ -516,7 +527,7 @@ def build_chamber_payload(
 
     Every identity decision behind this -- which roll-call name is which person,
     which seat they occupied, which of two reported votes a seat actually cast --
-    was made and recorded by ingestion/congress_seat_member_resolve.py. This
+    was made and recorded by each chamber's escanos/seat_members.py. This
     reads those answers and shapes them; it does not re-derive any of them.
     """
     seats = load_resolved_seats(conn, chamber)
@@ -537,7 +548,7 @@ def build_chamber_payload(
         "formerMembers": load_former_members(conn, chamber),
         "personAliases": load_person_alias_map(conn, chamber),
         "votes": votes,
-        "histories": person_histories(conn, chamber),
+        "histories": PERSON_HISTORIES[chamber](conn),
         "seatMembers": load_seat_members(conn, chamber, seats),
         "seatVoteConflicts": load_seat_vote_conflicts(conn, chamber),
         "partyVotes": party_votes,

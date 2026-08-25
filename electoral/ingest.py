@@ -4,15 +4,15 @@ Electoral Ingest — clean parquets → SQLite
 Loads clean per-cycle parquets into election_data.db.
 
 This file never touches raw CSVs. Per-cycle CSV → Parquet extraction lives in
-raw_electoral_data_converters/. This script only reads from
+raw_to_parquet/. This script only reads from
 data/electoral_data_clean/ from here on.
 
-Once SQLite is populated, run ingestion/electoral_materialize.py to build the Parquet
+Once SQLite is populated, run electoral/materialize.py to build the Parquet
 files Streamlit reads (per-election views + the multi-year timeseries).
 
 Usage:
-    python -m ingestion.electoral_ingest              # full clean rebuild
-    python -m ingestion.electoral_ingest --year 2000  # replace one cycle only
+    python -m electoral.ingest              # full clean rebuild
+    python -m electoral.ingest --year 2000  # replace one cycle only
 """
 
 import argparse
@@ -21,7 +21,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional
 
-from ingestion.shared import CANONICAL_ESTADO_NOMBRES, DB_PATH, canonical_estado
+from electoral.states import CANONICAL_ESTADO_NOMBRES, DB_PATH, canonical_estado
 
 
 # ── Election registry ──────────────────────────────────────────────────────────

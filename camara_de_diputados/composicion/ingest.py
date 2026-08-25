@@ -1,34 +1,44 @@
-"""Resolve official current Congreso rosters onto stable INE seat identities.
+"""Resolve the current official Camara de Diputados roster onto INE seat identities.
 
-This pipeline is deliberately independent from vote ingestion.  It preserves
-the election-time identity and party in ``dim_diputados`` / ``dim_senadores``
-and appends dated current-roster snapshots for the hemicycle.
+This pipeline is deliberately independent from vote ingestion. It preserves the
+election-time identity and party in ``dim_diputados`` and appends dated current-roster
+snapshots for the hemicycle.
+
+The counterpart chamber runs the same steps in
+`camara_de_senadores/composicion/ingest.py`. Both write the same four tables, keyed by
+`chamber`, and each run deletes only its own chamber's rows -- so one can be
+re-ingested without disturbing the other.
 
 Usage::
 
-    python -m ingestion.congress_roster_ingest
+    python -m camara_de_diputados.composicion.ingest
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
-import re
 import sqlite3
-import unicodedata
+import sys
 from pathlib import Path
 
 import pandas as pd
 
-from ingestion.person_names import match_person_name, person_name_similarity, person_name_tokens
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from lib.canonical import canonical_party, state_key  # noqa: E402
+from lib.person_names import match_person_name, person_name_similarity  # noqa: E402
 
 
-ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "election_data.db"
 ROSTER_DIR = ROOT / "data" / "clean_congress_rosters"
-REVIEW_PATH = ROOT / "data" / "current_congress_review.csv"
-RECONCILIATION_PATH = ROOT / "data" / "congress_reconciliation.csv"
+ROSTER_PATH = ROSTER_DIR / "diputados_current.csv"
+REVIEW_PATH = ROOT / "data" / "diputados_roster_review.csv"
+RECONCILIATION_PATH = ROOT / "data" / "diputados_roster_reconciliation.csv"
 LEGISLATURE = 66
+CHAMBER = "DIP"
+CONSTITUTIONAL_SEATS = 500
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS dim_congress_roster_snapshot (
@@ -110,91 +120,19 @@ CREATE INDEX IF NOT EXISTS idx_congress_membership_asof
     ON fact_congress_party_membership(chamber, person_id, source_type, valid_from, valid_to);
 """
 
-PARTY_ALIASES = {"MRN": "MORENA", "CAND_INDEPENDIENTE": "IND", "SIN GRUPO": "SG"}
-
 # Official profile IDs mapped to stable INE seats where the directory shortens
 # or corrects the registered name enough to fall below the conservative global
 # matcher.  These are deliberately seat-specific and must remain audited.
 AUDITED_CURRENT_SEAT_OVERRIDES = {
     # SITL corrects INE's "ARIÑANO" typo to "Artiñano".
-    ("DIP", "391"): "DIP_55F71017CA0A",
+    "391": "DIP_55F71017CA0A",
     # SITL omits Francisco/Federico from Francisco Arturo Federico Ávila Anaya.
-    ("DIP", "343"): "DIP_B6B0C4B44745",
+    "343": "DIP_B6B0C4B44745",
     # SITL renders María de Jesús Rosete Sánchez simply as "Rosete María".
-    ("DIP", "437"): "DIP_2EAFAA11EFF1",
+    "437": "DIP_2EAFAA11EFF1",
     # SITL shortens Olga del Carmen Sánchez Cordero Dávila.
-    ("DIP", "431"): "DIP_0440365B05A3",
-    # Senado profile 1511 shortens Susana del Carmen Zatarain García.
-    ("SEN", "1511"): "SEN_6B8192E5D164",
+    "431": "DIP_0440365B05A3",
 }
-
-
-def canonical_party(value: object) -> str:
-    party = str(value or "").strip().upper()
-    return PARTY_ALIASES.get(party, party)
-
-
-# Both chambers classify against the same taxonomy but not the same spelling.
-# `dictamen_de_comision(es)` is one concept written two ways, and on a page that
-# lists both chambers it would otherwise render as two filter chips meaning the
-# same thing. The minuta codes look like the same case and are not: each names
-# the chamber a bill arrived *from*, so they stay distinct.
-CLASSIFICATION_ALIASES = {
-    "dictamen_de_comisiones": "dictamen_de_comision",
-}
-
-
-def canonical_classification_code(value: object) -> str | None:
-    """Collapse spelling variants of one classification code.
-
-    Same problem as `canonical_party` and solved in the same place: a label that
-    means one thing must not reach two front ends as two things.
-    """
-    if not value:
-        return None
-    code = str(value)
-    return CLASSIFICATION_ALIASES.get(code, code)
-
-
-# Unlike PARTY_ALIASES (short codes only, from clean official directories),
-# initiative proposer text is free-form: official full names, casing
-# variants, and -- for multi-signatory initiatives -- a party abbreviation
-# trailing a list of co-signer names. canonical_party_from_text() handles
-# that shape; PARTY_NAME_ALIASES intentionally omits SIN GRUPO/SG, which
-# never appears as a proposer's party.
-PARTY_NAME_ALIASES = {
-    "MORENA": "MORENA",
-    "PAN": "PAN", "PARTIDO ACCION NACIONAL": "PAN",
-    "PRI": "PRI", "PARTIDO REVOLUCIONARIO INSTITUCIONAL": "PRI",
-    "PRD": "PRD", "PARTIDO DE LA REVOLUCION DEMOCRATICA": "PRD",
-    "PVEM": "PVEM", "PARTIDO VERDE ECOLOGISTA DE MEXICO": "PVEM",
-    "PARTIDO VERDE ECOLOGISTA": "PVEM", "PARTIDO VERDE": "PVEM",
-    "PT": "PT", "PARTIDO DEL TRABAJO": "PT", "PARTIDO TRABAJO": "PT",
-    "MC": "MC", "MOVIMIENTO CIUDADANO": "MC",
-    "IND": "IND", "INDEPENDIENTE": "IND", "CAND_INDEPENDIENTE": "IND",
-}
-
-
-def canonical_party_from_text(value: object) -> str | None:
-    """Best-effort party normalization for free-text proposer strings.
-
-    Tries the whole string first, then each comma/semicolon-separated
-    segment (handles both "NAME1, NAME2, PARTY" and "PARTY; y suscrita por
-    ..." shapes). Returns None rather than guessing when nothing in the
-    string matches a known party name or abbreviation -- callers should
-    keep the raw text alongside this column rather than treat None as an
-    error.
-    """
-    if not value:
-        return None
-    text = str(value)
-    candidates = [text] + re.split(r"[,;]", text)
-    for candidate in candidates:
-        key = candidate.strip().upper()
-        key = "".join(c for c in unicodedata.normalize("NFD", key) if unicodedata.category(c) != "Mn")
-        if key in PARTY_NAME_ALIASES:
-            return PARTY_NAME_ALIASES[key]
-    return None
 
 
 def _stable_id(prefix: str, *parts: object) -> str:
@@ -208,24 +146,6 @@ def _person_id(chamber: str, member_source_id: object, vote_person_id: object) -
     if pd.notna(member_source_id) and str(member_source_id).strip():
         return f"{chamber}_PROFILE_{str(member_source_id).strip()}"
     return None
-
-
-def state_key(value: object) -> str:
-    text = (
-        unicodedata.normalize("NFKD", str(value or ""))
-        .encode("ascii", "ignore")
-        .decode("ascii")
-        .upper()
-    )
-    text = re.sub(r"[^A-Z]+", " ", text).strip()
-    aliases = {
-        "CDMX": "CIUDAD DE MEXICO",
-        "COAHUILA": "COAHUILA DE ZARAGOZA",
-        "MICHOACAN": "MICHOACAN DE OCAMPO",
-        "ESTADO DE MEXICO": "MEXICO",
-        "VERACRUZ": "VERACRUZ DE IGNACIO DE LA LLAVE",
-    }
-    return aliases.get(text, text)
 
 
 def _candidate_lookup(seats: pd.DataFrame, subset: pd.DataFrame | None = None) -> dict[str, tuple[int, str]]:
@@ -274,7 +194,7 @@ def _resolve_vote_person(name: str, roster_by_name: dict[str, str]) -> str | Non
     return roster_by_name.get(matched) if matched else None
 
 
-def resolve_diputados(conn: sqlite3.Connection, roster: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
+def resolve_seats(conn: sqlite3.Connection, roster: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
     seats = pd.read_sql_query(
         """
         SELECT diputado_id AS seat_id, party_key AS election_party, seat_type,
@@ -296,7 +216,7 @@ def resolve_diputados(conn: sqlite3.Connection, roster: pd.DataFrame) -> tuple[p
         method = "unmatched"
         score: float | None = None
         override_id = AUDITED_CURRENT_SEAT_OVERRIDES.get(
-            ("DIP", str(member["member_source_id"]))
+            str(member["member_source_id"])
         )
         if override_id is not None:
             candidates = seats[seats["seat_id"] == override_id]
@@ -325,7 +245,7 @@ def resolve_diputados(conn: sqlite3.Connection, roster: pd.DataFrame) -> tuple[p
         if seat_index is None or seat_index in assignments:
             review.append(
                 {
-                    "chamber": "DIP",
+                    "chamber": CHAMBER,
                     "member_source_id": member["member_source_id"],
                     "current_name": member["current_name"],
                     "current_party": member["current_party"],
@@ -340,74 +260,17 @@ def resolve_diputados(conn: sqlite3.Connection, roster: pd.DataFrame) -> tuple[p
             "match_score": score,
         }
 
-    return _combine_seats(seats, assignments, "DIP"), review
+    return _combine_seats(seats, assignments), review
 
 
-def resolve_senadores(conn: sqlite3.Connection, roster: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
-    seats = pd.read_sql_query(
-        """
-        SELECT senador_seat_id AS seat_id, party_key AS election_party, seat_type,
-               id_estado, nombre_estado, NULL AS id_distrito_federal,
-               NULL AS circunscripcion, numero_lista, ine_candidate_name,
-               ine_substitute_name, display_name AS election_name, senador_id
-        FROM dim_senadores WHERE legislature = ? ORDER BY senador_seat_id
-        """,
-        conn,
-        params=(LEGISLATURE,),
-    )
-    by_vote_id = {
-        str(int(row.senador_id)): int(index)
-        for index, row in seats.dropna(subset=["senador_id"]).iterrows()
-    }
-    all_candidates = _candidate_lookup(seats)
-    assignments: dict[int, dict] = {}
-    review: list[dict] = []
-
-    for _, member in roster.iterrows():
-        source_id = str(member["member_source_id"])
-        override_id = AUDITED_CURRENT_SEAT_OVERRIDES.get(("SEN", source_id))
-        if override_id is not None:
-            candidates = seats[seats["seat_id"] == override_id]
-            seat_index = int(candidates.index[0]) if len(candidates) == 1 else None
-            method, score = "audited_seat_override", person_name_similarity(
-                member["current_name"], candidates.iloc[0]["election_name"]
-            ) if len(candidates) == 1 else None
-        else:
-            seat_index = by_vote_id.get(source_id)
-            method, score = ("existing_senado_id", 1.0) if seat_index is not None else ("unmatched", None)
-        if seat_index is None:
-            seat_index, method, score = _match_candidate(str(member["current_name"]), all_candidates)
-        if seat_index is None or seat_index in assignments:
-            review.append(
-                {
-                    "chamber": "SEN",
-                    "member_source_id": source_id,
-                    "current_name": member["current_name"],
-                    "current_party": member["current_party"],
-                    "reason": "duplicate_seat" if seat_index in assignments else method,
-                }
-            )
-            continue
-        assignments[seat_index] = {
-            **member.to_dict(),
-            "vote_person_id": source_id if conn.execute(
-                "SELECT 1 FROM dim_senador WHERE senador_id = ?", (int(source_id),)
-            ).fetchone() else None,
-            "match_method": method,
-            "match_score": score,
-        }
-
-    return _combine_seats(seats, assignments, "SEN"), review
-
-
-def _combine_seats(seats: pd.DataFrame, assignments: dict[int, dict], chamber: str) -> pd.DataFrame:
+def _combine_seats(seats: pd.DataFrame, assignments: dict[int, dict]) -> pd.DataFrame:
     rows: list[dict] = []
     for index, seat in seats.iterrows():
         member = assignments.get(int(index))
         rows.append(
             {
                 "snapshot_id": member["snapshot_id"] if member else None,
-                "chamber": chamber,
+                "chamber": CHAMBER,
                 "seat_id": seat["seat_id"],
                 "member_source_id": member.get("member_source_id") if member else None,
                 "current_name": member.get("current_name") if member else None,
@@ -430,24 +293,20 @@ def _combine_seats(seats: pd.DataFrame, assignments: dict[int, dict], chamber: s
     return pd.DataFrame(rows)
 
 
-def _insert_snapshot(conn: sqlite3.Connection, roster: pd.DataFrame, resolved: pd.DataFrame, chamber: str) -> None:
+def _insert_snapshot(conn: sqlite3.Connection, roster: pd.DataFrame, resolved: pd.DataFrame) -> None:
     snapshot_id = str(roster.iloc[0]["snapshot_id"])
     resolved = resolved.copy()
     resolved["snapshot_id"] = snapshot_id
     meta = pd.DataFrame(
         [{
             "snapshot_id": snapshot_id,
-            "chamber": chamber,
+            "chamber": CHAMBER,
             "legislature": LEGISLATURE,
             "observed_at": roster.iloc[0]["observed_at"],
-            "source_url": (
-                "https://sitl.diputados.gob.mx/LXVI_leg/info_diputados.php"
-                if chamber == "DIP"
-                else roster.iloc[0]["source_url"]
-            ),
+            "source_url": "https://sitl.diputados.gob.mx/LXVI_leg/info_diputados.php",
             "source_sha256": roster.iloc[0]["source_sha256"],
             "roster_row_count": len(roster),
-            "constitutional_seats": 500 if chamber == "DIP" else 128,
+            "constitutional_seats": CONSTITUTIONAL_SEATS,
         }]
     )
     # Re-running ingestion for the exact same parsed snapshot is idempotent,
@@ -465,11 +324,11 @@ def _rebuild_occupancy_history(conn: sqlite3.Connection) -> pd.DataFrame:
         SELECT s.observed_at, r.*
         FROM fact_congress_roster_seat r
         JOIN dim_congress_roster_snapshot s USING(snapshot_id)
-        WHERE s.legislature = ?
-        ORDER BY r.chamber, r.seat_id, s.observed_at, r.snapshot_id
+        WHERE s.legislature = ? AND r.chamber = ?
+        ORDER BY r.seat_id, s.observed_at, r.snapshot_id
         """,
         conn,
-        params=(LEGISLATURE,),
+        params=(LEGISLATURE, CHAMBER),
     )
     rows: list[dict] = []
     state_columns = [
@@ -507,16 +366,18 @@ def _rebuild_occupancy_history(conn: sqlite3.Connection) -> pd.DataFrame:
                 "match_score": first.get("match_score"),
             })
     occupancy = pd.DataFrame(rows)
-    conn.execute("DELETE FROM fact_congress_seat_occupancy")
+    # Scoped: the other chamber's episodes live in this table too and are
+    # rebuilt by its own run.
+    conn.execute("DELETE FROM fact_congress_seat_occupancy WHERE chamber = ?", (CHAMBER,))
     if not occupancy.empty:
         occupancy.to_sql("fact_congress_seat_occupancy", conn, if_exists="append", index=False)
     return occupancy
 
 
 def _vote_membership_observations(conn: sqlite3.Connection) -> pd.DataFrame:
-    deputies = pd.read_sql_query(
+    observations = pd.read_sql_query(
         """
-        SELECT 'DIP' AS chamber, f.deputy_id AS person_id, f.party_key,
+        SELECT f.deputy_id AS person_id, f.party_key,
                v.vote_date AS observed_date, f.gaceta_vote_id AS source_ref
         FROM fact_gaceta_deputy_vote f
         JOIN dim_gaceta_vote v USING(gaceta_vote_id)
@@ -525,19 +386,7 @@ def _vote_membership_observations(conn: sqlite3.Connection) -> pd.DataFrame:
         conn,
         params=(LEGISLATURE,),
     )
-    senate = pd.read_sql_query(
-        """
-        SELECT 'SEN' AS chamber, CAST(f.senador_id AS TEXT) AS person_id,
-               COALESCE(NULLIF(f.grupo_parlamentario, ''), 'SG') AS party_key,
-               v.vote_date AS observed_date, CAST(f.votacion_id AS TEXT) AS source_ref
-        FROM fact_senador_vote f
-        JOIN dim_senado_vote v USING(votacion_id)
-        WHERE v.legislature = ? AND v.vote_date IS NOT NULL
-        """,
-        conn,
-        params=(LEGISLATURE,),
-    )
-    observations = pd.concat([deputies, senate], ignore_index=True)
+    observations["chamber"] = CHAMBER
     observations["party_key"] = observations["party_key"].map(canonical_party)
     return observations
 
@@ -614,7 +463,9 @@ def _rebuild_party_membership_history(
                 })
 
     membership = pd.DataFrame(rows)
-    conn.execute("DELETE FROM fact_congress_party_membership")
+    conn.execute(
+        "DELETE FROM fact_congress_party_membership WHERE chamber = ?", (CHAMBER,)
+    )
     if not membership.empty:
         membership.to_sql("fact_congress_party_membership", conn, if_exists="append", index=False)
     return membership
@@ -627,14 +478,16 @@ def build_reconciliation_report(conn: sqlite3.Connection) -> pd.DataFrame:
         SELECT r.*
         FROM fact_congress_roster_seat r
         JOIN dim_congress_roster_snapshot s USING(snapshot_id)
-        WHERE s.observed_at = (
+        WHERE r.chamber = ?
+          AND s.observed_at = (
             SELECT MAX(s2.observed_at)
             FROM dim_congress_roster_snapshot s2
             WHERE s2.chamber = r.chamber
         )
-        ORDER BY r.chamber, r.seat_id
+        ORDER BY r.seat_id
         """,
         conn,
+        params=(CHAMBER,),
     )
     latest_vote = pd.read_sql_query(
         """
@@ -644,8 +497,10 @@ def build_reconciliation_report(conn: sqlite3.Connection) -> pd.DataFrame:
                conflicting_observations
         FROM fact_congress_party_membership m
         WHERE source_type = 'vote_reported' AND valid_to IS NULL
+          AND chamber = ?
         """,
         conn,
+        params=(CHAMBER,),
     )
     roster["person_id"] = roster.apply(
         lambda row: _person_id(row["chamber"], row["member_source_id"], row["vote_person_id"]), axis=1
@@ -667,27 +522,20 @@ def build_reconciliation_report(conn: sqlite3.Connection) -> pd.DataFrame:
     ]]
 
 
-def materialize(db_path: Path = DB_PATH, roster_dir: Path = ROSTER_DIR) -> tuple[pd.DataFrame, pd.DataFrame]:
-    diputados_roster = pd.read_csv(roster_dir / "diputados_current.csv", dtype={"member_source_id": str})
-    senadores_roster = pd.read_csv(roster_dir / "senadores_current.csv", dtype={"member_source_id": str})
+def materialize(db_path: Path = DB_PATH, roster_path: Path = ROSTER_PATH) -> pd.DataFrame:
+    roster = pd.read_csv(roster_path, dtype={"member_source_id": str})
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA)
-        diputados, dip_review = resolve_diputados(conn, diputados_roster)
-        senadores, sen_review = resolve_senadores(conn, senadores_roster)
-        review = pd.DataFrame([*dip_review, *sen_review])
-        if not review.empty:
-            review.to_csv(REVIEW_PATH, index=False)
+        resolved, review = resolve_seats(conn, roster)
+        if review:
+            pd.DataFrame(review).to_csv(REVIEW_PATH, index=False)
             raise ValueError(
-                f"Current roster has {len(review)} unresolved/duplicate members; review {REVIEW_PATH}"
+                f"Current roster has {len(review)} unresolved/duplicate members;"
+                f" review {REVIEW_PATH}"
             )
-        if diputados["member_source_id"].notna().sum() != 500:
+        if resolved["member_source_id"].notna().sum() != CONSTITUTIONAL_SEATS:
             raise ValueError("Camara snapshot did not resolve all 500 seats")
-        if senadores["member_source_id"].notna().sum() != len(senadores_roster):
-            raise ValueError("Senate snapshot did not resolve every in-office member")
-        if senadores["member_status"].eq("vacante").sum() != 128 - len(senadores_roster):
-            raise ValueError("Senate vacancy count does not reconcile to the official in-office directory")
-        _insert_snapshot(conn, diputados_roster, diputados, "DIP")
-        _insert_snapshot(conn, senadores_roster, senadores, "SEN")
+        _insert_snapshot(conn, roster, resolved)
         occupancy = _rebuild_occupancy_history(conn)
         _rebuild_party_membership_history(conn, occupancy)
         reconciliation = build_reconciliation_report(conn)
@@ -695,20 +543,19 @@ def materialize(db_path: Path = DB_PATH, roster_dir: Path = ROSTER_DIR) -> tuple
     reconciliation.to_csv(RECONCILIATION_PATH, index=False)
     if REVIEW_PATH.exists():
         REVIEW_PATH.unlink()
-    return diputados, senadores
+    return resolved
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest current official Congreso rosters")
+    parser = argparse.ArgumentParser(
+        description="Ingest the current official Camara de Diputados roster"
+    )
     parser.add_argument("--db", type=Path, default=DB_PATH)
-    parser.add_argument("--roster-dir", type=Path, default=ROSTER_DIR)
+    parser.add_argument("--roster", type=Path, default=ROSTER_PATH)
     args = parser.parse_args()
-    diputados, senadores = materialize(args.db, args.roster_dir)
-    print(f"Resolved Camara: {diputados['member_source_id'].notna().sum()}/500")
+    resolved = materialize(args.db, args.roster)
     print(
-        "Resolved Senate: "
-        f"{senadores['member_source_id'].notna().sum()}/128 in office; "
-        f"{senadores['member_status'].eq('vacante').sum()} vacant"
+        f"Resolved Camara: {resolved['member_source_id'].notna().sum()}/500"
     )
 
 

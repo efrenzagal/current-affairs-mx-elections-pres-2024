@@ -6,4 +6,4 @@ election_actor,TEXT,Nullable attribute,"Partido o coalición que ganó el escañ
 winning_votes,INTEGER,Required attribute,"Votos obtenidos por la fórmula ganadora.","Votes obtained by the winning formula.",Non-negative integer,"From the INE integration CSV."
 winning_pct,REAL,Required attribute,"Porcentaje de la votación obtenido por la ganadora.","Percentage of the vote won.",0-100,"Percent sign stripped at load."
 source_url,TEXT,Required lineage,"Publicación oficial del INE que respalda el resultado.","Official INE publication backing the result.",URL,"The integration page for the 2023-2024 federal process."
-created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by ingestion/legislature_66_election_results.py."
+created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by congreso/seat_margins.py."

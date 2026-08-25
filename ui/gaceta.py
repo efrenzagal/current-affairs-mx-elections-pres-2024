@@ -20,7 +20,7 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-from ui.person_names import display_person_name
+from lib.person_names import display_person_name
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "election_data.db"
@@ -966,7 +966,7 @@ def render_gaceta(
     except FileNotFoundError:
         st.error(
             "Archivos de Gaceta no encontrados. "
-            "Ejecuta `python ingestion/gaceta_materialize.py` primero."
+            "Ejecuta `python camara_de_diputados/votos/materialize.py` primero."
         )
         return
 
@@ -988,7 +988,7 @@ def render_gaceta(
             if mapping.empty:
                 st.info(
                     "Este escaño todavía no está en `dim_diputados`. Ejecuta "
-                    "`python -m ingestion.diputados_ingest` para reconstruir el puente."
+                    "`python -m camara_de_diputados.escanos.ingest` para reconstruir el puente."
                 )
                 return
             mapped = mapping.iloc[0]

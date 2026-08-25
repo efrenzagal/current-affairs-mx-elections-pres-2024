@@ -20,7 +20,7 @@ Usage:
     python3 aux_scripts/hemicycle_explorer.py
 
 The warehouse (election_data.db) must already be built:
-    python3 ingestion/electoral_ingest.py
+    python3 electoral/ingest.py
 """
 
 from __future__ import annotations
@@ -37,9 +37,9 @@ from aux_scripts.seat_allocations.common import (
 )
 from camara_de_diputados.escanos import diputados as dip_mod
 from camara_de_senadores.escanos import senadores as sen_mod
-from ingestion.diputados_ingest import diputado_id_for_row
-from ingestion.senadores_ingest import senador_id_for_row
-from ui.person_names import display_person_name
+from camara_de_diputados.escanos.ingest import diputado_id_for_row
+from camara_de_senadores.escanos.ingest import senador_id_for_row
+from lib.person_names import display_person_name
 
 DB_PATH  = "election_data.db"
 OUT_PATH = "aux_scripts/seat_allocations/hemicycle_explorer.html"

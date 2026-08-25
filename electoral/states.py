@@ -1,6 +1,7 @@
 """
 Shared constants for the ingestion layer.
-Imported by both electoral_ingest.py and materialize.py so state names
+Imported by both electoral/ingest.py and its materialize.py so
+state names
 and normalization stay in sync across the full pipeline.
 """
 

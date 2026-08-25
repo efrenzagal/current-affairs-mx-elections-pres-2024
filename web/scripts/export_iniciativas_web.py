@@ -3,7 +3,7 @@
 Reads dim_gaceta_iniciativa and dim_senado_iniciativa -- who proposed each
 initiative, separate from the roll-call vote data in legislature-66.json /
 senate-66.json. party is already canonicalized at ingest time
-(ingestion.congress_roster_ingest.canonical_party_from_text); this script
+(lib.canonical.canonical_party_from_text); this script
 only reshapes and writes JSON, it does not re-derive anything.
 """
 

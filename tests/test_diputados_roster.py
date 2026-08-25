@@ -1,7 +1,7 @@
 import unittest
 
 from camara_de_diputados.composicion.crawl_diputados_roster import parse_diputados_group
-from ingestion.congress_roster_ingest import canonical_party, state_key
+from lib.canonical import canonical_party, state_key
 
 
 class DiputadosRosterParserTests(unittest.TestCase):

@@ -1,4 +1,4 @@
-"""Audited, source-backed corrections to the LXVI congressional record.
+"""Audited, source-backed corrections to the LXVI Camara de Senadores record.
 
 These rows are research findings, not derivations: each one records a decision a
 human reached after reading an official document, and carries the evidence that
@@ -10,6 +10,10 @@ supporting document a column to live in.
 Deliberately narrow: an override earns a row only when the automatic matchers
 cannot reach the right answer from the sources they have. Loosening those
 matchers instead would risk linking people who merely share a surname.
+
+The two CSVs stay shared and carry a ``chamber`` column: they are the audit
+trail a human edits and reviews, and one file per correction type keeps that
+review in one place. This module reads only the ``SEN`` rows.
 """
 
 from __future__ import annotations
@@ -18,29 +22,30 @@ import csv
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 SEAT_OVERRIDES_PATH = ROOT / "data" / "audited_seat_overrides.csv"
 PERSON_ALIASES_PATH = ROOT / "data" / "audited_person_aliases.csv"
 
-CHAMBERS = ("DIP", "SEN")
+CHAMBER = "SEN"
 
 
 def load_seat_overrides(
     path: Path = SEAT_OVERRIDES_PATH,
-) -> dict[tuple[str, str], dict[str, str | None]]:
-    """``(chamber, person_id)`` -> the seat an audited document places them in.
+) -> dict[str, dict[str, str | None]]:
+    """``person_id`` -> the seat an audited document places them in.
 
     A post-election legal event can seat a substitute who never appears in the
     final 2024 INE integration CSV. The suplente register is the only route from
     a roll call back to a place in the hemicycle, so without these rows those
     members are unplaceable and their bench goes dark.
     """
-    overrides: dict[tuple[str, str], dict[str, str | None]] = {}
+    overrides: dict[str, dict[str, str | None]] = {}
     with path.open(encoding="utf-8-sig", newline="") as source:
         for row in csv.DictReader(source):
-            key = (row["chamber"].strip(), row["person_id"].strip())
-            overrides[key] = {
+            if row["chamber"].strip() != CHAMBER:
+                continue
+            overrides[row["person_id"].strip()] = {
                 "seatId": row["seat_id"].strip(),
                 "sourceUrl": row["source_url"].strip() or None,
             }
@@ -49,17 +54,12 @@ def load_seat_overrides(
 
 def load_person_aliases(
     path: Path = PERSON_ALIASES_PATH,
-) -> dict[str, dict[str, str]]:
-    """``chamber`` -> ``{roll-call identity: canonical identity}``.
-
-    Every chamber in `CHAMBERS` is always present, so a caller can index the
-    result without first checking whether that chamber has any aliases yet.
-    """
-    aliases: dict[str, dict[str, str]] = {chamber: {} for chamber in CHAMBERS}
+) -> dict[str, str]:
+    """``roll-call identity`` -> ``canonical identity``, for this chamber only."""
+    aliases: dict[str, str] = {}
     with path.open(encoding="utf-8-sig", newline="") as source:
         for row in csv.DictReader(source):
-            chamber = row["chamber"].strip()
-            aliases.setdefault(chamber, {})[row["person_id"].strip()] = row[
-                "canonical_person_id"
-            ].strip()
+            if row["chamber"].strip() != CHAMBER:
+                continue
+            aliases[row["person_id"].strip()] = row["canonical_person_id"].strip()
     return aliases

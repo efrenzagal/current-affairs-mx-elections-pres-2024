@@ -12,19 +12,19 @@ Parquet files Streamlit reads from data/materialized/:
      used by the "serie de tiempo por partido" section -- coalition votes
      split proportionally to member parties across the whole history.
 
-Both halves used to live in separate scripts (ingestion/electoral_ingest.py's
+Both halves used to live in separate scripts (electoral/ingest.py's
 `materialize` command and root build_timeseries.py); they're merged here
 because they're really one step -- "SQLite is ready, now build everything
 Streamlit needs" -- and shared the same state-name canonicalization logic
 that's easy to let drift out of sync when duplicated across files.
 
-ingestion/electoral_ingest.py keeps only `ingest` (clean parquets -> SQLite).
+electoral/ingest.py keeps only `ingest` (clean parquets -> SQLite).
 
 Usage:
-    python ingestion/electoral_materialize.py              # views + timeseries
-    python ingestion/electoral_materialize.py views         # per-election views only
-    python ingestion/electoral_materialize.py timeseries    # timeseries parquet only
-    python ingestion/electoral_materialize.py --force       # overwrite existing files
+    python electoral/materialize.py              # views + timeseries
+    python electoral/materialize.py views         # per-election views only
+    python electoral/materialize.py timeseries    # timeseries parquet only
+    python electoral/materialize.py --force       # overwrite existing files
 """
 
 import argparse
@@ -40,7 +40,7 @@ from typing import Optional
 
 import pandas as pd
 
-from ingestion.shared import CANONICAL_ESTADO_NOMBRES, DB_PATH
+from electoral.states import CANONICAL_ESTADO_NOMBRES, DB_PATH
 
 # ── Shared config ──────────────────────────────────────────────────────────────
 MATERIALIZED      = Path("data/materialized")  # output: Streamlit reads these

@@ -41,14 +41,15 @@ def refresh_rosters() -> None:
     print("\n=== Rosters (Diputados + Senado composition) ===")
     run(PYTHON, "camara_de_diputados/composicion/crawl_diputados_roster.py", "--refresh")
     run(PYTHON, "camara_de_senadores/composicion/crawl_senadores_roster.py", "--refresh")
-    run(PYTHON, "-m", "ingestion.congress_roster_ingest")
+    run(PYTHON, "-m", "camara_de_diputados.composicion.ingest")
+    run(PYTHON, "-m", "camara_de_senadores.composicion.ingest")
     run(PYTHON, "aux_scripts/build_hemicycle_cache.py")
 
 
 def refresh_senado_votes() -> None:
     print("\n=== Senado roll-call votes ===")
     run(PYTHON, "camara_de_senadores/votos/crawl_senado_votes.py", "--all-votes")
-    run(PYTHON, "-m", "ingestion.senado_ingest", "--force")
+    run(PYTHON, "-m", "camara_de_senadores.votos.ingest", "--force")
 
 
 def refresh_gaceta_votes() -> int:
@@ -76,9 +77,9 @@ def refresh_gaceta_votes() -> int:
         "--out-dir",
         f"data/gaceta_votes/clean/by_legislature/legislature_{legislature}",
     )
-    run(PYTHON, "-m", "ingestion.gaceta_ingest", "--force")
-    run(PYTHON, "-m", "ingestion.diputados_ingest")
-    run(PYTHON, "ingestion/gaceta_materialize.py", "--force")
+    run(PYTHON, "-m", "camara_de_diputados.votos.ingest", "--force")
+    run(PYTHON, "-m", "camara_de_diputados.escanos.ingest")
+    run(PYTHON, "camara_de_diputados/votos/materialize.py", "--force")
     return legislature
 
 

@@ -15,7 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from ui.gaceta import _add_tile_coords, _calendar_grid_figure, _format_label, _tile_grid_figure
-from ui.person_names import display_person_name
+from lib.person_names import display_person_name
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "election_data.db"
@@ -315,7 +315,7 @@ def render_senador_view(
     """
     senadores = load_senado_roster(database_version)
     if senadores.empty:
-        st.info("Sin senadores cargados. Ejecuta `python -m ingestion.senado_ingest`.")
+        st.info("Sin senadores cargados. Ejecuta `python -m camara_de_senadores.votos.ingest`.")
         return False
 
     if requested_senador_id:
@@ -571,7 +571,7 @@ def render_senado(
         if mapping.empty:
             st.info(
                 "Este escaño todavía no está en `dim_senadores`. Ejecuta "
-                "`python -m ingestion.senadores_ingest` para reconstruir el puente."
+                "`python -m camara_de_senadores.escanos.ingest` para reconstruir el puente."
             )
             return
         mapped = mapping.iloc[0]

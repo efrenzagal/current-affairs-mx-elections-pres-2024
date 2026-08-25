@@ -16,7 +16,7 @@ The first body image is always the headline approval chart, and it is
 CUMULATIVE — it redraws the series back to Oct 2024 rather than showing only
 the current month. One image therefore reconstructs the whole series, and every
 new article restates months already on file, which is the overlap that
-ingestion/approval_ingest.py reconciles against.
+approval/ingest.py reconciles against.
 
 See aux_scripts/approval_rates/approval_refresh_runbook.md for the full procedure.
 
@@ -161,7 +161,7 @@ def main() -> None:
     print(
         "\nNext: open the chart images and transcribe values into\n"
         "  aux_scripts/approval_rates/chart_transcriptions.csv\n"
-        "then run: /usr/bin/python3 ingestion/approval_ingest.py"
+        "then run: /usr/bin/python3 approval/ingest.py"
     )
 
 

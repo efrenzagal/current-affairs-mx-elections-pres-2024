@@ -518,10 +518,14 @@ def main() -> None:
     else:
         print("  dim_candidatos is empty - skipping parquet write")
 
+    # delete_matching clears each partition before writing. Without it pyarrow
+    # defaults to overwrite_or_ignore, which drops a second randomly-named copy
+    # of every row into the existing partition dir on each re-run.
     fact_final.to_parquet(
         OUT / "fact_casilla_vote.parquet",
         index=False,
         partition_cols=["election_id"],
+        existing_data_behavior="delete_matching",
     )
 
     print("\nWritten to", OUT.resolve())

@@ -1,20 +1,20 @@
 """
-Load Camara de Diputados initiative-proposer data into the warehouse.
+Load Senado initiative-proposer data into the warehouse.
 
 Reads the CSV produced by
-camara_de_diputados/iniciativas/crawl_gaceta_iniciativas.py and populates:
+camara_de_senadores/iniciativas/crawl_senado_iniciativas.py and populates:
 
-    dim_gaceta_iniciativa — one row per initiative, with proposer identity
-    (when named), parliamentary group, committee referral, and — when the
-    initiative reached a floor vote — the vote_url that joins to
-    dim_gaceta_vote.source_url.
+    dim_senado_iniciativa — one row per initiative, with proposer identity
+    (when named), parliamentary group, committee referral, and publication
+    date. Primary key is the source's own "ID Publicación".
 
-After loading, runs automatic QA. Hard errors abort with exit code 1;
-soft warnings are printed but do not abort.
+No vote join exists yet for this table (unlike dim_gaceta_iniciativa) --
+no reliable direct link between a Senado initiative and its eventual
+dim_senado_vote row was found; that's flagged as future work.
 
 Usage:
-    /usr/bin/python3 ingestion/gaceta_iniciativas_ingest.py
-    /usr/bin/python3 ingestion/gaceta_iniciativas_ingest.py --force
+    /usr/bin/python3 camara_de_senadores/iniciativas/ingest.py
+    /usr/bin/python3 camara_de_senadores/iniciativas/ingest.py --force
 """
 
 from __future__ import annotations
@@ -26,17 +26,16 @@ from pathlib import Path
 
 import pandas as pd
 
-from ingestion.congress_roster_ingest import canonical_party_from_text
+from lib.canonical import canonical_party_from_text
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "election_data.db"
-CLEAN_PATH = ROOT / "data" / "clean_gaceta_iniciativas" / "dim_gaceta_iniciativa.csv"
+CLEAN_PATH = ROOT / "data" / "clean_senado_iniciativas" / "dim_senado_iniciativa.csv"
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS dim_gaceta_iniciativa (
-    gaceta_iniciativa_id  TEXT PRIMARY KEY,
-    legislature           INTEGER NOT NULL,
-    sequence_number        INTEGER,
+CREATE TABLE IF NOT EXISTS dim_senado_iniciativa (
+    senado_iniciativa_id  INTEGER PRIMARY KEY,
+    category               TEXT,
     title                  TEXT,
     proposer_type          TEXT,
     proposer_name          TEXT,
@@ -44,16 +43,13 @@ CREATE TABLE IF NOT EXISTS dim_gaceta_iniciativa (
     proposer_party_canonical TEXT,
     proposer_raw           TEXT,
     comision                TEXT,
-    gaceta_number           TEXT,
-    gaceta_date             TEXT,
-    vote_url                TEXT,
-    period_date             TEXT,
-    period_url              TEXT,
-    needs_review             INTEGER
+    fecha                    TEXT,
+    source_url               TEXT,
+    needs_review              INTEGER
 );
 """
 
-KNOWN_PROPOSER_TYPES = {"legislador", "ejecutivo", "minuta", "otro"}
+KNOWN_PROPOSER_TYPES = {"legislador", "otro"}
 
 
 def _warn(msg: str) -> None:
@@ -65,35 +61,30 @@ def _fail(msg: str) -> None:
 
 
 def drop_table(conn: sqlite3.Connection) -> None:
-    conn.execute("DROP TABLE IF EXISTS dim_gaceta_iniciativa")
+    conn.execute("DROP TABLE IF EXISTS dim_senado_iniciativa")
     conn.commit()
 
 
 def ingest(conn: sqlite3.Connection, clean_path: Path) -> None:
     df = pd.read_csv(clean_path)
-    df = df.dropna(subset=["legislature", "sequence_number"]).copy()
-    df["legislature"] = df["legislature"].astype(int)
-    df["sequence_number"] = df["sequence_number"].astype(int)
-    df["gaceta_iniciativa_id"] = (
-        "GACETA_INI_L" + df["legislature"].astype(str) + "_" + df["sequence_number"].astype(str)
-    )
+    df = df.dropna(subset=["senado_iniciativa_id"]).copy()
+    df["senado_iniciativa_id"] = df["senado_iniciativa_id"].astype(int)
     df["proposer_party_canonical"] = df["proposer_party"].map(canonical_party_from_text)
 
     before = len(df)
-    df = df.drop_duplicates(subset=["gaceta_iniciativa_id"], keep="first")
+    df = df.drop_duplicates(subset=["senado_iniciativa_id"], keep="first")
     if len(df) < before:
         _warn(f"Dropped {before - len(df):,} duplicate initiative rows")
 
     cols = [
-        "gaceta_iniciativa_id", "legislature", "sequence_number", "title",
-        "proposer_type", "proposer_name", "proposer_party", "proposer_party_canonical",
-        "proposer_raw", "comision", "gaceta_number", "gaceta_date", "vote_url",
-        "period_date", "period_url", "needs_review",
+        "senado_iniciativa_id", "category", "title", "proposer_type",
+        "proposer_name", "proposer_party", "proposer_party_canonical",
+        "proposer_raw", "comision", "fecha", "source_url", "needs_review",
     ]
     df = df[cols]
 
     chunksize = max(1, 999 // len(df.columns))
-    df.to_sql("dim_gaceta_iniciativa", conn, if_exists="append", index=False,
+    df.to_sql("dim_senado_iniciativa", conn, if_exists="append", index=False,
                method="multi", chunksize=chunksize)
     conn.commit()
     print(f"  iniciativas={len(df):,}")
@@ -105,18 +96,18 @@ def validate(conn: sqlite3.Connection) -> bool:
 
     dup_ids = conn.execute("""
         SELECT COUNT(*) FROM (
-            SELECT gaceta_iniciativa_id FROM dim_gaceta_iniciativa
-            GROUP BY gaceta_iniciativa_id HAVING COUNT(*) > 1
+            SELECT senado_iniciativa_id FROM dim_senado_iniciativa
+            GROUP BY senado_iniciativa_id HAVING COUNT(*) > 1
         )
     """).fetchone()[0]
     if dup_ids:
-        _fail(f"dim_gaceta_iniciativa has {dup_ids:,} duplicate primary keys — rerun with --force")
+        _fail(f"dim_senado_iniciativa has {dup_ids:,} duplicate primary keys — rerun with --force")
         hard_ok = False
     else:
-        print("  OK: dim_gaceta_iniciativa primary keys unique")
+        print("  OK: dim_senado_iniciativa primary keys unique")
 
     bad_types = conn.execute("""
-        SELECT DISTINCT proposer_type FROM dim_gaceta_iniciativa WHERE proposer_type IS NOT NULL
+        SELECT DISTINCT proposer_type FROM dim_senado_iniciativa WHERE proposer_type IS NOT NULL
     """).fetchall()
     unexpected = [r[0] for r in bad_types if r[0] not in KNOWN_PROPOSER_TYPES]
     if unexpected:
@@ -124,27 +115,13 @@ def validate(conn: sqlite3.Connection) -> bool:
     else:
         print("  OK: all proposer_type values are expected")
 
-    total = conn.execute("SELECT COUNT(*) FROM dim_gaceta_iniciativa").fetchone()[0]
-    with_vote = conn.execute(
-        "SELECT COUNT(*) FROM dim_gaceta_iniciativa WHERE vote_url IS NOT NULL"
-    ).fetchone()[0]
-    resolved = conn.execute("""
-        SELECT COUNT(*) FROM dim_gaceta_iniciativa i
-        JOIN dim_gaceta_vote v ON v.source_url = i.vote_url
-        WHERE i.vote_url IS NOT NULL
-    """).fetchone()[0]
-    if with_vote and resolved < with_vote:
-        _warn(f"{with_vote - resolved:,}/{with_vote:,} vote_url values don't resolve against dim_gaceta_vote.source_url")
-    else:
-        print(f"  OK: all {with_vote:,} vote_url values resolve against dim_gaceta_vote (of {total:,} total)")
-
     review_share = conn.execute(
-        "SELECT AVG(needs_review) FROM dim_gaceta_iniciativa"
+        "SELECT AVG(needs_review) FROM dim_senado_iniciativa"
     ).fetchone()[0] or 0.0
     print(f"  INFO: needs_review = {review_share:.1%} of rows")
 
     unmapped_party = conn.execute("""
-        SELECT COUNT(*) FROM dim_gaceta_iniciativa
+        SELECT COUNT(*) FROM dim_senado_iniciativa
         WHERE proposer_type = 'legislador' AND proposer_party_canonical IS NULL
     """).fetchone()[0]
     if unmapped_party:
@@ -161,7 +138,7 @@ def main() -> None:
     parser.add_argument("--db", default=str(DB_PATH))
     parser.add_argument("--clean-path", default=str(CLEAN_PATH))
     parser.add_argument("--force", action="store_true",
-                         help="Drop and recreate dim_gaceta_iniciativa before loading")
+                         help="Drop and recreate dim_senado_iniciativa before loading")
     args = parser.parse_args()
 
     db_path = Path(args.db)
@@ -175,7 +152,7 @@ def main() -> None:
     conn = sqlite3.connect(db_path)
 
     if args.force:
-        print("--force: dropping existing dim_gaceta_iniciativa")
+        print("--force: dropping existing dim_senado_iniciativa")
         drop_table(conn)
 
     conn.execute(SCHEMA)

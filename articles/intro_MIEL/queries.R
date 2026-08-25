@@ -62,6 +62,7 @@ library(tidyr)
 
 MIN_PARTY_DIRECTIONAL_VOTES <- 5L
 
+setwd('Documents/GitHub/current-affairs-mx-elections-pres-2024/')
 find_project_root <- function(path = getwd()) {
   current <- normalizePath(path, mustWork = TRUE)
   repeat {
@@ -242,3 +243,25 @@ cat("Iniciativas Diputados: ", nrow(iniciativas_dip), " (",
     sum(!is.na(iniciativas_dip$vote_url)), " reached a vote\n", sep = "")
 cat("Iniciativas Senado: ", nrow(iniciativas_sen), " (",
     round(mean(iniciativas_sen$needs_review), 3) * 100, "% needs_review)\n", sep = "")
+
+
+# How many votes per chamber in the last legislature
+
+dim_gaceta_vote <- dbGetQuery(con, 'SELECT * FROM dim_gaceta_vote')
+dim_senado_vote <- dbGetQuery(con, 'SELECT * FROM dim_senado_vote')
+
+
+dim_gaceta_vote %>% 
+  filter(legislature == 66) %>%
+  select(gaceta_vote_id) %>%
+  unique() %>%
+  pull(gaceta_vote_id) %>%
+  length()
+
+dim_senado_vote %>% 
+  filter(legislature == 66) %>%
+  select(votacion_id) %>%
+  unique() %>%
+  pull(votacion_id) %>%
+  length()
+

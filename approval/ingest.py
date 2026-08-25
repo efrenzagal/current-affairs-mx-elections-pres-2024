@@ -34,9 +34,9 @@ suppressed, and the columns are named apart so the two never get joined by
 accident.
 
 Usage:
-    /usr/bin/python3 ingestion/approval_ingest.py
-    /usr/bin/python3 ingestion/approval_ingest.py --force
-    /usr/bin/python3 ingestion/approval_ingest.py --db path/to/other.db
+    /usr/bin/python3 approval/ingest.py
+    /usr/bin/python3 approval/ingest.py --force
+    /usr/bin/python3 approval/ingest.py --db path/to/other.db
 """
 
 from __future__ import annotations

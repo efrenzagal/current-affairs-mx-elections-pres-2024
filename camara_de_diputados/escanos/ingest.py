@@ -6,8 +6,8 @@ maps the titular—or the officially listed substitute who actually appears in
 the roll calls—to ``dim_gaceta_deputy`` only when the identity is reliable.
 
 Usage:
-    python -m ingestion.diputados_ingest
-    python -m ingestion.diputados_ingest --db path/to/election_data.db
+    python -m camara_de_diputados.escanos.ingest
+    python -m camara_de_diputados.escanos.ingest --db path/to/election_data.db
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ingestion.person_names import (
+from lib.person_names import (
     display_person_name,
     match_person_name,
     person_name_similarity,
@@ -27,7 +27,7 @@ from ingestion.person_names import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "election_data.db"
 INTEGRACION_PATH = (
     ROOT

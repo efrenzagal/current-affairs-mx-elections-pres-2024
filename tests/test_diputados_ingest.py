@@ -1,6 +1,6 @@
 import unittest
 
-from ingestion.diputados_ingest import resolve_gaceta_identity
+from camara_de_diputados.escanos.ingest import resolve_gaceta_identity
 
 
 class ResolveGacetaIdentityTests(unittest.TestCase):

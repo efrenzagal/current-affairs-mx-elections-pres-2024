@@ -2,7 +2,7 @@
 
 The Camara publishes one member list per parliamentary group. Raw HTML is
 cached for auditability and the parsed snapshot is written as a CSV file
-consumed by ``ingestion.congress_roster_ingest``.
+consumed by ``camara_de_diputados.composicion.ingest``.
 
 Run from the repository root::
 

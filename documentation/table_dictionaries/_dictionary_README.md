@@ -60,7 +60,7 @@ The project uses three related but distinct data layers:
 
 1. `data/electoral_data_clean/clean_*` contains normalized, cycle-specific
    parquet inputs produced from raw electoral files. These are inputs to
-   `ingestion/electoral_ingest.py`; they are not a complete mirror of SQLite.
+   `electoral/ingest.py`; they are not a complete mirror of SQLite.
 2. `election_data.db` is the normalized warehouse and source of truth after
    ingestion. It also contains Cámara, Senado, mapping, classification, and
    state-calendar tables that do not come from the clean electoral parquets.
@@ -106,7 +106,7 @@ Candidate catalogs in `dim_candidatos` are loaded from the 2015, 2021, and
 
 ### Federal Electoral Results
 
-These tables are created and populated by `ingestion/electoral_ingest.py`:
+These tables are created and populated by `electoral/ingest.py`:
 
 - `dim_election.csv` — one row per ingested federal election contest.
 - `dim_geography.csv` — election-scoped geography combinations. Its primary
@@ -129,7 +129,7 @@ These tables are created and populated by `ingestion/electoral_ingest.py`:
 ### Cámara de Diputados Roll Calls
 
 These tables are populated from Cámara de Diputados Gaceta Parlamentaria data
-using `camara_de_diputados/votos/` and `ingestion/gaceta_ingest.py`:
+using `camara_de_diputados/votos/` and `camara_de_diputados/votos/ingest.py`:
 
 The warehouse currently contains roll-call votes for Legislatures **LVIII
 through LXVI** (2000-2026 coverage dates in the current snapshot).
@@ -149,15 +149,15 @@ through LXVI** (2000-2026 coverage dates in the current snapshot).
 - `dim_gaceta_iniciativa.csv` — one initiative from the separate
   `/Gaceta/Iniciativas/` page tree, populated by
   `camara_de_diputados/iniciativas/crawl_gaceta_iniciativas.py` and
-  `ingestion/gaceta_iniciativas_ingest.py`: proposer name/party, committee
+  `camara_de_diputados/iniciativas/ingest.py`: proposer name/party, committee
   referral, and a `vote_url` joining to `dim_gaceta_vote.source_url` when the
   initiative reached a floor vote.
 
 ### Senado de la República Roll Calls
 
 These tables are populated from Senado roll-call pages using
-`camara_de_senadores/votos/`, `ingestion/senado_ingest.py`, and
-`ingestion/senadores_ingest.py`:
+`camara_de_senadores/votos/`, `camara_de_senadores/votos/ingest.py`, and
+`camara_de_senadores/escanos/ingest.py`:
 
 Senado roll-call coverage currently includes only the most recent legislature,
 **LXVI**.
@@ -172,7 +172,7 @@ Senado roll-call coverage currently includes only the most recent legislature,
 - `dim_senado_iniciativa.csv` — one initiative from senado.gob.mx's "Listado
   de Asuntos Publicados" tool, populated by
   `camara_de_senadores/iniciativas/crawl_senado_iniciativas.py` and
-  `ingestion/senado_iniciativas_ingest.py`: proposer name/party and committee
+  `camara_de_senadores/iniciativas/ingest.py`: proposer name/party and committee
   referral. No vote join exists yet.
 
 ### Current Congreso Rosters
@@ -180,7 +180,8 @@ Senado roll-call coverage currently includes only the most recent legislature,
 These tables are populated independently of the roll-call crawlers by
 `camara_de_diputados/composicion/crawl_diputados_roster.py`,
 `camara_de_senadores/composicion/crawl_senadores_roster.py`, and
-`ingestion/congress_roster_ingest.py`:
+`camara_de_diputados/composicion/ingest.py`, and
+`camara_de_senadores/composicion/ingest.py`:
 
 - `dim_congress_roster_snapshot.csv` — observation cutoff, official source,
   source hash, and published-vs-constitutional row counts.
@@ -191,7 +192,7 @@ These tables are populated independently of the roll-call crawlers by
 
 Files prefixed with a year describe representative raw files as received from
 INE before normalization. Use them to understand source quirks when editing a
-cycle-specific converter in `ingestion/raw_electoral_data_converters/`.
+cycle-specific converter in `electoral/raw_to_parquet/`.
 
 - `[1994] 1994_PRE_CAS_94.csv` — semicolon-delimited 1994 presidential layout.
 - `[2000] 2000_DAT_DISTRITALES_CAS.csv` — district DAT layout used in 2000.

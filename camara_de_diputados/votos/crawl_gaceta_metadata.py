@@ -2,7 +2,7 @@
 Metadata-only crawler for Camara de Diputados Gaceta voting pages.
 
 This deliberately mirrors the cautious fetch/cache pattern used by
-ingestion/dat_to_arrow_2000.py:
+electoral/raw_to_parquet/dat_to_arrow_2000.py:
   - every fetched page is cached to disk;
   - cache hits do not sleep or re-hit the server;
   - 429s back off and retry;

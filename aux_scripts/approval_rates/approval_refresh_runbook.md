@@ -119,7 +119,7 @@ own table rather than bending `fact_approval_topic` around it.
 ### 4. Load
 
 ```bash
-/usr/bin/python3 ingestion/approval_ingest.py
+/usr/bin/python3 approval/ingest.py
 ```
 
 The loader runs two independent cross-checks and treats a failure of either as
@@ -180,7 +180,7 @@ there is a fact to know, not a task.
 
 ## Schema notes
 
-Four tables, created by `ingestion/approval_ingest.py`:
+Four tables, created by `approval/ingest.py`:
 
 - `dim_approval_pollster` — one row per house, with `pollster_type`
   (Casa encuestadora / Medio / Gobierno) and a `familia` label grouping split

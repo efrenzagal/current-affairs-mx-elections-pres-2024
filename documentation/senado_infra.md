@@ -11,8 +11,8 @@ legislature senado.gob.mx currently publishes structured vote pages for):
 ```text
 senado.gob.mx (HTML list page + per-vote pages + AJAX detail endpoint)
   -> camara_de_senadores/votos/crawl_senado_votes.py  (fetch + cache + parse -> CSV)
-  -> ingestion/senado_ingest.py                      (CSV -> election_data.db)
-  -> ingestion/senadores_ingest.py                   (INE seats -> dim_senadores bridge)
+  -> camara_de_senadores/votos/ingest.py                      (CSV -> election_data.db)
+  -> camara_de_senadores/escanos/ingest.py                   (INE seats -> dim_senadores bridge)
   -> camara_de_senadores/votos/classify_senado_votes.py (optional Batch API classification)
   -> ui/senado.py                                    (Streamlit rendering)
 ```
@@ -43,8 +43,8 @@ structural gap versus the Diputados pipeline (see `diputados_infra.md`).
 | Path | Responsibility |
 | --- | --- |
 | `camara_de_senadores/votos/crawl_senado_votes.py` | Fetch/cache/backoff crawler (mirrors the Gaceta crawler's pattern). Caches every page under `data/raw_senado_votes/`; writes `dim_senado_vote.csv` and `senado_vote_detail.csv` to `data/clean_senado_votes/`. |
-| `ingestion/senado_ingest.py` | Loads the clean CSVs into `election_data.db` (`dim_senado_vote`, `dim_senador`, `fact_senador_vote`), runs QA, then calls `senadores_ingest.py`. |
-| `ingestion/senadores_ingest.py` | Builds `dim_senadores`: matches all 128 official 2024 INE seats to `dim_senador` identities. |
+| `camara_de_senadores/votos/ingest.py` | Loads the clean CSVs into `election_data.db` (`dim_senado_vote`, `dim_senador`, `fact_senador_vote`), runs QA, then calls `escanos_senado.py`. |
+| `camara_de_senadores/escanos/ingest.py` | Builds `dim_senadores`: matches all 128 official 2024 INE seats to `dim_senador` identities. |
 | `ui/senado.py` | Senator voting-calendar view and vote-detail party grid. Entry point: `render_senado()`. Reuses `ui/gaceta.py`'s tile/calendar plotting helpers rather than re-deriving the layout math. |
 
 ## Warehouse tables
@@ -74,7 +74,7 @@ state, `seat_type = "FM"`), 32 representación proporcional.
   its all-caps token would falsely appear to match any INE name.
 - Result on the current data: 105 exact-token matches, 19 approximate
   (Jaccard ≥ 0.67), 4 audited overrides in
-  `AUDITED_SENADO_NAME_OVERRIDES` (`ingestion/senadores_ingest.py`) — all
+  `AUDITED_SENADO_NAME_OVERRIDES` (`camara_de_senadores/escanos/ingest.py`) — all
   four are cases where senado.gob.mx's roster omits a middle name or second
   surname that INE spells out in full, pushing the token-set Jaccard score
   just under threshold (e.g. score 0.60–0.667).
@@ -86,7 +86,7 @@ state, `seat_type = "FM"`), 32 representación proporcional.
 Rebuild after refreshing the INE integration file or the Senado warehouse:
 
 ```bash
-python -m ingestion.senadores_ingest
+python -m camara_de_senadores.escanos.ingest
 ```
 
 ## Initiative proposers
@@ -101,7 +101,7 @@ parliamentary group, committee referral, date, and a numeric
 
 ```bash
 python3 camara_de_senadores/iniciativas/crawl_senado_iniciativas.py
-python3 -m ingestion.senado_iniciativas_ingest --force
+python3 -m camara_de_senadores.iniciativas.ingest --force
 ```
 
 No `--legislature` flag: the endpoint's own `legislatura` parameter doesn't
@@ -181,7 +181,7 @@ topic and voting stage.
 
 The official Senate "en funciones" directory is collected independently from
 roll calls by `camara_de_senadores/composicion/crawl_senadores_roster.py` and
-resolved by `ingestion/congress_roster_ingest.py`. Official Senate profile IDs
+resolved by `camara_de_senadores/composicion/ingest.py`. Official Senate profile IDs
 are preferred; registered titular/suplente names and audited seat-specific
 overrides cover changed profile IDs. A directory below 128 members produces
 an explicit vacant seat rather than restoring the elected officeholder.
@@ -197,7 +197,7 @@ The snapshot cutoff, source URL and content hash are stored in
 python3 camara_de_senadores/votos/crawl_senado_votes.py --all-votes
 
 # 2. Load into the warehouse + rebuild the identity bridge
-python -m ingestion.senado_ingest --force
+python -m camara_de_senadores.votos.ingest --force
 
 # 3. Rebuild the hemicycle cache so seat customdata picks up any new senador_seat_id
 python3 aux_scripts/build_hemicycle_cache.py

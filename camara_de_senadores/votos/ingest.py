@@ -13,9 +13,9 @@ After loading, runs automatic QA. Hard errors abort with exit code 1;
 soft warnings are printed but do not abort.
 
 Usage:
-    /usr/bin/python3 ingestion/senado_ingest.py
-    /usr/bin/python3 ingestion/senado_ingest.py --db path/to/other.db
-    /usr/bin/python3 ingestion/senado_ingest.py --force
+    /usr/bin/python3 camara_de_senadores/votos/ingest.py
+    /usr/bin/python3 camara_de_senadores/votos/ingest.py --db path/to/other.db
+    /usr/bin/python3 camara_de_senadores/votos/ingest.py --force
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "election_data.db"
 CLEAN_DIR = ROOT / "data" / "clean_senado_votes"
 LEGISLATURE = 66
@@ -234,7 +234,7 @@ def main() -> None:
 
     print("Building dim_senadores (official INE seats → Senado identities)...")
     try:
-        from ingestion.senadores_ingest import materialize_dim_senadores
+        from camara_de_senadores.escanos.ingest import materialize_dim_senadores
 
         senadores = materialize_dim_senadores(conn)
         match_counts = senadores["match_method"].value_counts().to_dict()

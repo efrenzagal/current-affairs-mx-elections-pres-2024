@@ -1,18 +1,19 @@
 import sqlite3
 import unittest
 
-from ingestion.audited_overrides import load_person_aliases, load_seat_overrides
-from ingestion.congress_seat_member_resolve import (
-    covers_name,
-    name_tokens,
-    write_chamber,
-)
+from camara_de_diputados.escanos import audited_overrides as dip_overrides
+from camara_de_diputados.escanos import seat_members as dip
+from camara_de_senadores.escanos import audited_overrides as sen_overrides
+from camara_de_senadores.escanos import seat_members as sen
 
 
 def resolved(chamber="DIP", **overrides):
-    """One seat with a titular and a substitute, in the shape write_chamber wants."""
+    """One seat with a titular and a substitute, in the shape write_seats wants.
+
+    `chamber` only labels the rows the payload carries pre-built (displayNames);
+    which chamber is *written* is decided by the module whose write_seats runs.
+    """
     payload = {
-        "chamber": chamber,
         "roster": {"observedAt": "2025-06-01", "sourceUrl": "https://camara.example/"},
         "seats": [
             {
@@ -59,7 +60,7 @@ def resolved(chamber="DIP", **overrides):
     return payload
 
 
-class WriteChamberTests(unittest.TestCase):
+class WriteSeatsTests(unittest.TestCase):
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
         self.conn.execute("PRAGMA foreign_keys = OFF")
@@ -68,7 +69,7 @@ class WriteChamberTests(unittest.TestCase):
         self.conn.close()
 
     def test_marks_the_directory_occupant_not_the_elected_titular(self):
-        write_chamber(self.conn, resolved())
+        dip.write_seats(self.conn, resolved())
 
         rows = self.conn.execute(
             """
@@ -87,7 +88,7 @@ class WriteChamberTests(unittest.TestCase):
     def test_member_order_is_preserved_for_the_client_index(self):
         # The published history stores a member's position, not their id, so a
         # reordered rebuild would silently reattribute votes.
-        write_chamber(self.conn, resolved())
+        dip.write_seats(self.conn, resolved())
         self.assertEqual(
             self.conn.execute(
                 "SELECT person_id FROM fact_legislature_66_seat_member"
@@ -97,10 +98,10 @@ class WriteChamberTests(unittest.TestCase):
         )
 
     def test_rebuild_replaces_rather_than_accumulates(self):
-        write_chamber(self.conn, resolved())
+        dip.write_seats(self.conn, resolved())
         shrunk = resolved()
         shrunk["seatMembers"]["DIP_TEST"] = shrunk["seatMembers"]["DIP_TEST"][:1]
-        write_chamber(self.conn, shrunk)
+        dip.write_seats(self.conn, shrunk)
 
         self.assertEqual(
             self.conn.execute(
@@ -110,10 +111,11 @@ class WriteChamberTests(unittest.TestCase):
         )
 
     def test_rebuilding_one_chamber_leaves_the_other_intact(self):
-        # The two chambers are resolved in separate passes against one database.
-        write_chamber(self.conn, resolved(chamber="SEN"))
-        write_chamber(self.conn, resolved(chamber="DIP"))
-        write_chamber(self.conn, resolved(chamber="DIP"))
+        # The chambers are now separate modules writing disjoint halves of one
+        # table. Re-running either must not disturb the other's rows.
+        sen.write_seats(self.conn, resolved(chamber="SEN"))
+        dip.write_seats(self.conn, resolved(chamber="DIP"))
+        dip.write_seats(self.conn, resolved(chamber="DIP"))
 
         self.assertEqual(
             self.conn.execute(
@@ -134,7 +136,7 @@ class WriteChamberTests(unittest.TestCase):
                 }
             ]
         )
-        write_chamber(self.conn, payload)
+        dip.write_seats(self.conn, payload)
 
         self.assertEqual(
             self.conn.execute(
@@ -144,11 +146,10 @@ class WriteChamberTests(unittest.TestCase):
             ("DEP_TITULAR", "DEP_TITULAR,DEP_SUBSTITUTE"),
         )
 
-
     def test_seat_table_spelling_wins_over_the_roll_call(self):
         # A legislator must read the same way in the hemicycle, the profile
         # search and the per-square tooltips.
-        write_chamber(self.conn, resolved())
+        dip.write_seats(self.conn, resolved())
         self.assertEqual(
             self.conn.execute(
                 "SELECT display_name, name_source FROM fact_legislature_66_person"
@@ -159,50 +160,63 @@ class WriteChamberTests(unittest.TestCase):
 
 
 class AuditedOverrideTests(unittest.TestCase):
-    """The audited corrections have no other guard: nothing derives them."""
+    """The audited corrections have no other guard: nothing derives them.
+
+    Each chamber reads only its own rows out of the two shared CSVs, so these
+    also check that the filtering did not quietly swallow a correction.
+    """
 
     def test_senate_seat_override_still_names_its_seat(self):
-        overrides = load_seat_overrides()
-        self.assertEqual(
-            overrides[("SEN", "1805")]["seatId"], "SEN_4D4CFB205261"
-        )
-        self.assertTrue(
-            overrides[("SEN", "1805")]["sourceUrl"].startswith("https://")
-        )
+        overrides = sen_overrides.load_seat_overrides()
+        self.assertEqual(overrides["1805"]["seatId"], "SEN_4D4CFB205261")
+        self.assertTrue(overrides["1805"]["sourceUrl"].startswith("https://"))
+
+    def test_the_camara_reads_no_seat_overrides_of_its_own(self):
+        self.assertEqual(dip_overrides.load_seat_overrides(), {})
 
     def test_both_chamber_aliases_resolve_to_their_canonical_identity(self):
-        aliases = load_person_aliases()
         self.assertEqual(
-            aliases["DIP"],
+            dip_overrides.load_person_aliases(),
             {
                 "DEP_0AC343D3EC5E": "DEP_10ACE730EC87",
                 "DEP_62F86822CD67": "DEP_A9A4258198C3",
             },
         )
-        self.assertEqual(aliases["SEN"], {})
+        self.assertEqual(sen_overrides.load_person_aliases(), {})
 
 
 class NameMatchingTests(unittest.TestCase):
+    """Run against both copies: the matcher is duplicated per chamber now."""
+
     def test_initial_stands_in_for_a_given_name(self):
-        self.assertTrue(
-            covers_name(
-                name_tokens("PEREZ JAEN ZERMEÑO M. ELENA"),
-                name_tokens("MARIA ELENA PEREZ-JAEN ZERMEÑO"),
-            )
-        )
+        for module in (dip, sen):
+            with self.subTest(chamber=module.CHAMBER):
+                self.assertTrue(
+                    module.covers_name(
+                        module.name_tokens("PEREZ JAEN ZERMEÑO M. ELENA"),
+                        module.name_tokens("MARIA ELENA PEREZ-JAEN ZERMEÑO"),
+                    )
+                )
 
     def test_surname_alone_is_not_a_match(self):
         # Two full-length agreements are required, so people who merely share a
         # surname must not be collapsed into one person.
-        self.assertFalse(
-            covers_name(name_tokens("GARCIA JUAN"), name_tokens("GARCIA PEDRO"))
-        )
+        for module in (dip, sen):
+            with self.subTest(chamber=module.CHAMBER):
+                self.assertFalse(
+                    module.covers_name(
+                        module.name_tokens("GARCIA JUAN"),
+                        module.name_tokens("GARCIA PEDRO"),
+                    )
+                )
 
     def test_senate_and_camara_spellings_of_one_person_agree(self):
-        self.assertEqual(
-            name_tokens("Sen. Macías Rábago, Julieta"),
-            name_tokens("JULIETA MACIAS RABAGO"),
-        )
+        for module in (dip, sen):
+            with self.subTest(chamber=module.CHAMBER):
+                self.assertEqual(
+                    module.name_tokens("Sen. Macías Rábago, Julieta"),
+                    module.name_tokens("JULIETA MACIAS RABAGO"),
+                )
 
 
 if __name__ == "__main__":

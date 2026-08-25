@@ -9,8 +9,8 @@ senado.gob.mx by camara_de_senadores/votos/crawl_senado_votes.py) only when
 the identity is reliable.
 
 Usage:
-    python -m ingestion.senadores_ingest
-    python -m ingestion.senadores_ingest --db path/to/election_data.db
+    python -m camara_de_senadores.escanos.ingest
+    python -m camara_de_senadores.escanos.ingest --db path/to/election_data.db
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ingestion.person_names import (
+from lib.person_names import (
     display_person_name,
     match_person_name,
     person_name_similarity,
@@ -31,7 +31,7 @@ from ingestion.person_names import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DB_PATH = ROOT / "election_data.db"
 INTEGRACION_PATH = (
     ROOT

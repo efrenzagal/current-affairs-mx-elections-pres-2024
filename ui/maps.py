@@ -140,7 +140,7 @@ def render_winner_map(df: pd.DataFrame, blocs: dict, geojson: dict,
     if not geojson:
         st.warning(
             "No se encontró el GeoJSON procesado de municipios. "
-            "Ejecuta `python ingestion/electoral_materialize.py views --force`."
+            "Ejecuta `python electoral/materialize.py views --force`."
         )
         return
 

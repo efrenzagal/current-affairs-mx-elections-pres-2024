@@ -4,4 +4,4 @@ seat_id,TEXT,Composite primary key; logical foreign key,"Escaño al que se atrib
 vote_id,TEXT,Composite primary key; logical foreign key,"Votación en la que ocurrió el conflicto.","Roll call where the conflict occurred.",Vote id,"References dim_gaceta_vote or dim_senado_vote."
 counted_person_id,TEXT,Required attribute,"Persona cuyo voto se contó para el escaño.","Person whose vote was counted for the seat.",Person id,"The titular when exactly one is present, otherwise the first reported voter."
 reported_person_ids,TEXT,Required attribute,"Todas las personas que la fuente reportó votando en ese escaño.","Every person the source reported voting in that seat.",Comma-separated person ids,"Order is significant and reproducible. Kept in full so the raw attribution survives even though the seat is counted once."
-created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by ingestion/congress_seat_member_resolve.py."
+created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by congreso/seat_members.py."

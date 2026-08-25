@@ -8,4 +8,4 @@ quorum_ok,INTEGER,Required derived flag,"Indica si se alcanzó el quórum.","Whe
 mayoria_simple_ok,INTEGER,Required derived flag,"Indica si hubo mayoría simple.","Whether a simple majority was reached.",0 or 1,"More votes in favour than against."
 mayoria_absoluta_ok,INTEGER,Required derived flag,"Indica si hubo mayoría absoluta.","Whether an absolute majority was reached.",0 or 1,"Compared against mayoria_absoluta_requerida."
 mayoria_calificada_ok,INTEGER,Required derived flag,"Indica si hubo mayoría calificada.","Whether a qualified majority was reached.",0 or 1,"Compared against mayoria_calificada_requerida."
-created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by ingestion/gaceta_materialize.py."
+created_at,TIMESTAMP,System field,"Fecha de materialización.","Materialization timestamp.",SQLite timestamp,"Rows are rebuilt by camara_de_diputados/votos/materialize.py."

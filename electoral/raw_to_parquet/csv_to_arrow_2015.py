@@ -353,10 +353,14 @@ def main() -> None:
     dim_casilla.to_parquet(OUT / "dim_casilla.parquet", index=False)
     dim_party.to_parquet(OUT / "dim_party.parquet", index=False)
     dim_candidatos.to_parquet(OUT / "dim_candidatos.parquet", index=False)
+    # delete_matching clears each partition before writing. Without it pyarrow
+    # defaults to overwrite_or_ignore, which drops a second randomly-named copy
+    # of every row into the existing partition dir on each re-run.
     fact.to_parquet(
         OUT / "fact_casilla_vote.parquet",
         index=False,
         partition_cols=["election_id"],
+        existing_data_behavior="delete_matching",
     )
 
     print("\nWritten to", OUT.resolve())

@@ -13,10 +13,10 @@ After loading, runs automatic QA. Hard errors abort with exit code 1;
 soft warnings are printed but do not abort.
 
 Usage:
-    /usr/bin/python3 ingestion/gaceta_ingest.py
-    /usr/bin/python3 ingestion/gaceta_ingest.py --db path/to/other.db
-    /usr/bin/python3 ingestion/gaceta_ingest.py --legislature 62 66
-    /usr/bin/python3 ingestion/gaceta_ingest.py --force
+    /usr/bin/python3 camara_de_diputados/votos/ingest.py
+    /usr/bin/python3 camara_de_diputados/votos/ingest.py --db path/to/other.db
+    /usr/bin/python3 camara_de_diputados/votos/ingest.py --legislature 62 66
+    /usr/bin/python3 camara_de_diputados/votos/ingest.py --force
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT       = Path(__file__).resolve().parents[1]
+ROOT       = Path(__file__).resolve().parents[2]
 DB_PATH    = ROOT / "election_data.db"
 LEG_DIR    = ROOT / "data" / "gaceta_votes" / "clean" / "by_legislature"
 
@@ -353,7 +353,7 @@ def main() -> None:
 
     print("Building dim_diputados (official INE seats → Gaceta identities)...")
     try:
-        from ingestion.diputados_ingest import materialize_dim_diputados
+        from camara_de_diputados.escanos.ingest import materialize_dim_diputados
 
         diputados = materialize_dim_diputados(conn)
         match_counts = diputados["match_method"].value_counts().to_dict()

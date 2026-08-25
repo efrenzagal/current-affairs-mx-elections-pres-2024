@@ -51,7 +51,7 @@ def load_approval_data(db_version: tuple[int, int]) -> pd.DataFrame:
 
     encuestadora_clean = pollster_name as stored, which is already the house
     name with its /tel, /viv, /online suffix stripped at ingest time (see
-    clean_pollster() in ingestion/approval_ingest.py) — distinct houses that
+    clean_pollster() in approval/ingest.py) — distinct houses that
     happen to share a base name (BGC / BGC Telefonica / BGC Vivienda) stay
     separate rows, matching how the old xlsx-derived column behaved.
     """

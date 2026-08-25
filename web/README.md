@@ -296,7 +296,7 @@ them rather than the component:
 
 **Quorum and the majority thresholds are Camara-only.** They are derived, not
 stored, and the exporter imports `add_vote_thresholds` from
-`ingestion/gaceta_materialize.py` rather than restating the arithmetic, so
+`camara_de_diputados/votos/materialize.py` rather than restating the arithmetic, so
 "mayoría calificada" means one thing on both front ends. They are not exported
 for the Senado because the formula keys off `total` meaning the whole chamber,
 which is what the Gaceta tally reports; a Senado tally's total is the number of
@@ -383,7 +383,7 @@ namespace or aggregation. Person IDs are likewise chamber-local: Cámara uses th
 Gaceta deputy hash, Senado the numeric `senador_id` as text.
 
 Party keys pass through `canonical_party` from
-`ingestion/congress_roster_ingest.py` on **both** sides — seat benches and the
+`lib/canonical.py` on **both** sides — seat benches and the
 per-vote aggregation. The Gaceta writes `MRN` for MORENA and INE writes
 `CAND_INDEPENDIENTE` for an independent, so without this the hemicycle legend
 and the vote breakdown label the same bench differently on the same page. Where
@@ -421,7 +421,8 @@ above 99.9%.
 Refresh the roster before the exporter if the directory has moved:
 
 ```bash
-python3 ingestion/congress_roster_ingest.py
+python3 -m camara_de_diputados.composicion.ingest
+python3 -m camara_de_senadores.composicion.ingest
 ```
 
 Do not hand-edit generated JSON. Change the exporter or upstream warehouse,

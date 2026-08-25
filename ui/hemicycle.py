@@ -16,7 +16,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from ui.gaceta import render_gaceta
-from ui.person_names import display_person_name
+from lib.person_names import display_person_name
 from ui.senado import render_senado
 
 HEMICYCLE_CACHE_DIR = Path("data/cache/hemicycles")

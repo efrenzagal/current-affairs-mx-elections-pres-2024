@@ -8,10 +8,10 @@ The most useful way to understand the project is as a three-stage pipeline:
 
 ```text
 official INE/raw files
-  -> cycle-specific converters in ingestion/raw_electoral_data_converters/
+  -> cycle-specific converters in electoral/raw_to_parquet/
   -> clean per-cycle parquet folders in data/electoral_data_clean/clean_<year>/
-  -> ingestion/electoral_ingest.py builds SQLite warehouse
-  -> ingestion/electoral_materialize.py builds Streamlit parquet/GeoJSON artifacts
+  -> electoral/ingest.py builds SQLite warehouse
+  -> electoral/materialize.py builds Streamlit parquet/GeoJSON artifacts
   -> ine_explorer_v2.py renders the app
 ```
 
@@ -33,19 +33,19 @@ pip install -r requirements.txt
 Rebuild the SQLite warehouse from the clean parquet folders:
 
 ```bash
-python -m ingestion.electoral_ingest
+python -m electoral.ingest
 ```
 
 Refresh only one election cycle while preserving all other cycles:
 
 ```bash
-python -m ingestion.electoral_ingest --year 2000
+python -m electoral.ingest --year 2000
 ```
 
 Materialize the files used by Streamlit:
 
 ```bash
-python -m ingestion.electoral_materialize
+python -m electoral.materialize
 ```
 
 Run the app:
@@ -116,11 +116,11 @@ and methodology.
 Useful partial materialization commands:
 
 ```bash
-python -m ingestion.electoral_materialize views
-python -m ingestion.electoral_materialize timeseries
-python -m ingestion.electoral_materialize --force
+python -m electoral.materialize views
+python -m electoral.materialize timeseries
+python -m electoral.materialize --force
 # Refresh only municipal CVEGEO joins after editing overrides:
-python -m ingestion.electoral_materialize municipios --force
+python -m electoral.materialize municipios --force
 ```
 
 ## What To Open First
@@ -138,10 +138,10 @@ Open only the files needed for the task:
 - Congressional composition hemicycles and seat drill-down: `ui/hemicycle.py`
 - Person-name normalization and cross-source matching: `ui/person_names.py`
 - Shared constants and pure helpers: `ui/common.py`
-- Streamlit-ready parquet and GeoJSON generation: `ingestion/electoral_materialize.py`
-- Clean parquet to SQLite ingestion: `ingestion/electoral_ingest.py`
+- Streamlit-ready parquet and GeoJSON generation: `electoral/materialize.py`
+- Clean parquet to SQLite ingestion: `electoral/ingest.py`
 - Raw/cycle-specific parsing: the matching converter in
-  `ingestion/raw_electoral_data_converters/`
+  `electoral/raw_to_parquet/`
 - Warehouse schema meaning: `documentation/table_dictionaries/overview.csv`
 - Column-level table dictionaries: `documentation/table_dictionaries/*.csv`
 - Roll-call pipeline detail: `documentation/diputados_infra.md`,
@@ -201,7 +201,7 @@ The render functions are split across focused modules:
   bridges to reconcile INE's "given names + surnames" ordering against the
   chambers' "surnames + given names" ordering. No streamlit dependency.
 
-### `ingestion/electoral_materialize.py`
+### `electoral/materialize.py`
 
 Turns `election_data.db` into files under `data/materialized/`.
 
@@ -223,7 +223,7 @@ Important responsibilities:
 Open this file when app data is missing, joins do not match, maps fail,
 historical time series look wrong, or new materialized outputs are needed.
 
-### `ingestion/electoral_ingest.py`
+### `electoral/ingest.py`
 
 Builds the normalized SQLite warehouse from clean per-cycle parquets.
 
@@ -240,7 +240,7 @@ Important responsibilities:
 Open this file when adding a new election cycle, changing warehouse schema,
 fixing ingestion into SQLite, or checking which election IDs exist.
 
-### `ingestion/raw_electoral_data_converters/`
+### `electoral/raw_to_parquet/`
 
 Cycle-specific converters from raw INE files to clean parquet folders.
 
@@ -259,7 +259,7 @@ Current converters:
 These scripts handle source quirks by year. Open one only when changing raw
 file parsing or regenerating `data/electoral_data_clean/clean_<year>/`.
 
-### `ingestion/shared.py`
+### `electoral/states.py`
 
 Constants shared across the ingestion layer: `CANONICAL_ESTADO_NOMBRES`
 (the single authoritative 32-state name mapping), `DB_PATH`, and
@@ -332,26 +332,58 @@ Writes a rows/last-vote-date summary per source to
 
 ## Camara de Diputados / Camara de Senadores
 
-Chamber-specific scrape/parse pipelines live in two top-level folders, one
-per chamber, each organized by process:
+Each chamber gets one top-level folder, organized by subject. Crawling and
+warehouse loading sit side by side: every subject folder holds the crawler
+that fetches the source and the `ingest.py` that loads it.
 
 ```
 camara_de_diputados/
-  votos/         crawl/parse/classify Gaceta roll-call votes -> dim_gaceta_*
-  iniciativas/   crawl initiative proposers -> dim_gaceta_iniciativa
+  votos/         crawl/parse/classify Gaceta roll calls, then ingest.py
+                 -> dim_gaceta_*; materialize.py -> alignment/cohesion parquets
+  iniciativas/   crawl proposers, then ingest.py -> dim_gaceta_iniciativa
   composicion/   crawl the current Camara roster -> data/clean_congress_rosters/
-  escanos/       official MR/RP seat readers (diputados.py)
+  escanos/       official MR/RP seat readers (diputados.py); ingest.py
+                 -> dim_diputados, the INE-seat to Gaceta identity bridge
 
 camara_de_senadores/
-  votos/         crawl/parse/classify Senado roll-call votes -> dim_senado_*
-  iniciativas/   crawl initiative proposers -> dim_senado_iniciativa
+  votos/         crawl/parse/classify Senado roll calls, then ingest.py
+                 -> dim_senado_*
+  iniciativas/   crawl proposers, then ingest.py -> dim_senado_iniciativa
   composicion/   crawl the current Senado roster -> data/clean_congress_rosters/
-  escanos/       official MR/FM/RP seat readers (senadores.py)
+  escanos/       official MR/FM/RP seat readers (senadores.py); ingest.py
+                 -> dim_senadores, the INE-seat to Senado identity bridge
 ```
 
-`ingestion/*.py` (warehouse loading) is unaffected by this split and still
-lives at the repo root, one script per table family — see the workflow
-sections below. Full detail per chamber: `documentation/diputados_infra.md`,
+Each chamber owns its pipeline end to end. Seat resolution, roster
+resolution and winning margins used to live in a shared `congreso/` package
+that looped over both chambers; they are now a full copy per chamber, so a
+chamber reads top to bottom without a `chamber` flag threaded through it:
+
+```
+camara_de_*/composicion/ingest.py       resolve the directory onto INE seat ids
+camara_de_*/escanos/seat_members.py     roll-call identity -> constitutional seat
+camara_de_*/escanos/seat_margins.py     the margin each seat was won by
+camara_de_*/escanos/audited_overrides.py  this chamber's rows of the audited CSVs
+```
+
+These write disjoint halves of the same `chamber`-keyed tables, and every
+delete is scoped, so either chamber can be re-ingested without disturbing the
+other. The price is duplication: the ~1,000-line resolution algorithm exists
+twice and a fix has to be applied to both copies.
+`tests/test_chamber_pipeline_parity.py` fails when the two drift, listing the
+functions that are allowed to differ and why.
+
+What is genuinely not chamber-specific stays shared in `lib/`, because both
+chambers, Streamlit and the web export must normalize against the *same*
+table — two copies of the party aliases is how one bench ends up labelled two
+ways on one page:
+
+```
+lib/canonical.py     party / classification / state spellings
+lib/person_names.py  name matching and display, used by every source
+```
+
+Full detail per chamber: `documentation/diputados_infra.md`,
 `documentation/senado_infra.md`.
 
 ### Scrape initiative proposers
@@ -362,7 +394,7 @@ exists):
 
 ```bash
 python3 camara_de_diputados/iniciativas/crawl_gaceta_iniciativas.py --legislature 66
-python3 -m ingestion.gaceta_iniciativas_ingest --force
+python3 -m camara_de_diputados.iniciativas.ingest --force
 ```
 
 Senado (the "Listado de Asuntos Publicados" tool — a single response
@@ -371,7 +403,7 @@ the source's own filter doesn't narrow it):
 
 ```bash
 python3 camara_de_senadores/iniciativas/crawl_senado_iniciativas.py
-python3 -m ingestion.senado_iniciativas_ingest --force
+python3 -m camara_de_senadores.iniciativas.ingest --force
 ```
 
 Both write a `needs_review` flag for proposer text that doesn't match a
@@ -382,8 +414,8 @@ preserved regardless. `dim_gaceta_iniciativa.vote_url` joins to
 ## `articles/` — Long-form Quarto write-ups
 
 Standalone Quarto/R analysis pieces, one subfolder per article. These read
-the warehouse read-only and are not part of the Streamlit app or the
-`ingestion/` pipeline.
+the warehouse read-only and are not part of the Streamlit app or any
+ingest pipeline.
 
 - `articles/article_brujula_politica/` — the Brújula Política ideological-
   trajectory piece. `quarto/brujula_politica.qmd` renders to
@@ -407,12 +439,12 @@ These are local/intermediate data folders:
   year.
 - `data/electoral_data_clean/clean_<year>/`: normalized per-cycle parquet outputs from the converter
   scripts.
-- `election_data.db`: SQLite warehouse generated by `ingestion/electoral_ingest.py`.
+- `election_data.db`: SQLite warehouse generated by `electoral/ingest.py`.
 
 ### Streamlit Artifacts
 
 `data/materialized/` contains the app-facing files generated by
-`ingestion/electoral_materialize.py`.
+`electoral/materialize.py`.
 
 Important patterns:
 
@@ -454,7 +486,7 @@ Examples:
   `DIP_MR_2018`, `DIP_MR_2021`, `DIP_MR_2024`
 - `SEN_MR_2000`, `SEN_MR_2006`, `SEN_MR_2012`, `SEN_MR_2018`, `SEN_MR_2024`
 
-The authoritative source is `ELECTION_META` in `ingestion/electoral_ingest.py`.
+The authoritative source is `ELECTION_META` in `electoral/ingest.py`.
 
 ## Warehouse Schema
 
@@ -524,14 +556,14 @@ Rebuild the identity bridges after refreshing either the official INE
 integration or a chamber's roll-call warehouse:
 
 ```bash
-python -m ingestion.diputados_ingest
-python -m ingestion.senadores_ingest
+python -m camara_de_diputados.escanos.ingest
+python -m camara_de_senadores.escanos.ingest
 ```
 
 Both bridges are strict: they refuse to commit unless every official seat
 resolves, IDs are unique, and no seat maps to more than one roll-call
 identity. Manually verified aliases live in `AUDITED_GACETA_NAME_OVERRIDES`
-in `ingestion/diputados_ingest.py`, each annotated with why. Do not loosen
+in `camara_de_diputados/escanos/ingest.py`, each annotated with why. Do not loosen
 the global fuzzy-match threshold to absorb a one-off — that risks linking two
 different legislators with similar names.
 
@@ -560,12 +592,12 @@ python3 run_streamlit.py
 
 Usually open:
 
-- `ingestion/electoral_materialize.py`
+- `electoral/materialize.py`
 
 Then run:
 
 ```bash
-python -m ingestion.electoral_materialize views --force
+python -m electoral.materialize views --force
 python3 run_streamlit.py
 ```
 
@@ -573,29 +605,29 @@ python3 run_streamlit.py
 
 Usually open:
 
-- `ingestion/electoral_materialize.py`
+- `electoral/materialize.py`
 - `documentation/table_dictionaries/dim_party.csv` if party/coalition meaning
   is unclear
 
 Then run:
 
 ```bash
-python -m ingestion.electoral_materialize timeseries
+python -m electoral.materialize timeseries
 ```
 
 ### Add or fix a raw election converter
 
 Usually open:
 
-- The matching converter in `ingestion/raw_electoral_data_converters/`
-- `ingestion/electoral_ingest.py` if the clean schema or election metadata changes
+- The matching converter in `electoral/raw_to_parquet/`
+- `electoral/ingest.py` if the clean schema or election metadata changes
 - `documentation/table_dictionaries/raw_cycle_examples.csv` for source quirks
 
 Then run the converter, followed by:
 
 ```bash
-python -m ingestion.electoral_ingest
-python -m ingestion.electoral_materialize --force
+python -m electoral.ingest
+python -m electoral.materialize --force
 ```
 
 
@@ -623,7 +655,8 @@ To refresh the official rosters and pre-built assets used by the
 ```bash
 python3 camara_de_diputados/composicion/crawl_diputados_roster.py --refresh
 python3 camara_de_senadores/composicion/crawl_senadores_roster.py --refresh
-python3 -m ingestion.congress_roster_ingest
+python3 -m camara_de_diputados.composicion.ingest
+python3 -m camara_de_senadores.composicion.ingest
 python3 aux_scripts/build_hemicycle_cache.py
 ```
 
@@ -653,8 +686,8 @@ python3 camara_de_diputados/votos/crawl_gaceta_metadata.py --fetch-vote-pages
 python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py
 
 # Load parsed roll calls into the local SQLite warehouse, then refresh the app data
-python3 ingestion/gaceta_ingest.py
-python3 ingestion/gaceta_materialize.py --force
+python3 camara_de_diputados/votos/ingest.py
+python3 camara_de_diputados/votos/materialize.py --force
 ```
 
 ### Scrape and ingest Senado roll-call votes
@@ -662,7 +695,7 @@ python3 ingestion/gaceta_materialize.py --force
 Usually open:
 
 - `camara_de_senadores/votos/crawl_senado_votes.py`
-- `ingestion/senado_ingest.py`
+- `camara_de_senadores/votos/ingest.py`
 
 Then run:
 
@@ -671,8 +704,8 @@ Then run:
 python3 camara_de_senadores/votos/crawl_senado_votes.py --all-votes
 
 # Load parsed CSVs into the warehouse, then rebuild the identity bridge
-/usr/bin/python3 ingestion/senado_ingest.py
-python -m ingestion.senadores_ingest
+/usr/bin/python3 camara_de_senadores/votos/ingest.py
+python -m camara_de_senadores.escanos.ingest
 ```
 
 For optional Senado semantic classification, use `prepare` → `submit` →
@@ -682,7 +715,7 @@ documented audited corrections. Applied classifications appear under the
 Senado switch in **Congreso · Clasificación de votos** and as filters on senator
 vote calendars.
 
-There is no Senado equivalent of `gaceta_materialize.py` yet — alignment,
+There is no Senado equivalent of `camara_de_diputados/votos/materialize.py` yet — alignment,
 cohesion, and classification metrics exist for the Cámara only. See
 `documentation/senado_infra.md`.
 
@@ -717,7 +750,7 @@ audit under `data/legislative_vote_manual_revisions/`. Vote totals and other
 official-source fields are never overwritten from the Sheet. A changed Cámara
 classification must also set `review_status` to `audited` and explain the
 decision in `review_notes`. After applying revisions, rerun
-`python3 ingestion/congress_seat_member_resolve.py` followed by
+`python3 camara_de_diputados/escanos/seat_members.py` followed by
 `python3 web/scripts/export_gaceta_web.py` to refresh the website's static data.
 The complete entry/exit contract, Parquet cache layout, and recovery guidance
 are documented in `aux_scripts/legislative_vote_review/README.md`.
@@ -726,8 +759,8 @@ are documented in `aux_scripts/legislative_vote_review/README.md`.
 
 Usually open:
 
-- `ingestion/electoral_ingest.py`
-- `ingestion/electoral_materialize.py`
+- `electoral/ingest.py`
+- `electoral/materialize.py`
 - `documentation/table_dictionaries/*.csv`
 - `ine_explorer_v2.py` only if app-facing columns changed
 
@@ -735,7 +768,7 @@ Usually open:
 
 `tests/` holds unit tests for pure logic that is expensive to verify by
 running the pipeline — currently the identity-bridge resolution rules in
-`ingestion/diputados_ingest.py`.
+`camara_de_diputados/escanos/ingest.py`.
 
 ```bash
 /usr/bin/python3 -m unittest discover tests
@@ -750,8 +783,8 @@ this repo's Python environment.
 
 It is a **static snapshot** application. Who occupies which seat, which
 roll-call names are one person, and which seat cast a contested vote are all
-resolved in the warehouse by `ingestion/congress_seat_member_resolve.py`, which
-writes the `fact_legislature_66_*` tables. `web/scripts/export_gaceta_web.py`
+resolved in the warehouse by each chamber's `escanos/seat_members.py`,
+which write the `fact_legislature_66_*` tables. `web/scripts/export_gaceta_web.py`
 then reads those tables plus the INE integration CSV and shapes the roll-call
 hemicycle JSON files under `web/public/data/` — it does not derive identity
 itself, so the resolution step has to run first.
@@ -762,9 +795,11 @@ from the roll-call vote data. The browser loads these directly — there is no
 live database at runtime.
 
 ```bash
-python3 ingestion/congress_seat_member_resolve.py  # resolve seats, aliases, conflicts
-python3 ingestion/legislature_66_election_results.py  # winning margins per seat
-python3 ingestion/gaceta_materialize.py --force   # vote thresholds (and Streamlit parquet)
+python3 camara_de_diputados/escanos/seat_members.py  # resolve seats, aliases, conflicts
+python3 camara_de_senadores/escanos/seat_members.py
+python3 camara_de_diputados/escanos/seat_margins.py  # winning margins per seat
+python3 camara_de_senadores/escanos/seat_margins.py
+python3 camara_de_diputados/votos/materialize.py --force   # vote thresholds (and Streamlit parquet)
 python3 web/scripts/export_gaceta_web.py          # refresh roll-call snapshots
 python3 web/scripts/export_iniciativas_web.py     # refresh initiative-proposer snapshot
 cd web && npm test                              # production build + data invariants

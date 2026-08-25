@@ -273,14 +273,14 @@ def build_fact(df: pd.DataFrame, party_keys: list, election_id: str) -> pd.DataF
     # later violate fact_casilla_vote's UNIQUE constraint in SQLite. Confirmed
     # this can happen when CLAVE_ACTA itself isn't unique (shouldn't occur,
     # but checking explicitly is cheap and fails loudly here instead of in
-    # ingestion/electoral_ingest.py's executemany).
+    # electoral/ingest.py's executemany).
     dupe_count = df["casilla_id"].duplicated().sum()
     if dupe_count > 0:
         raise ValueError(
             f"[{election_id}] casilla_id is not unique: {dupe_count:,} duplicate "
             f"rows found in df_raw after make_casilla_id(). Fix the key before "
             f"building fact_casilla_vote, or duplicate-key inserts will fail "
-            f"downstream in ingestion/electoral_ingest.py."
+            f"downstream in electoral/ingest.py."
         )
 
     VOTE_META = ["CNR", "VN", "TOTAL_VOTOS_CALCULADOS"]
@@ -432,10 +432,14 @@ if not dim_candidatos_final.empty:
 else:
     print("  ⚠️  dim_candidatos is empty — skipping parquet write")
 
+# delete_matching clears each partition before writing. Without it pyarrow
+# defaults to overwrite_or_ignore, which drops a second randomly-named copy
+# of every row into the existing partition dir on each re-run.
 fact_final.to_parquet(
     OUT / "fact_casilla_vote.parquet",
     index=False,
     partition_cols=["election_id"],
+    existing_data_behavior="delete_matching",
 )
 
 print("Written to", OUT.resolve())

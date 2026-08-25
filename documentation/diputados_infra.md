@@ -12,10 +12,10 @@ vote records.
 gaceta.diputados.gob.mx (HTML pages)
   -> camara_de_diputados/votos/crawl_gaceta_metadata.py   (fetch + cache raw HTML)
   -> camara_de_diputados/votos/parse_gaceta_vote_batch.py (parse cached HTML -> parquet)
-  -> ingestion/gaceta_ingest.py                          (parquet -> election_data.db)
-  -> ingestion/diputados_ingest.py                       (INE seats -> dim_diputados bridge)
+  -> camara_de_diputados/votos/ingest.py                          (parquet -> election_data.db)
+  -> camara_de_diputados/escanos/ingest.py                       (INE seats -> dim_diputados bridge)
   -> camara_de_diputados/votos/classify_gaceta_votes.py    (optional: LLM topic/stage labels)
-  -> ingestion/gaceta_materialize.py                      (db -> Streamlit-ready parquet)
+  -> camara_de_diputados/votos/materialize.py                      (db -> Streamlit-ready parquet)
   -> ui/gaceta.py                                         (Streamlit rendering)
 ```
 
@@ -26,10 +26,10 @@ gaceta.diputados.gob.mx (HTML pages)
 | `camara_de_diputados/votos/crawl_gaceta_metadata.py` | Polite fetch/cache/backoff crawler. Caches every page under `data/raw_gaceta_votes/`; cache hits never re-hit the server. Vote-summary page fetching is opt-in and capped. |
 | `camara_de_diputados/votos/parse_gaceta_vote.py` | Parses a single cached vote page into summary counts and deputy-level rows. Pure parsing helpers, reused by the batch script. |
 | `camara_de_diputados/votos/parse_gaceta_vote_batch.py` | Walks cached pages, applies `parse_gaceta_vote.py`, writes per-legislature parquet under `data/gaceta_votes/clean/by_legislature/`. |
-| `ingestion/gaceta_ingest.py` | Loads the per-legislature parquet into `election_data.db`, deduplicates deputies across legislatures, runs hard/soft QA (referential integrity, duplicate keys, unexpected vote-choice values, summary/detail reconciliation). |
-| `ingestion/diputados_ingest.py` | Builds `dim_diputados`: matches all 500 official 2024 INE seats to `dim_gaceta_deputy` identities. |
+| `camara_de_diputados/votos/ingest.py` | Loads the per-legislature parquet into `election_data.db`, deduplicates deputies across legislatures, runs hard/soft QA (referential integrity, duplicate keys, unexpected vote-choice values, summary/detail reconciliation). |
+| `camara_de_diputados/escanos/ingest.py` | Builds `dim_diputados`: matches all 500 official 2024 INE seats to `dim_gaceta_deputy` identities. |
 | `camara_de_diputados/votos/classify_gaceta_votes.py` | Legislatura 66 classification via OpenAI Batch API: `prepare` (local, no network) → `submit` → `retrieve BATCH_ID` → `review` → `apply classifications_reviewed.csv`. Writes `fact_gaceta_vote_classification`. |
-| `ingestion/gaceta_materialize.py` | Computes alignment/cohesion/correlation metrics from the warehouse and writes Streamlit-ready parquet to `data/materialized/`. |
+| `camara_de_diputados/votos/materialize.py` | Computes alignment/cohesion/correlation metrics from the warehouse and writes Streamlit-ready parquet to `data/materialized/`. |
 | `ui/gaceta.py` | Deputy voting-calendar view and LLM-classification explorer. Entry point: `render_gaceta()`. |
 
 ## Warehouse tables
@@ -57,7 +57,7 @@ matching (`ui/person_names.match_person_name`). This handles INE's
 - Exact token-set match: preferred outcome.
 - Approximate (Jaccard ≥ 0.67, gap ≥ 0.15 to the runner-up): covers initials
   and omitted middle names.
-- `AUDITED_GACETA_NAME_OVERRIDES` in `ingestion/diputados_ingest.py`: manually
+- `AUDITED_GACETA_NAME_OVERRIDES` in `camara_de_diputados/escanos/ingest.py`: manually
   verified aliases for cases the conservative matcher can't prove (source
   typos, unusual abbreviations). Every entry is comment-annotated with why.
 - Validation is strict: `materialize_dim_diputados` refuses to commit unless
@@ -67,7 +67,7 @@ matching (`ui/person_names.match_person_name`). This handles INE's
 Rebuild after refreshing the INE integration file or the Gaceta warehouse:
 
 ```bash
-python -m ingestion.diputados_ingest
+python -m camara_de_diputados.escanos.ingest
 ```
 
 ## Current roster overlay
@@ -78,7 +78,8 @@ and parliamentary groups come from the official LXVI SITL group directories:
 ```bash
 python3 camara_de_diputados/composicion/crawl_diputados_roster.py --refresh
 python3 camara_de_senadores/composicion/crawl_senadores_roster.py --refresh
-python3 -m ingestion.congress_roster_ingest
+python3 -m camara_de_diputados.composicion.ingest
+python3 -m camara_de_senadores.composicion.ingest
 python3 aux_scripts/build_hemicycle_cache.py
 ```
 
@@ -96,7 +97,9 @@ Two temporal facts are rebuilt from those append-only snapshots:
   affiliation episodes as separate source series. It never overwrites the
   immutable INE `election_party`.
 
-`data/congress_reconciliation.csv` compares the latest official directory with
+`data/diputados_roster_reconciliation.csv` (and its
+`data/senadores_roster_reconciliation.csv` counterpart — one per chamber,
+since each roster run now writes its own) compares the latest official directory with
 the electoral origin and the latest roll-call episode. A `LICENCIA` seat remains
 attached to its published profile for provenance, but the current hemicycle
 shows it as `LICENCIA` rather than counting it as an active party seat until an
@@ -125,7 +128,7 @@ lists who proposed each initiative rather than how it was voted:
 
 ```bash
 python3 camara_de_diputados/iniciativas/crawl_gaceta_iniciativas.py --legislature 66
-python3 -m ingestion.gaceta_iniciativas_ingest --force
+python3 -m camara_de_diputados.iniciativas.ingest --force
 ```
 
 `--legislature` defaults to the current (highest) legislature on the index.
@@ -151,8 +154,9 @@ fabricated vote.
 
 - **Vote-choice vocabulary drifts by legislature era**: `Favor`/`Contra` vs.
   `A favor`/`En contra`, plus `Quórum *` (present but not voting) and
-  `Abstención`/`Abstencion`. `gaceta_ingest.py`'s `KNOWN_VOTE_CHOICES` and
-  `gaceta_materialize.py`'s `ACTIVE_CHOICES`/`ABSENCE_CHOICES` both need
+  `Abstención`/`Abstencion`. `camara_de_diputados/votos/ingest.py`'s
+  `KNOWN_VOTE_CHOICES` and `camara_de_diputados/votos/materialize.py`'s
+  `ACTIVE_CHOICES`/`ABSENCE_CHOICES` both need
   updating together if a new legislature introduces a new label.
 - **Source date typos**: `crawl_gaceta_metadata.py`'s
   `KNOWN_SOURCE_DATE_TYPOS` holds case-by-case verified corrections where
@@ -176,8 +180,8 @@ python3 camara_de_diputados/votos/crawl_gaceta_metadata.py --fetch-vote-pages
 python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py
 
 # 3. Load into the warehouse + rebuild the identity bridge
-python3 ingestion/gaceta_ingest.py
-python -m ingestion.diputados_ingest
+python3 camara_de_diputados/votos/ingest.py
+python -m camara_de_diputados.escanos.ingest
 
 # 4. (optional) LLM classification
 python3 camara_de_diputados/votos/classify_gaceta_votes.py prepare
@@ -189,7 +193,7 @@ python3 camara_de_diputados/votos/classify_gaceta_votes.py apply \
   data/gaceta_vote_classification/classifications_reviewed.csv
 
 # 5. Rebuild Streamlit-ready parquet
-python3 ingestion/gaceta_materialize.py --force
+python3 camara_de_diputados/votos/materialize.py --force
 ```
 
 ## Consumers
@@ -197,7 +201,7 @@ python3 ingestion/gaceta_materialize.py --force
 - **Streamlit** (`ui/gaceta.py`): deputy voting calendar (`render_gaceta("Diputado", ...)`, driven from
   the `ui/hemicycle.py` seat click via `dim_diputados`) and the LLM-classification explorer
   (`render_gaceta("Clasificación")`).
-- **`web/`** (static Next.js export): `ingestion/congress_seat_member_resolve.py` first resolves
+- **`web/`** (static Next.js export): `camara_de_diputados/escanos/seat_members.py` first resolves
   seat occupancy, person aliases and seat/vote conflicts into the `fact_legislature_66_*` tables.
   `web/scripts/export_gaceta_web.py` then reads those alongside `dim_diputados`, `dim_gaceta_vote`,
   `fact_gaceta_deputy_vote`, `fact_gaceta_vote_summary`, and classifications from
