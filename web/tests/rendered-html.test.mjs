@@ -18,7 +18,7 @@ test("server-renders the landing page", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /<title>current affairs mx — política mexicana, con datos<\/title>/i);
+  assert.match(html, /<title>current affairs mx — asuntos públicos de México, con datos<\/title>/i);
   assert.match(html, /decisiones públicas/);
   // The three sections must always be reachable from the front door.
   for (const section of ["Visualizaciones interactivas", "Artículos", "Datos"]) {
@@ -110,7 +110,7 @@ test("ships complete state and national trajectories for all federal contests", 
   const expectedYears = {
     PRE: [1994, 2000, 2006, 2012, 2018, 2024],
     SEN: [2000, 2006, 2012, 2018, 2024],
-    DIP: [2000, 2006, 2012, 2015, 2018, 2021, 2024],
+    DIP: [2000, 2006, 2009, 2012, 2015, 2018, 2021, 2024],
   };
   for (const [contestKey, years] of Object.entries(expectedYears)) {
     const contest = trajectory.contests[contestKey];
@@ -181,7 +181,7 @@ test("carries the current occupancy overlay, not only the 2024 winners", async (
     ["senado", JSON.parse(senateData)],
   ]) {
     const { manifest, seats, formerMembers, histories, seatMembers } = payload;
-    assert.equal(manifest.schemaVersion, 5, `${slug} exports attributed seat histories`);
+    assert.equal(manifest.schemaVersion, 6, `${slug} exports attributed seat histories`);
     assert.equal(manifest.chamber, slug);
     assert.ok(manifest.roster.observedAt, `${slug} records its roster cutoff`);
     assert.ok(manifest.roster.sourceUrl.startsWith("https://"));
