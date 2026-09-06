@@ -54,6 +54,16 @@ Run the app:
 python3 run_streamlit.py
 ```
 
+Open an ad-hoc SQL console against the warehouse — with live progress,
+cancellation, and a searchable log of past queries:
+
+```bash
+python3 -m query_console
+```
+
+It is a local-only research tool, documented in `query_console/README.md`;
+it is not part of the deployed site.
+
 ## Dashboard at a Glance
 
 The Streamlit dashboard has five sections in a segmented navigation control:
@@ -350,8 +360,8 @@ camara_de_senadores/
                  -> dim_senado_*
   iniciativas/   crawl proposers, then ingest.py -> dim_senado_iniciativa
   composicion/   crawl the current Senado roster -> data/clean_congress_rosters/
-  escanos/       official MR/FM/RP seat readers (senadores.py); ingest.py
-                 -> dim_senadores, the INE-seat to Senado identity bridge
+  escanos/       ingest.py -> dim_senadores, the authoritative INE-seat to
+                 Senado identity bridge; website seat resolution helpers
 ```
 
 Each chamber owns its pipeline end to end. Seat resolution, roster
@@ -366,10 +376,12 @@ camara_de_*/escanos/seat_margins.py     the margin each seat was won by
 camara_de_*/escanos/audited_overrides.py  this chamber's rows of the audited CSVs
 ```
 
-These write disjoint halves of the same `chamber`-keyed tables, and every
-delete is scoped, so either chamber can be re-ingested without disturbing the
-other. The price is duplication: the ~1,000-line resolution algorithm exists
-twice and a fix has to be applied to both copies.
+The Senate website path is deliberately simpler: its `seat_members.py` and
+`seat_margins.py` resolve in memory and `web/scripts/export_gaceta_web.py`
+writes `senate-66.json` directly. They do not materialize
+`fact_legislature_66_*` Senate rows. The Cámara still uses its persisted
+resolution tables. The underlying resolution algorithm remains duplicated, so
+a shared fix normally has to be considered on both sides.
 `tests/test_chamber_pipeline_parity.py` fails when the two drift, listing the
 functions that are allowed to differ and why.
 
@@ -646,7 +658,7 @@ python3 aux_scripts/seat_allocations/hemicycle_explorer.py
 
 This opens an interactive hemicycle in the browser. Use
 `camara_de_diputados/escanos/diputados.py` or
-`camara_de_senadores/escanos/senadores.py` directly for tabular seat counts
+`aux_scripts/seat_allocations/senadores.py` directly for tabular seat counts
 or QA against official results.
 
 To refresh the official rosters and pre-built assets used by the
@@ -781,13 +793,12 @@ presents the legislature-66 roll-call data as an interactive hemicycle for
 both chambers. It is not part of the Streamlit pipeline and does not run in
 this repo's Python environment.
 
-It is a **static snapshot** application. Who occupies which seat, which
-roll-call names are one person, and which seat cast a contested vote are all
-resolved in the warehouse by each chamber's `escanos/seat_members.py`,
-which write the `fact_legislature_66_*` tables. `web/scripts/export_gaceta_web.py`
-then reads those tables plus the INE integration CSV and shapes the roll-call
-hemicycle JSON files under `web/public/data/` — it does not derive identity
-itself, so the resolution step has to run first.
+It is a **static snapshot** application. On the Senate side,
+`web/scripts/export_gaceta_web.py` calls `escanos/seat_members.py` as a pure
+in-memory resolver and writes `senate-66.json` directly from the source
+warehouse tables, current roster CSV, INE integration and audited overrides.
+No intermediate Senate seat/member tables are created. The Cámara currently
+retains its older persisted `fact_legislature_66_*` resolution path.
 `web/scripts/export_iniciativas_web.py` separately reads
 `dim_gaceta_iniciativa`/`dim_senado_iniciativa` and writes
 `web/public/data/iniciativas.json` — who proposed each initiative, kept apart
@@ -796,11 +807,10 @@ live database at runtime.
 
 ```bash
 python3 camara_de_diputados/escanos/seat_members.py  # resolve seats, aliases, conflicts
-python3 camara_de_senadores/escanos/seat_members.py
 python3 camara_de_diputados/escanos/seat_margins.py  # winning margins per seat
-python3 camara_de_senadores/escanos/seat_margins.py
 python3 camara_de_diputados/votos/materialize.py --force   # vote thresholds (and Streamlit parquet)
-python3 web/scripts/export_gaceta_web.py          # refresh roll-call snapshots
+python3 camara_de_senadores/composicion/crawl_senadores_roster.py --refresh
+python3 web/scripts/export_gaceta_web.py          # resolves Senado in memory + writes snapshots
 python3 web/scripts/export_iniciativas_web.py     # refresh initiative-proposer snapshot
 cd web && npm test                              # production build + data invariants
 ```
