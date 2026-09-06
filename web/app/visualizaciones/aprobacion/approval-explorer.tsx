@@ -75,6 +75,42 @@ function monthlyTrend(points: Point[]) {
     .sort((a, b) => a.month - b.month);
 }
 
+// Two houses reporting the same whole-number approval in the same month land on
+// identical coordinates and paint over each other -- 73 such pairs across the
+// series, so a hidden point is the norm rather than an edge case. Fan a month's
+// points out horizontally instead.
+//
+// The spread is deliberately bounded: one month is only PLOT_WIDTH / TERM_MONTHS
+// (~11px) wide, so a dot pushed much further would read as belonging to the
+// neighbouring month -- trading an invisible point for a misdated one. Months
+// carrying up to nine polls therefore stay partly stacked by design; the offset
+// separates the common cases and never lies about the date.
+//
+// Ordering is by pollster name, not input order, so a house keeps the same slot
+// from month to month and the fan stays still when the data reloads.
+const MONTH_WIDTH = PLOT_WIDTH / TERM_MONTHS;
+const MAX_MONTH_SPREAD = MONTH_WIDTH * 0.7;
+const PREFERRED_DOT_STEP = 4;
+
+function offsetsWithinMonth(points: Point[]) {
+  const byMonth = new Map<number, Point[]>();
+  for (const point of points) {
+    const bucket = byMonth.get(point.month);
+    if (bucket) bucket.push(point);
+    else byMonth.set(point.month, [point]);
+  }
+
+  const offsets = new Map<Point, number>();
+  for (const bucket of byMonth.values()) {
+    if (bucket.length === 1) continue;
+    const ordered = [...bucket].sort((a, b) => a.pollster.localeCompare(b.pollster, "es"));
+    const step = Math.min(PREFERRED_DOT_STEP, MAX_MONTH_SPREAD / (ordered.length - 1));
+    const first = (-step * (ordered.length - 1)) / 2;
+    ordered.forEach((point, index) => offsets.set(point, first + index * step));
+  }
+  return offsets;
+}
+
 function linePath(trend: { month: number; approve: number }[]) {
   return trend
     .map((point, index) => `${index === 0 ? "M" : "L"}${xForMonth(point.month).toFixed(1)},${yForApproval(point.approve).toFixed(1)}`)
@@ -155,6 +191,10 @@ export default function ApprovalExplorer() {
     () => (highlight ? filteredPoints.filter((point) => point.president === highlight) : []),
     [filteredPoints, highlight],
   );
+
+  // Keyed on the point objects themselves, which survive both filters by
+  // reference, so the lookup below stays an identity hit.
+  const dotOffsets = useMemo(() => offsetsWithinMonth(highlightPoints), [highlightPoints]);
 
   const tableRows = useMemo(
     () =>
@@ -313,7 +353,7 @@ export default function ApprovalExplorer() {
               {highlightPoints.map((point, index) => (
                 <circle
                   key={`${point.date}-${point.pollster}-${index}`}
-                  cx={xForMonth(point.month)}
+                  cx={xForMonth(point.month) + (dotOffsets.get(point) ?? 0)}
                   cy={yForApproval(point.approve)}
                   r={hover?.point === point ? 5 : 3}
                   className="approval-dot"

@@ -49,11 +49,19 @@ last month's, even within the same nominal series.
 | `Estudio Nacional Evaluación de Gestión` (e.g. Sept 2025) | "¿Usted aprueba o desaprueba el trabajo de la presidenta...?" | Matches Oraculus's historical wording exactly — confirmed by reconciliation (2025-09: chart 74/15 vs Oraculus seed 74/15) |
 | `Encuesta Nacional` (e.g. Jun 2026) | "¿Qué opinión tiene usted de la Presidenta...?" (muy buena/buena — muy mala/mala) | **Different question**, not aprueba/desaprueba |
 | `Evaluación de Gobierno Federal` (e.g. Abr 2026) | Same "opinión" wording, sometimes as a trend chart | **Different question** |
+| `Encuesta Nacional Audiencias y Redes sociales` (Ago 2026) | "¿Usted aprueba o desaprueba el trabajo de la Presidenta...?" | Matches the Oraculus wording |
 
-Checked one wave of each of the three templates as of 2026-08; only the
-`Evaluación de Gestión` type has shown the literal aprueba/desaprueba wording
-so far, and only one instance of that template has been found. The other two
-templates recur monthly and never carry it.
+Checked one wave of each template as of 2026-09. The literal
+aprueba/desaprueba wording has now been found in two templates: the
+`Evaluación de Gestión` type (Sept 2025) and the `Audiencias y Redes sociales`
+deck (Aug 2026). The `Encuesta Nacional` and `Evaluación de Gobierno Federal`
+monthlies still never carry it.
+
+**Do not filter discovery on the report title.** The August 2026 wave is
+nominally a media-and-social-networks study, and its slide 6 nonetheless
+carries the headline approval question in the Oraculus-comparable wording.
+A deck whose subject looks unrelated can still hold the series' best chart, so
+page through the whole deck rather than judging it by its title.
 
 **Where the same month is shown under both wordings, the numbers differ
 materially** — e.g. 2025-09: aprueba/desaprueba 74/15 vs opinión 71/17. These
@@ -137,15 +145,20 @@ Recurring Demotecnia charts that look evaluative but are not `aprobacion` or
 
 | Date | Change |
 |---|---|
+| 2026-08 | aprueba/desaprueba wording **returns**, on an `Audiencias y Redes sociales` deck (68 / 25) |
 | 2026-08 | First reconciled: Sept 2025 wave's aprueba/desaprueba chart matches Oraculus's seed exactly (74/15) |
 | ~2025-09 → 2026 | Monthly decks stop carrying the aprueba/desaprueba chart; "opinión buena/mala" is the only headline question found since |
 
-## State as of 2026-08-14
+## State as of 2026-09-05
 
 - Rows loaded: `2025-09` (aprueba/desaprueba, corroborates Oraculus),
   `2026-01`, `2026-05`, `2026-06` (all "opinión" wording — accepted
-  discontinuity, see above)
+  discontinuity, see above), `2026-08` (aprueba/desaprueba, 68 / 25)
 - `desempeno`: 12 temas, `2026-05` only, from one `Evaluación de Gobierno
   Federal` wave
-- Not yet checked: whether any 2026 wave uses the `Evaluación de Gestión`
-  template that carries the literal aprueba/desaprueba wording
+- The 2026-08 wave is the first since 2025-09 in the wording that is directly
+  comparable to the pre-2026 series. Two comparable points either side of the
+  "opinión" stretch is not yet enough to characterise the discontinuity, but
+  it is the first chance to; watch whether later waves keep the wording.
+- The 2026-08 deck carried no methodology slide, and its cover slide is not
+  referenced in the page HTML — both normal for this house.

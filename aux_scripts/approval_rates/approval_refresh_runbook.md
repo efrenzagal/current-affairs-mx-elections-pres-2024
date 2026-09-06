@@ -274,15 +274,20 @@ could be replaced with a real fetch. Worth checking for periodically.
 **Numbers stop being printed.** Stop. Do not estimate from pixel positions.
 Find another publication of the same wave, or record the month as missing.
 
-## State as of 2026-08-14
+## State as of 2026-09-05
 
-- `fact_approval_poll`: 995 rows, 1995-02 → 2026-07, 21 houses
-- `fact_approval_topic`: 74 rows, 19 temas, 2025-01 → 2026-07 (El Financiero and Demotecnia)
-- Last El Financiero wave loaded: **2026-07** (67 / 33)
-- Last Enkoll wave loaded: **2026-05** (68 / 27)
+- `fact_approval_poll`: 998 rows, 1995-02 → 2026-08, 21 houses
+- `fact_approval_topic`: 77 rows, 19 temas, 2025-01 → 2026-08 (El Financiero and Demotecnia)
+- Last El Financiero wave loaded: **2026-08** (68 / 32)
+- Last Enkoll wave loaded: **2026-08** (69 / 26)
+- Last Demotecnia wave loaded: **2026-08** (68 / 25)
+- Last Buendía y Márquez wave loaded: **2025-08** (70 / 18)
 - Last Covarrubias wave loaded: **2025-09** (72 / 16)
-- 26 months `oraculus+grafica`, 8 months `grafica+grafica`, 9 months `grafica`
+- 26 months `oraculus+grafica`, 13 months `grafica+grafica`, 7 months `grafica`
 - All listed sources are wired up.
+
+Buendía y Márquez and Covarrubias published nothing new for August 2026; both
+were checked against their own sites on 2026-09-05 and remain where they were.
 
 The warehouse is fully derived: `--force` drops the four tables and rebuilds
 them from the two spreadsheets and `chart_transcriptions.csv`. Those three

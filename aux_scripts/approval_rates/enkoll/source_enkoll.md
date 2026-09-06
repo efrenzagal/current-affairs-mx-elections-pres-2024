@@ -41,11 +41,40 @@ single wave:
 |---|---|
 | 2026-03-04 | Dec 2024 to Mar 2026 |
 | 2026-05-27 | Dec 2024 to May 2026 |
+| 2026-09-02 | Dec 2024 to "Sep 2026" (see label warning below) |
 
 Both reports reproduce every overlapping point exactly. The points through
 September 2025 also reconcile exactly with the Oraculus seed. Preserve that
 overlap on future refreshes; it is the verification mechanism for newer
 months.
+
+## The month labels are not always the coverage month
+
+**The `informe` decks label their newest point by publication month, not by
+the month they polled.** The Segundo Informe deck (published 2026-09-02)
+labels its last point `SEP 2026`, while its own methodology page states
+fieldwork of **25–29 August 2026**. Under rule 2 of the main runbook that
+point is `2026-08`, which is how it is stored.
+
+The same deck also relabels two older points relative to the March and May
+decks — same values, shifted one month:
+
+| Point | Mar/May 2026 decks | Sep 2026 deck | Stored as |
+|---|---|---|---|
+| 79 / 18 | AGO 2025 | SEP 2025 | `2025-08` |
+| 78 / 18 | SEP 2025 | OCT 2025 | `2025-09` |
+
+Both stored months are `oraculus+grafica` — the Oraculus seed independently
+agrees with the earlier decks — so the file is right and the newer deck is
+labelling by publication. The 79/18 point is the *Primer* Informe wave
+(published 2025-09-01, fielded late August 2025), which is the exact same
+publication-vs-coverage offset one year earlier.
+
+**Practical consequence:** do not transcribe the two informe-adjacent points
+from an informe deck under that deck's own labels — they will collide with
+correctly-dated rows. Take the newest point (re-dated to its fieldwork month)
+and the unambiguous overlaps, and leave those two alone. The note in the
+methodology page is the authority on coverage, not the axis label.
 
 ## Exclusions
 
@@ -53,9 +82,12 @@ Do not transcribe the demographic breakdowns of approval, spontaneous
 "logro/error" questions, rankings of national problems, or country-direction
 questions. None is the recurring national approval question.
 
-## State as of 2026-08-14
+## State as of 2026-09-05
 
-- Headline rows loaded through **2026-05** (68 / 27).
-- 2025-12 and 2026-03 are corroborated by both reports; 2026-05 is currently
-  a single-chart reading.
+- Headline rows loaded through **2026-08** (69 / 26), from the Segundo Informe
+  deck published 2026-09-02 (fieldwork 25–29 August 2026).
+- The eight unambiguous overlapping points on that deck all matched the file,
+  which upgraded 2026-05 to `grafica+grafica`. 2026-08 is `grafica` until the
+  next deck restates it.
+- The El País write-up quotes 69 / 26 for this wave, matching the chart.
 - No per-topic `desempeno` series has been identified for Enkoll.
