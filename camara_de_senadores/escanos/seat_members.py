@@ -6,21 +6,10 @@ matching three registers that spell the same human three ways, deciding which of
 two roll-call identities is an alias rather than a substitute, and refusing to
 let one constitutional seat cast two votes.
 
-Legislature 66 only, by deliberate scope: the tables are named for it and the
-suplente register this depends on is the 2024 INE integration.
-
-The Camara runs the same resolution over its own registers in
-`camara_de_diputados/escanos/seat_members.py`. The two write disjoint
-halves of the same five tables, keyed by `chamber`.
-
-Writes five tables, all rebuilt wholesale on every run, deleting only this
-chamber's rows:
-
-    fact_legislature_66_seat_resolved      current occupancy per seat
-    fact_legislature_66_seat_member        seat <-> person bridge, ordered
-    fact_legislature_66_former_member      voters not in either seat snapshot
-    fact_legislature_66_person_alias       roll-call identity -> canonical
-    fact_legislature_66_seat_vote_conflict audit of double-voted seats
+Legislature 66 only, by deliberate scope: the suplente register this depends
+on is the 2024 INE integration. Resolution is an in-memory publication step;
+it does not create derived seat/member tables in the warehouse. The static web
+export imports :func:`resolve_seats` and writes the resulting JSON directly.
 
 Usage::
 
@@ -36,6 +25,8 @@ import sys
 import unicodedata
 from pathlib import Path
 
+import pandas as pd
+
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -43,6 +34,12 @@ sys.path.insert(0, str(ROOT))
 from camara_de_senadores.escanos.audited_overrides import (  # noqa: E402
     load_person_aliases,
     load_seat_overrides,
+)
+from camara_de_senadores.composicion.ingest import (  # noqa: E402
+    resolve_seats as resolve_current_roster,
+)
+from camara_de_senadores.escanos.seat_margins import (  # noqa: E402
+    attach_election_results,
 )
 from lib.canonical import canonical_party  # noqa: E402
 from lib.person_names import display_person_name  # noqa: E402
@@ -52,6 +49,7 @@ DB_PATH = ROOT / "election_data.db"
 LEGISLATURE = 66
 CHAMBER = "SEN"
 DEFAULT_PARTY = "SG"
+ROSTER_PATH = ROOT / "data" / "clean_congress_rosters" / "senadores_current.csv"
 
 INE_INTEGRATION_PUBLIC_URL = (
     "https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/"
@@ -77,6 +75,12 @@ SEATS_SQL = """
         ine_candidate_name AS titularName,
         ine_substitute_name AS substituteName,
         party_key AS electedParty,
+        seat_type AS seatType,
+        id_estado AS stateId,
+        nombre_estado AS state,
+        NULL AS district,
+        NULL AS circunscripcion,
+        numero_lista AS listNumber,
         source_name_role AS electedNameRole
     FROM dim_senadores
     WHERE legislature = 66
@@ -134,132 +138,55 @@ VOTE_ORDER_SQL = """
     ORDER BY v.vote_date DESC, v.votacion_id DESC
 """
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS fact_legislature_66_seat_resolved (
-    chamber              TEXT NOT NULL CHECK (chamber IN ('DIP', 'SEN')),
-    seat_id              TEXT NOT NULL,
-    elected_person_id    TEXT,
-    elected_party        TEXT NOT NULL,
-    titular_name         TEXT,
-    substitute_name      TEXT,
-    current_person_id    TEXT,
-    current_name         TEXT,
-    current_party        TEXT NOT NULL,
-    current_status       TEXT NOT NULL,
-    roster_observed_at   TEXT,
-    roster_source_url    TEXT,
-    created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (chamber, seat_id)
-);
-
-CREATE TABLE IF NOT EXISTS fact_legislature_66_seat_member (
-    chamber                 TEXT NOT NULL CHECK (chamber IN ('DIP', 'SEN')),
-    seat_id                 TEXT NOT NULL,
-    member_index            INTEGER NOT NULL,
-    person_id               TEXT NOT NULL,
-    person_name             TEXT NOT NULL,
-    party_key               TEXT NOT NULL,
-    seat_role               TEXT NOT NULL CHECK (seat_role IN ('titular', 'suplente')),
-    is_current_occupant     INTEGER NOT NULL CHECK (is_current_occupant IN (0, 1)),
-    vote_count              INTEGER NOT NULL,
-    relationship_source_url TEXT,
-    created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (chamber, seat_id, person_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_l66_seat_member_person
-    ON fact_legislature_66_seat_member(person_id);
-
-CREATE TABLE IF NOT EXISTS fact_legislature_66_former_member (
-    chamber                 TEXT NOT NULL CHECK (chamber IN ('DIP', 'SEN')),
-    person_id               TEXT NOT NULL,
-    person_name             TEXT NOT NULL,
-    party_key               TEXT NOT NULL,
-    seat_id                 TEXT,
-    seat_role               TEXT,
-    relationship_source_url TEXT,
-    created_at              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (chamber, person_id)
-);
-
-CREATE TABLE IF NOT EXISTS fact_legislature_66_person_alias (
-    chamber             TEXT NOT NULL CHECK (chamber IN ('DIP', 'SEN')),
-    person_id           TEXT NOT NULL,
-    canonical_person_id TEXT NOT NULL,
-    created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (chamber, person_id)
-);
-
-CREATE TABLE IF NOT EXISTS fact_legislature_66_person (
-    chamber      TEXT NOT NULL CHECK (chamber IN ('DIP', 'SEN')),
-    person_id    TEXT NOT NULL,
-    display_name TEXT NOT NULL,
-    name_source  TEXT NOT NULL CHECK (name_source IN ('seat_table', 'roll_call')),
-    created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (chamber, person_id)
-);
-
-CREATE TABLE IF NOT EXISTS fact_legislature_66_seat_vote_conflict (
-    chamber             TEXT NOT NULL CHECK (chamber IN ('DIP', 'SEN')),
-    seat_id             TEXT NOT NULL,
-    vote_id             TEXT NOT NULL,
-    counted_person_id   TEXT NOT NULL,
-    reported_person_ids TEXT NOT NULL,
-    created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (chamber, seat_id, vote_id)
-);
-"""
-
 def rows(conn: sqlite3.Connection, query: str, params: tuple = ()) -> list[dict]:
     conn.row_factory = sqlite3.Row
     return [dict(row) for row in conn.execute(query, params)]
-def load_current_roster(conn: sqlite3.Connection) -> tuple[dict[str, dict], dict]:
+
+
+def load_current_roster(
+    conn: sqlite3.Connection, roster_path: Path = ROSTER_PATH
+) -> tuple[dict[str, dict], dict]:
     """Latest official-directory occupancy for every constitutional seat.
 
     The INE integration names the person *elected* in 2024. By this cutoff a
     tenth of the Camara and a fifth of the Senado is occupied by someone else —
     suplentes who took over, members on licencia, one vacancy. Those are the
     people actually casting the votes this site publishes, so the site has to be
-    able to show them. `fact_congress_roster_seat` is the same source the
-    Streamlit "Composicion actual" view reads; keep the two in agreement.
+    able to show them. Resolve the crawler's CSV directly instead of storing a
+    second copy of this website view model in SQLite.
     """
-    snapshot = rows(
-        conn,
-        """
-        SELECT snapshot_id, observed_at, source_url
-        FROM dim_congress_roster_snapshot
-        WHERE chamber = ?
-        ORDER BY observed_at DESC, created_at DESC
-        LIMIT 1
-        """,
-        (CHAMBER,),
-    )
-    if not snapshot:
+    if not roster_path.exists():
         raise SystemExit(
-            "No roster snapshot for SEN."
-            " Run camara_de_senadores/composicion/ingest.py first."
+            f"No parsed Senate roster at {roster_path}. Run "
+            "camara_de_senadores/composicion/crawl_senadores_roster.py first."
         )
-    meta = snapshot[0]
+    source = pd.read_csv(roster_path, dtype={"member_source_id": str})
+    resolved, review = resolve_current_roster(conn, source)
+    if review:
+        preview = ", ".join(str(row.get("current_name")) for row in review[:5])
+        raise ValueError(
+            f"Current Senate roster has {len(review)} unresolved/duplicate members: {preview}"
+        )
+    if resolved["member_source_id"].notna().sum() != len(source):
+        raise ValueError("Senate roster did not resolve every in-office member")
+
     roster = {
-        row["seatId"]: row
-        for row in rows(
-            conn,
-            """
-            SELECT
-                seat_id AS seatId,
-                current_name AS currentName,
-                current_party AS currentParty,
-                member_status AS currentStatus,
-                vote_person_id AS currentPersonId
-            FROM fact_congress_roster_seat
-            WHERE snapshot_id = ?
-            """,
-            (meta["snapshot_id"],),
-        )
+        str(row["seat_id"]): {
+            "seatId": str(row["seat_id"]),
+            "currentName": row["current_name"],
+            "currentParty": row["current_party"],
+            "currentStatus": row["member_status"],
+            "currentPersonId": (
+                str(row["vote_person_id"])
+                if pd.notna(row["vote_person_id"])
+                else None
+            ),
+        }
+        for row in resolved.to_dict("records")
     }
     return roster, {
-        "observedAt": meta["observed_at"],
-        "sourceUrl": meta["source_url"],
+        "observedAt": str(source.iloc[0]["observed_at"]),
+        "sourceUrl": str(source.iloc[0]["source_url"]),
     }
 
 
@@ -691,7 +618,9 @@ def load_chamber_vote_rows(conn: sqlite3.Connection) -> list[dict]:
     return translated
 
 
-def person_histories(conn: sqlite3.Connection) -> dict[str, list[list[str]]]:
+def person_histories(
+    conn: sqlite3.Connection, resolved: dict | None = None
+) -> dict[str, list[list[str]]]:
     """Per-person LXVI vote history, with audited aliases already applied.
 
     Rebuilt from the fact table on demand rather than stored. The rows are
@@ -702,30 +631,12 @@ def person_histories(conn: sqlite3.Connection) -> dict[str, list[list[str]]]:
     Seeded from the seats *and* the voters so that a person who holds a seat but
     never cast a vote still appears, with an empty history rather than no entry.
     """
-    aliases = {
-        row["personId"]: row["canonicalPersonId"]
-        for row in rows(
-            conn,
-            """
-            SELECT person_id AS personId, canonical_person_id AS canonicalPersonId
-            FROM fact_legislature_66_person_alias
-            WHERE chamber = ?
-            """,
-            (CHAMBER,),
-        )
-    }
+    resolved = resolved or resolve_seats(conn)
+    aliases = resolved["aliases"]
     seated = {
         str(value)
-        for row in rows(
-            conn,
-            """
-            SELECT elected_person_id AS elected, current_person_id AS current
-            FROM fact_legislature_66_seat_resolved
-            WHERE chamber = ?
-            """,
-            (CHAMBER,),
-        )
-        for value in (row["elected"], row["current"])
+        for seat in resolved["seats"]
+        for value in (seat.get("electedPersonId"), seat.get("currentPersonId"))
         if value
     }
     voters = {
@@ -807,6 +718,7 @@ def resolve_seats(conn: sqlite3.Connection) -> dict:
     roster, roster_meta = load_current_roster(conn)
     add_registered_seat_names(seats)
     apply_roster(seats, roster)
+    attach_election_results(seats)
 
     linked_people = (
         {seat["electedPersonId"] for seat in seats if seat["electedPersonId"]}
@@ -850,181 +762,36 @@ def resolve_seats(conn: sqlite3.Connection) -> dict:
     }
 
 
-def write_seats(conn: sqlite3.Connection, resolved: dict) -> dict[str, int]:
-    """Replace this chamber's resolution tables in a single transaction.
-
-    Scoped deletes rather than a bare DELETE: the two chambers are resolved in
-    separate passes, and a full wipe would leave the other one missing for as
-    long as this run took.
-    """
-    chamber = CHAMBER
-    roster = resolved["roster"]
-    seats = resolved["seats"]
-
-    current_by_seat = {
-        str(seat["id"]): (
-            str(seat["currentPersonId"]) if seat.get("currentPersonId") else None
-        )
-        for seat in seats
-    }
-
-    seat_records = [
-        (
-            chamber,
-            str(seat["id"]),
-            str(seat["electedPersonId"]) if seat.get("electedPersonId") else None,
-            seat["electedParty"],
-            seat.get("titularName"),
-            seat.get("substituteName"),
-            str(seat["currentPersonId"]) if seat.get("currentPersonId") else None,
-            seat.get("currentName"),
-            seat["currentParty"],
-            seat["currentStatus"],
-            roster.get("observedAt"),
-            roster.get("sourceUrl"),
-        )
-        for seat in seats
-    ]
-
-    member_records = [
-        (
-            chamber,
-            seat_id,
-            index,
-            str(member["personId"]),
-            member["name"],
-            member["party"],
-            member["role"],
-            int(current_by_seat.get(seat_id) == str(member["personId"])),
-            member["voteCount"],
-            member.get("sourceUrl"),
-        )
-        for seat_id, members in resolved["seatMembers"].items()
-        for index, member in enumerate(members)
-    ]
-
-    former_records = [
-        (
-            chamber,
-            str(member["personId"]),
-            member["name"],
-            member["party"],
-            member.get("seatId"),
-            member.get("seatRole"),
-            member.get("relationshipSourceUrl"),
-        )
-        for member in resolved["formerMembers"]
-    ]
-
-    alias_records = [
-        (chamber, str(source), str(target))
-        for source, target in resolved["aliases"].items()
-    ]
-
-    conflict_records = [
-        (
-            chamber,
-            conflict["seatId"],
-            str(conflict["voteId"]),
-            str(conflict["countedPersonId"]),
-            ",".join(str(person) for person in conflict["reportedPersonIds"]),
-        )
-        for conflict in resolved["conflicts"]
-    ]
-
-    conn.executescript(SCHEMA)
-    with conn:
-        for table in (
-            "fact_legislature_66_seat_resolved",
-            "fact_legislature_66_seat_member",
-            "fact_legislature_66_former_member",
-            "fact_legislature_66_person_alias",
-            "fact_legislature_66_seat_vote_conflict",
-        ):
-            conn.execute(f"DELETE FROM {table} WHERE chamber = ?", (chamber,))
-
-        conn.executemany(
-            """
-            INSERT INTO fact_legislature_66_seat_resolved (
-                chamber, seat_id, elected_person_id, elected_party, titular_name,
-                substitute_name, current_person_id, current_name, current_party,
-                current_status, roster_observed_at, roster_source_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            seat_records,
-        )
-        conn.executemany(
-            """
-            INSERT INTO fact_legislature_66_seat_member (
-                chamber, seat_id, member_index, person_id, person_name, party_key,
-                seat_role, is_current_occupant, vote_count, relationship_source_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            member_records,
-        )
-        conn.executemany(
-            """
-            INSERT INTO fact_legislature_66_former_member (
-                chamber, person_id, person_name, party_key, seat_id, seat_role,
-                relationship_source_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            former_records,
-        )
-        conn.executemany(
-            """
-            INSERT INTO fact_legislature_66_person_alias (
-                chamber, person_id, canonical_person_id
-            ) VALUES (?, ?, ?)
-            """,
-            alias_records,
-        )
-        conn.execute(
-            "DELETE FROM fact_legislature_66_person WHERE chamber = ?", (chamber,)
-        )
-        conn.executemany(
-            """
-            INSERT INTO fact_legislature_66_person (
-                chamber, person_id, display_name, name_source
-            ) VALUES (?, ?, ?, ?)
-            """,
-            resolved["displayNames"],
-        )
-        conn.executemany(
-            """
-            INSERT INTO fact_legislature_66_seat_vote_conflict (
-                chamber, seat_id, vote_id, counted_person_id, reported_person_ids
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            conflict_records,
-        )
-
-    return {
-        "seats": len(seat_records),
-        "members": len(member_records),
-        "former": len(former_records),
-        "aliases": len(alias_records),
-        "conflicts": len(conflict_records),
-        "names": len(resolved["displayNames"]),
-    }
-
-
-def materialize(db_path: Path = DB_PATH) -> None:
+def validate(db_path: Path = DB_PATH) -> dict:
+    """Resolve the publication model and report its invariants without writes."""
     with sqlite3.connect(db_path) as conn:
         resolved = resolve_seats(conn)
-        counts = write_seats(conn, resolved)
-        print(
-            f"  {CHAMBER}: {counts['seats']} seats, {counts['members']} members, "
-            f"{counts['former']} former, {counts['aliases']} aliases, "
-            f"{counts['conflicts']} conflicts, {counts['names']} names"
-        )
+        histories = person_histories(conn, resolved)
+    counts = {
+        "seats": len(resolved["seats"]),
+        "members": sum(len(value) for value in resolved["seatMembers"].values()),
+        "former": len(resolved["formerMembers"]),
+        "aliases": len(resolved["aliases"]),
+        "conflicts": len(resolved["conflicts"]),
+        "names": len(resolved["displayNames"]),
+        "histories": len(histories),
+    }
+    if counts["seats"] != 128:
+        raise ValueError(f"Expected 128 Senate seats; resolved {counts['seats']}")
+    print(
+        f"  {CHAMBER}: {counts['seats']} seats, {counts['members']} members, "
+        f"{counts['former']} former, {counts['aliases']} aliases, "
+        f"{counts['conflicts']} conflicts, {counts['histories']} histories; "
+        "no database writes"
+    )
+    return resolved
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=str(DB_PATH))
     args = parser.parse_args()
-    materialize(Path(args.db))
+    validate(Path(args.db))
 
 
 if __name__ == "__main__":

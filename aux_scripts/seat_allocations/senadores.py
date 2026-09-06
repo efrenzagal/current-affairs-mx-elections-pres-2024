@@ -1,5 +1,4 @@
-"""
-Reconstruct Senado seat counts from election data.
+"""Exploratory reconstruction of Senado seat counts from election data.
 
 The Senate has 128 seats:
   - 96 state seats: 2 for the winning state slate, 1 for first minority
@@ -7,6 +6,7 @@ The Senate has 128 seats:
 
 Vote-only reconstruction is strongest at the actor/slate level. Exact party
 ownership inside coalitions should be validated against INE integration files.
+This is an optional QA tool, not part of Senate ingestion or website export.
 """
 
 from __future__ import annotations

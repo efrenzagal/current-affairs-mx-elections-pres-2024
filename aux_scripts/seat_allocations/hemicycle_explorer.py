@@ -36,7 +36,7 @@ from aux_scripts.seat_allocations.common import (
     connect as _sa_connect,
 )
 from camara_de_diputados.escanos import diputados as dip_mod
-from camara_de_senadores.escanos import senadores as sen_mod
+from aux_scripts.seat_allocations import senadores as sen_mod
 from camara_de_diputados.escanos.ingest import diputado_id_for_row
 from camara_de_senadores.escanos.ingest import senador_id_for_row
 from lib.person_names import display_person_name

@@ -19,22 +19,17 @@ from lib.canonical import (  # noqa: E402
     canonical_party,
 )
 
-# Seat occupancy, identity aliases and the seat/person bridge are resolved and
-# stored by the warehouse. This script reads those answers; it does not make
-# them. person_histories is the one derivation still applied at read time --
-# see its docstring for why it is not a stored table. Each chamber resolves its
-# own, so this exporter picks the right one rather than passing a chamber flag.
+# The Camara still reads its persisted resolved-seat tables. The Senado takes
+# the simpler path: resolve its website model in memory from source tables,
+# current-roster CSV and audited overrides, then serialize it directly.
 from camara_de_diputados.escanos.seat_members import (  # noqa: E402
     person_histories as camara_person_histories,
 )
 from camara_de_senadores.escanos.seat_members import (  # noqa: E402
     person_histories as senado_person_histories,
+    resolve_display_names as resolve_senado_display_names,
+    resolve_seats as resolve_senado_seats,
 )
-
-PERSON_HISTORIES = {
-    "DIP": camara_person_histories,
-    "SEN": senado_person_histories,
-}
 
 DB_PATH = ROOT / "election_data.db"
 OUT_PATH = ROOT / "web" / "public" / "data" / "legislature-66.json"
@@ -315,12 +310,9 @@ def senado_party_votes(conn: sqlite3.Connection) -> dict[str, dict[str, dict[str
     return party_votes
 
 
-# The seat payload joins two things: the immutable electoral identity in
-# dim_diputados/dim_senadores, and the resolved occupancy the warehouse worked
-# out in each chamber's escanos/seat_members.py. Column order here is the
-# published key order, so keep it stable.
-RESOLVED_SEAT_SQL = {
-    "DIP": """
+# The Camara payload still uses its persisted resolution. Senate resolution is
+# assembled directly below. Column order is the published JSON contract.
+CAMARA_RESOLVED_SEAT_SQL = """
         SELECT
             d.diputado_id AS id,
             r.elected_person_id AS electedPersonId,
@@ -350,60 +342,28 @@ RESOLVED_SEAT_SQL = {
           ON e.seat_id = r.seat_id AND e.chamber = 'DIP'
         WHERE d.legislature = 66
         ORDER BY d.party_key, d.display_name
-    """,
-    "SEN": """
-        SELECT
-            s.senador_seat_id AS id,
-            r.elected_person_id AS electedPersonId,
-            s.display_name AS electedName,
-            r.titular_name AS titularName,
-            r.substitute_name AS substituteName,
-            r.elected_party AS electedParty,
-            s.seat_type AS seatType,
-            s.id_estado AS stateId,
-            s.nombre_estado AS state,
-            NULL AS district,
-            NULL AS circunscripcion,
-            s.numero_lista AS listNumber,
-            s.source_name_role AS electedNameRole,
-            r.current_name AS currentName,
-            r.current_party AS currentParty,
-            r.current_status AS currentStatus,
-            r.current_person_id AS currentPersonId,
-            e.district_seat AS districtSeat,
-            e.election_actor AS electionActor,
-            e.winning_votes AS winningVotes,
-            e.winning_pct AS winningPct
-        FROM dim_senadores s
-        JOIN fact_legislature_66_seat_resolved r
-          ON r.seat_id = s.senador_seat_id AND r.chamber = 'SEN'
-        LEFT JOIN fact_legislature_66_seat_election_result e
-          ON e.seat_id = r.seat_id AND e.chamber = 'SEN'
-        WHERE s.legislature = 66
-        ORDER BY s.party_key, s.display_name
-    """,
-}
+    """
 
-def load_resolved_seats(conn: sqlite3.Connection, chamber: str) -> list[dict]:
+def load_camara_resolved_seats(conn: sqlite3.Connection) -> list[dict]:
     """Seats with occupancy and winning margin already resolved upstream.
 
     Raises rather than degrading if the resolution tables are missing: an empty
     hemicycle published as if it were the real chamber is worse than no build.
     """
     try:
-        seats = rows(conn, RESOLVED_SEAT_SQL[chamber])
+        seats = rows(conn, CAMARA_RESOLVED_SEAT_SQL)
     except sqlite3.OperationalError as error:
         # A missing table means the resolution step has never run here, which is
         # the likeliest reason this script fails on a fresh checkout. Say so,
         # rather than surfacing "no such table" from four frames down.
         raise SystemExit(
-            f"Cannot export {chamber}: {error}. "
+            f"Cannot export DIP: {error}. "
             "Run this chamber's escanos/seat_members.py and "
             "escanos/seat_margins.py first."
         ) from error
     if not seats:
         raise SystemExit(
-            f"No resolved seats for {chamber}. "
+            "No resolved seats for DIP. "
             "Run this chamber's escanos/seat_members.py first."
         )
     return seats
@@ -530,7 +490,9 @@ def build_chamber_payload(
     was made and recorded by each chamber's escanos/seat_members.py. This
     reads those answers and shapes them; it does not re-derive any of them.
     """
-    seats = load_resolved_seats(conn, chamber)
+    if chamber != "DIP":
+        raise ValueError("build_chamber_payload is the legacy Camara-only path")
+    seats = load_camara_resolved_seats(conn)
 
     return {
         "manifest": {
@@ -548,9 +510,43 @@ def build_chamber_payload(
         "formerMembers": load_former_members(conn, chamber),
         "personAliases": load_person_alias_map(conn, chamber),
         "votes": votes,
-        "histories": PERSON_HISTORIES[chamber](conn),
+        "histories": camara_person_histories(conn),
         "seatMembers": load_seat_members(conn, chamber, seats),
         "seatVoteConflicts": load_seat_vote_conflicts(conn, chamber),
+        "partyVotes": party_votes,
+    }
+
+
+def build_senate_payload(
+    conn: sqlite3.Connection,
+    votes: list[dict],
+    party_votes: dict,
+    schema_version: int = 6,
+) -> dict:
+    """Resolve and serialize Senado directly, without derived warehouse tables."""
+    resolved = resolve_senado_seats(conn)
+    seats = resolved["seats"]
+    if len(seats) != 128:
+        raise ValueError(f"Expected 128 Senate seats; resolved {len(seats)}")
+    return {
+        "manifest": {
+            "schemaVersion": schema_version,
+            "legislature": 66,
+            "chamber": "senado",
+            "sourceThrough": max(vote["date"] for vote in votes),
+            "seatCount": len(seats),
+            "voteCount": len(votes),
+            "linkedSeats": sum(bool(seat["electedPersonId"]) for seat in seats),
+            "roster": resolved["roster"],
+            **roster_stats(seats),
+        },
+        "seats": seats,
+        "formerMembers": resolved["formerMembers"],
+        "personAliases": resolved["aliases"],
+        "votes": votes,
+        "histories": senado_person_histories(conn, resolved),
+        "seatMembers": resolved["seatMembers"],
+        "seatVoteConflicts": resolved["conflicts"],
         "partyVotes": party_votes,
     }
 
@@ -574,9 +570,7 @@ def export() -> None:
 
 def export_senate() -> None:
     with sqlite3.connect(DB_PATH) as conn:
-        payload = build_chamber_payload(
-            conn, "SEN", senado_votes(conn), senado_party_votes(conn)
-        )
+        payload = build_senate_payload(conn, senado_votes(conn), senado_party_votes(conn))
     write_payload(SENATE_OUT_PATH, payload)
 
 
@@ -592,9 +586,12 @@ def ballot_names(conn: sqlite3.Connection) -> tuple[dict[str, str], dict[str, st
         """
         SELECT chamber, person_id AS personId, display_name AS name
         FROM fact_legislature_66_person
+        WHERE chamber = 'DIP'
         """,
     ):
         names[row["chamber"]][row["personId"]] = row["name"]
+    for _, person_id, name, _ in resolve_senado_display_names(conn):
+        names["SEN"][person_id] = name
     return names["DIP"], names["SEN"]
 
 

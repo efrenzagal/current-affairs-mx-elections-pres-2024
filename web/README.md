@@ -81,14 +81,11 @@ rejected on evidence:
 - Roll calls cannot express *licencia* or *vacante*; an absent member and a
   member on leave are indistinguishable in them.
 
-Vote-reported affiliation is still used — `fact_congress_party_membership`
-models it — but as corroboration, not as the seat map.
-
-Current occupancy comes from `fact_congress_roster_seat` at the latest
-`dim_congress_roster_snapshot` — the same source the Streamlit "Composición
-actual" view reads. Keep the two in agreement; they are two front ends over one
-model, and `aux_scripts/build_hemicycle_cache.py` is the reference
-implementation.
+For the Senate static export, current occupancy is resolved directly from
+`data/clean_congress_rosters/senadores_current.csv`; it is not copied into a
+family of website-only warehouse tables first. The Cámara still reads its
+persisted current-roster/resolution model. Both exports keep the official
+directory—not the last roll call—as the authority for who occupies a seat.
 
 Consequences that are easy to get wrong:
 
@@ -323,14 +320,16 @@ The exporter reads the repository-root `election_data.db`:
   `fact_gaceta_deputy_vote`, `fact_gaceta_vote_summary`, and vote
   classifications.
 - Senado: `dim_senadores`, `dim_senado_vote`, `fact_senador_vote`.
-- Current occupancy, both chambers: `fact_congress_roster_seat` at the latest
-  `dim_congress_roster_snapshot`.
+- Senate current occupancy: `data/clean_congress_rosters/senadores_current.csv`,
+  resolved in memory during export.
+- Cámara current occupancy: its persisted roster/resolution tables.
 - Electoral results and list placement:
   `data/electoral_data_raw/raw_2024/PRESIDENCIA_2024/CSV/INTEGRACION_CARGOS_PEF_2024.csv`.
 
-Seat-to-legislator bridges are already persisted in `dim_diputados`,
-`dim_senadores` and the roster tables. Join histories through those IDs; do not
-fuzzy-match names in the web layer.
+The elected seat-to-roll-call bridge is persisted in `dim_senadores`. Current
+Senate occupants, former members and the rare double-vote conflict are resolved
+by `camara_de_senadores/escanos/seat_members.py` while the JSON is built. The
+TypeScript client receives resolved IDs and never fuzzy-matches names.
 
 The two chambers use the same exported shape (`schemaVersion: 6`):
 
@@ -422,7 +421,7 @@ Refresh the roster before the exporter if the directory has moved:
 
 ```bash
 python3 -m camara_de_diputados.composicion.ingest
-python3 -m camara_de_senadores.composicion.ingest
+python3 camara_de_senadores/composicion/crawl_senadores_roster.py --refresh
 ```
 
 Do not hand-edit generated JSON. Change the exporter or upstream warehouse,

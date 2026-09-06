@@ -8,11 +8,7 @@ from camara_de_senadores.escanos import seat_members as sen
 
 
 def resolved(chamber="DIP", **overrides):
-    """One seat with a titular and a substitute, in the shape write_seats wants.
-
-    `chamber` only labels the rows the payload carries pre-built (displayNames);
-    which chamber is *written* is decided by the module whose write_seats runs.
-    """
+    """One Camara seat with a titular and substitute, as write_seats expects."""
     payload = {
         "roster": {"observedAt": "2025-06-01", "sourceUrl": "https://camara.example/"},
         "seats": [
@@ -110,20 +106,11 @@ class WriteSeatsTests(unittest.TestCase):
             [("DEP_TITULAR",)],
         )
 
-    def test_rebuilding_one_chamber_leaves_the_other_intact(self):
-        # The chambers are now separate modules writing disjoint halves of one
-        # table. Re-running either must not disturb the other's rows.
-        sen.write_seats(self.conn, resolved(chamber="SEN"))
-        dip.write_seats(self.conn, resolved(chamber="DIP"))
-        dip.write_seats(self.conn, resolved(chamber="DIP"))
-
-        self.assertEqual(
-            self.conn.execute(
-                "SELECT chamber, COUNT(*) FROM fact_legislature_66_seat_member"
-                " GROUP BY chamber ORDER BY chamber"
-            ).fetchall(),
-            [("DIP", 2), ("SEN", 2)],
-        )
+    def test_senate_resolution_has_no_warehouse_writer(self):
+        # Senado is now resolved directly into the website JSON. This guards
+        # against accidentally reintroducing its intermediate table family.
+        self.assertFalse(hasattr(sen, "write_seats"))
+        self.assertFalse(hasattr(sen, "SCHEMA"))
 
     def test_conflict_preserves_every_reported_voter(self):
         payload = resolved(

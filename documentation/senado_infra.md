@@ -14,7 +14,8 @@ senado.gob.mx (HTML list page + per-vote pages + AJAX detail endpoint)
   -> camara_de_senadores/votos/ingest.py                      (CSV -> election_data.db)
   -> camara_de_senadores/escanos/ingest.py                   (INE seats -> dim_senadores bridge)
   -> camara_de_senadores/votos/classify_senado_votes.py (optional Batch API classification)
-  -> ui/senado.py                                    (Streamlit rendering)
+  -> camara_de_senadores/escanos/seat_members.py        (in-memory website resolution)
+  -> web/scripts/export_gaceta_web.py                         (-> senate-66.json)
 ```
 
 Semantic classification is optional and independent from vote ingestion.
@@ -45,6 +46,8 @@ structural gap versus the Diputados pipeline (see `diputados_infra.md`).
 | `camara_de_senadores/votos/crawl_senado_votes.py` | Fetch/cache/backoff crawler (mirrors the Gaceta crawler's pattern). Caches every page under `data/raw_senado_votes/`; writes `dim_senado_vote.csv` and `senado_vote_detail.csv` to `data/clean_senado_votes/`. |
 | `camara_de_senadores/votos/ingest.py` | Loads the clean CSVs into `election_data.db` (`dim_senado_vote`, `dim_senador`, `fact_senador_vote`), runs QA, then calls `escanos_senado.py`. |
 | `camara_de_senadores/escanos/ingest.py` | Builds `dim_senadores`: matches all 128 official 2024 INE seats to `dim_senador` identities. |
+| `camara_de_senadores/escanos/seat_members.py` | Pure in-memory resolver for current occupants, former/interim members, aliases and seat-vote conflicts. Creates no warehouse tables. |
+| `web/scripts/export_gaceta_web.py` | Combines the resolver output with votes and writes `web/public/data/senate-66.json` directly. |
 | `ui/senado.py` | Senator voting-calendar view and vote-detail party grid. Entry point: `render_senado()`. Reuses `ui/gaceta.py`'s tile/calendar plotting helpers rather than re-deriving the layout math. |
 
 ## Warehouse tables
@@ -180,15 +183,14 @@ topic and voting stage.
 ## Current roster overlay
 
 The official Senate "en funciones" directory is collected independently from
-roll calls by `camara_de_senadores/composicion/crawl_senadores_roster.py` and
-resolved by `camara_de_senadores/composicion/ingest.py`. Official Senate profile IDs
-are preferred; registered titular/suplente names and audited seat-specific
-overrides cover changed profile IDs. A directory below 128 members produces
-an explicit vacant seat rather than restoring the elected officeholder.
-
-The snapshot cutoff, source URL and content hash are stored in
-`dim_congress_roster_snapshot`; the complete 128-seat state is stored in
-`fact_congress_roster_seat`. No vote pages are fetched during this refresh.
+roll calls by `camara_de_senadores/composicion/crawl_senadores_roster.py`.
+For the static website, `seat_members.py` reads the resulting
+`data/clean_congress_rosters/senadores_current.csv` directly and resolves it in
+memory. Official Senate profile IDs are preferred; registered titular/suplente
+names and audited seat-specific overrides cover changed profile IDs. A directory
+below 128 members produces an explicit vacant seat rather than restoring the
+elected officeholder. No derived seat/member or margin tables are written to the
+warehouse for the Senate website export.
 
 ## Refresh
 
@@ -199,13 +201,17 @@ python3 camara_de_senadores/votos/crawl_senado_votes.py --all-votes
 # 2. Load into the warehouse + rebuild the identity bridge
 python -m camara_de_senadores.votos.ingest --force
 
-# 3. Rebuild the hemicycle cache so seat customdata picks up any new senador_seat_id
-python3 aux_scripts/build_hemicycle_cache.py
+# 3. Refresh the official current-directory CSV
+python3 camara_de_senadores/composicion/crawl_senadores_roster.py --refresh
+
+# 4. Resolve seats/people in memory and write the website JSON
+python3 web/scripts/export_gaceta_web.py
 ```
 
 ## Consumers
 
 - **Streamlit**: `ui/hemicycle.py` makes each Senado seat clickable; a click resolves through
   `dim_senadores` and calls `ui/senado.py`'s `render_senado("Senador", senador_seat_id=..., ...)`.
-- **`web/`** (static Next.js export): reads `dim_senadores`, `dim_senado_vote`, `fact_senador_vote`
-  directly from `election_data.db` — see `web/README.md`.
+- **`web/`** (static Next.js export): reads `dim_senadores`, `dim_senado_vote`,
+  `fact_senador_vote`, the current roster CSV and the INE integration; it resolves
+  the complete `senate-66.json` in memory — see `web/README.md`.

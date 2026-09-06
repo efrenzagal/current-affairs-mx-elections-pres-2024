@@ -45,11 +45,14 @@ EXPECTED_DIFFERENT = {
         "load_current_roster": "names its own chamber in the error message",
         "load_substitutes": "reads dim_diputados vs dim_senadores",
         "load_chamber_vote_rows": "only the Senado translates its vote vocabulary",
+        "person_histories": "Senado resolves aliases and seated people in memory",
         "resolve_display_names": "different roll-call tables and name formatting",
+        "resolve_seats": "Senado attaches roster and margins directly for JSON export",
+        "main": "Senado validates an in-memory model instead of persisting tables",
     },
     "escanos/seat_margins.py": {
         "load_results": "district number vs state-list position; only the Camara has a cabecera",
-        "materialize": "different seat query and district_seat column",
+        "main": "Senado validates source margins without writing a derived table",
     },
     "escanos/audited_overrides.py": {},
     "composicion/ingest.py": {

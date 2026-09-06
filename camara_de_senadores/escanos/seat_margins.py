@@ -1,4 +1,4 @@
-"""Attach each LXVI Senado seat to the margin it was won by.
+"""Attach each LXVI Senado seat to the margin it was won by in memory.
 
 The INE integration CSV reports, per contested seat, who won it and by how much.
 That file is raw source under the gitignored `data/electoral_data_raw/` tree,
@@ -6,28 +6,25 @@ and the static web exporter used to parse it directly at build time -- meaning
 the published site could be built from a file the warehouse had never seen or
 validated.
 
-This resolves those rows onto seat ids once, so consumers join on `seat_id`
-rather than re-deriving the chamber-specific key. Only seats actually won in a
-contest get a row: proportional-representation seats have no winning margin,
-and a seat with no row is reported as having no result rather than a zero one.
+The website exporter calls :func:`attach_election_results` while assembling
+``senate-66.json``. No derived margin table is created in SQLite. Only seats
+actually won in a contest receive values: proportional-representation seats
+have no winning margin, represented by ``None`` rather than zero.
 
 A Senado seat is identified by its position on the state list, and both MR and
-first-minority seats carry a result -- the Camara's half of this table is
-written by `camara_de_diputados/escanos/seat_margins.py`, which keys on the
-federal district number instead.
+first-minority seats carry a result. The Cámara has a separate implementation
+because it keys contested seats on federal district number instead.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import sqlite3
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
-DB_PATH = ROOT / "election_data.db"
 INTEGRATION_PATH = (
     ROOT
     / "data"
@@ -37,32 +34,7 @@ INTEGRATION_PATH = (
     / "CSV"
     / "INTEGRACION_CARGOS_PEF_2024.csv"
 )
-INTEGRATION_PUBLIC_URL = (
-    "https://ine.mx/integracion-de-diputaciones-y-senadurias-pef-2023-2024/"
-)
-
-CHAMBER = "SEN"
 CANDIDATURE = "SEN_MR"
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS fact_legislature_66_seat_election_result (
-    chamber        TEXT NOT NULL CHECK (chamber IN ('DIP', 'SEN')),
-    seat_id        TEXT NOT NULL,
-    district_seat  TEXT,
-    election_actor TEXT,
-    winning_votes  INTEGER NOT NULL,
-    winning_pct    REAL NOT NULL,
-    source_url     TEXT NOT NULL,
-    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (chamber, seat_id)
-);
-"""
-
-SEAT_SQL = """
-    SELECT senador_seat_id AS seat_id, id_estado, numero_lista AS number
-    FROM dim_senadores
-    WHERE legislature = 66 AND seat_type IN ('MR', 'FM')
-"""
 
 
 def load_results(path: Path = INTEGRATION_PATH) -> dict[tuple, dict]:
@@ -81,57 +53,32 @@ def load_results(path: Path = INTEGRATION_PATH) -> dict[tuple, dict]:
     return results
 
 
-def materialize(db_path: Path = DB_PATH, path: Path = INTEGRATION_PATH) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(SCHEMA)
-        conn.row_factory = sqlite3.Row
-        results = load_results(path)
-        records = []
-        unmatched = 0
-        for seat in conn.execute(SEAT_SQL):
-            result = results.get((seat["id_estado"], seat["number"]))
-            if result is None:
-                unmatched += 1
-                continue
-            records.append(
-                (
-                    CHAMBER,
-                    seat["seat_id"],
-                    # Only the Camara names a district seat; the Senado has none.
-                    None,
-                    result["electionActor"],
-                    result["winningVotes"],
-                    result["winningPct"],
-                    INTEGRATION_PUBLIC_URL,
-                )
-            )
-        # Scoped to this chamber: the Camara's rows live in the same table and
-        # are written by a separate run that must not be wiped by this one.
-        with conn:
-            conn.execute(
-                "DELETE FROM fact_legislature_66_seat_election_result"
-                " WHERE chamber = ?",
-                (CHAMBER,),
-            )
-            conn.executemany(
-                """
-                INSERT INTO fact_legislature_66_seat_election_result (
-                    chamber, seat_id, district_seat, election_actor,
-                    winning_votes, winning_pct, source_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                records,
-            )
-        note = f", {unmatched} contested seats unmatched" if unmatched else ""
-        print(f"  {CHAMBER}: {len(records)} seat results{note}")
+def attach_election_results(
+    seats: list[dict], path: Path = INTEGRATION_PATH
+) -> list[dict]:
+    """Add the website's margin fields to already-resolved Senate seats."""
+    results = load_results(path)
+    matched = 0
+    for seat in seats:
+        result = results.get((seat.get("stateId"), seat.get("listNumber")))
+        seat["districtSeat"] = None
+        seat["electionActor"] = result["electionActor"] if result else None
+        seat["winningVotes"] = result["winningVotes"] if result else None
+        seat["winningPct"] = result["winningPct"] if result else None
+        matched += int(result is not None)
+    if matched != 96:
+        raise ValueError(f"Expected margins for 96 Senate MR/FM seats; matched {matched}")
+    return seats
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--db", default=str(DB_PATH))
     parser.add_argument("--csv", default=str(INTEGRATION_PATH))
     args = parser.parse_args()
-    materialize(Path(args.db), Path(args.csv))
+    results = load_results(Path(args.csv))
+    if len(results) != 96:
+        raise SystemExit(f"Expected 96 Senate MR/FM results; found {len(results)}")
+    print(f"Validated {len(results)} Senate MR/FM election results; no database writes.")
 
 
 if __name__ == "__main__":
