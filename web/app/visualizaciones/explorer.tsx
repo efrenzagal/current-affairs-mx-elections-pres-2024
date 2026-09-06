@@ -2,6 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  findDistrictState,
+  resolveFederalDistrict,
+  resolveMunicipalityDistricts,
+  type DistrictLookupIndex,
+  type DistrictResolution,
+} from "../../../district_lookup/resolver";
 import { SITE_NAME, SiteFooter, SiteHeader } from "../site-chrome";
 import { PARTY_COLORS, partyRank } from "./parties";
 import {
@@ -388,6 +395,11 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
   const [voteFilterParty, setVoteFilterParty] = useState("Todos");
   const [stateFilter, setStateFilter] = useState("Todos");
   const [districtFilter, setDistrictFilter] = useState("Todos");
+  const [districtIndex, setDistrictIndex] = useState<DistrictLookupIndex | null>(null);
+  const [municipalityFilter, setMunicipalityFilter] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [districtResolution, setDistrictResolution] = useState<DistrictResolution | null>(null);
+  const [postalLoading, setPostalLoading] = useState(false);
   const [districtQuery, setDistrictQuery] = useState("");
   const [districtOpen, setDistrictOpen] = useState(false);
   const [topic, setTopic] = useState(ALL_TOPICS);
@@ -416,6 +428,23 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
       cancelled = true;
     };
   }, [config.dataUrl]);
+
+  useEffect(() => {
+    if (isSenate) return;
+    let cancelled = false;
+    fetch("/data/federal-district-lookup.json")
+      .then((response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.json();
+      })
+      .then((payload: DistrictLookupIndex) => {
+        if (!cancelled) setDistrictIndex(payload);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isSenate]);
 
   // Runs after the vote-detail section has been mounted by the render that
   // `openVote` triggered, which is the only point where it can be scrolled to.
@@ -624,6 +653,40 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
       .map((seat) => ({ district: seat.district, label: `Distrito ${seat.district}${seat.districtSeat ? ` · ${seat.districtSeat}` : ""}` }))
       .sort((a, b) => a.district - b.district);
   }, [data, stateFilter]);
+
+  const lookupState = useMemo(
+    () => districtIndex && stateFilter !== "Todos"
+      ? findDistrictState(districtIndex, stateFilter)
+      : null,
+    [districtIndex, stateFilter],
+  );
+
+  const municipalitiesForState = useMemo(
+    () => [...(lookupState?.municipalities ?? [])].sort((a, b) => a.name.localeCompare(b.name, "es")),
+    [lookupState],
+  );
+
+  function applyDistrictResolution(result: DistrictResolution) {
+    setDistrictResolution(result);
+    if (result.state && data) {
+      const matchingState = data.seats.find(
+        (seat) => seat.stateId === result.state!.id && seat.state,
+      )?.state;
+      if (matchingState) setStateFilter(matchingState);
+    }
+    if (result.municipality) setMunicipalityFilter(result.municipality.name);
+    setDistrictFilter(result.districts.length === 1 ? String(result.districts[0]) : "Todos");
+    setDistrictQuery("");
+    setDistrictOpen(false);
+  }
+
+  async function findByPostalCode() {
+    if (!districtIndex) return;
+    setPostalLoading(true);
+    const result = await resolveFederalDistrict(districtIndex, { postalCode });
+    applyDistrictResolution(result);
+    setPostalLoading(false);
+  }
 
   const queryNormalized = normalize(query);
   const results = useMemo(() => {
@@ -914,6 +977,42 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
               </div>
             </div>
 
+            {!isSenate && districtIndex && (
+              <div className="district-finder">
+                <div>
+                  <strong>Encuentra tu distrito</strong>
+                  <span>Selecciona estado y municipio; el código postal está en beta.</span>
+                </div>
+                <form
+                  className="postal-lookup"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void findByPostalCode();
+                  }}
+                >
+                  <label>
+                    <span className="sr-only">Código postal</span>
+                    <input
+                      value={postalCode}
+                      inputMode="numeric"
+                      maxLength={5}
+                      pattern="[0-9]{5}"
+                    placeholder="Código postal (beta)"
+                      onChange={(event) => setPostalCode(event.target.value.replace(/\D/g, ""))}
+                    />
+                  </label>
+                  <button type="submit" disabled={postalLoading || postalCode.length !== 5}>
+                    {postalLoading ? "Buscando…" : "Buscar"}
+                  </button>
+                </form>
+                {districtResolution && !districtResolution.state && (
+                  <p className="postal-feedback" aria-live="polite">
+                    {districtResolution.message}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="toolbar">
               <span className="toolbar-label">Estado</span>
               <label className="toolbar-select">
@@ -923,6 +1022,8 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                   onChange={(event) => {
                     setStateFilter(event.target.value);
                     setDistrictFilter("Todos");
+                    setMunicipalityFilter("");
+                    setDistrictResolution(null);
                     setDistrictQuery("");
                     setDistrictOpen(false);
                   }}
@@ -936,6 +1037,56 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                 </select>
               </label>
             </div>
+
+            {!isSenate && municipalitiesForState.length > 0 && (
+              <div className="toolbar municipality-toolbar">
+                <span className="toolbar-label">Municipio</span>
+                <label className="toolbar-select">
+                  <span className="sr-only">Seleccionar municipio</span>
+                  <select
+                    value={municipalityFilter}
+                    onChange={(event) => {
+                      const municipality = event.target.value;
+                      setMunicipalityFilter(municipality);
+                      if (!districtIndex || !municipality || stateFilter === "Todos") {
+                        setDistrictResolution(null);
+                        setDistrictFilter("Todos");
+                        return;
+                      }
+                      applyDistrictResolution(
+                        resolveMunicipalityDistricts(districtIndex, stateFilter, municipality),
+                      );
+                    }}
+                  >
+                    <option value="">Selecciona municipio</option>
+                    {municipalitiesForState.map((municipality) => (
+                      <option key={`${municipality.id}-${municipality.name}`} value={municipality.name}>
+                        {municipality.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {districtResolution && (
+                  <div className="district-resolution" aria-live="polite">
+                    <span>{districtResolution.message}</span>
+                    {districtResolution.districts.length > 1 && (
+                      <div>
+                        {districtResolution.districts.map((district) => (
+                          <button
+                            type="button"
+                            key={district}
+                            className={districtFilter === String(district) ? "active" : ""}
+                            onClick={() => setDistrictFilter(String(district))}
+                          >
+                            Distrito {district}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {districtsForState.length > 0 && (
               <div className="toolbar">

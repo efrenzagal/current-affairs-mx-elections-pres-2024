@@ -98,6 +98,22 @@ a { color: inherit; }
 .chamber-card { overflow: hidden; }
 .toolbar { align-items: center; border-bottom: 1px solid var(--line); display: flex; gap: 14px; padding: 16px 18px; }
 .toolbar-label { color: var(--muted); flex: 0 0 auto; font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+.district-finder { align-items: center; background: #eef1ee; border-bottom: 1px solid var(--line); display: flex; gap: 18px; justify-content: space-between; padding: 14px 18px; }
+.district-finder > div:first-child { display: flex; flex-direction: column; gap: 3px; }
+.district-finder strong { font-family: var(--serif); font-size: 16px; }
+.district-finder span { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.district-finder .postal-feedback { color: var(--muted); flex-basis: 100%; font-size: 10px; margin: 0; }
+.postal-lookup { display: flex; gap: 6px; }
+.postal-lookup input { background: var(--white); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); font-size: 11px; padding: 7px 9px; width: 116px; }
+.postal-lookup button, .district-resolution button { background: var(--navy); border: 1px solid var(--navy); border-radius: 3px; color: var(--white); cursor: pointer; font-size: 10px; font-weight: 700; padding: 7px 11px; }
+.postal-lookup button:disabled { cursor: default; opacity: .45; }
+.municipality-toolbar { align-items: flex-start; flex-wrap: wrap; }
+.municipality-toolbar select { max-width: 270px; }
+.district-resolution { align-items: center; display: flex; flex: 1 1 320px; gap: 8px 12px; justify-content: flex-end; }
+.district-resolution > span { color: var(--muted); font-size: 10px; }
+.district-resolution > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.district-resolution button { background: transparent; border-color: var(--line); color: var(--ink); padding: 5px 8px; }
+.district-resolution button:hover, .district-resolution button.active { background: var(--navy); border-color: var(--navy); color: var(--white); }
 /* Used by the vote explorer's filter rail; the hemicycle explorers search from
    `.panel-search` instead. */
 .search-field { align-items: center; background: #f2efe8; border-radius: 3px; display: flex; flex: 0 1 280px; gap: 8px; padding: 8px 11px; }
@@ -737,6 +753,9 @@ footer > span { justify-self: end; }
   .section-heading { display: block; padding: 0 8px; }
   .section-heading > p { margin-top: 14px; }
   .toolbar { align-items: stretch; flex-direction: column; }
+  .district-finder { align-items: stretch; flex-direction: column; }
+  .postal-lookup input { flex: 1; width: auto; }
+  .district-resolution { align-items: flex-start; flex-basis: auto; flex-direction: column; }
   .search-field { flex-basis: auto; }
   .hemicycle { margin-top: 4px; width: 100%; }
   .seat-dot { height: 7px; margin: -3px 0 0 -3px; width: 7px; }
