@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Query Console — election warehouse</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <button class="ghost icon" id="sidebarToggle" title="Hide the sidebar (⌘B)" aria-label="Toggle sidebar">⇤</button>
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>Query Console</h1>
+  </div>
+  <div class="meta" id="dbMeta">connecting…</div>
+  <button class="ghost" id="themeToggle" title="Light / dark">◐</button>
+</header>
+
+<main class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-pane="tablesPane">Tables</button>
+      <button class="tab" data-pane="savedPane">Saved</button>
+    </div>
+    <div class="pane active" id="tablesPane">
+      <input class="search" id="tableSearch" type="search" placeholder="Filter tables…" autocomplete="off">
+      <div class="tree" id="tableTree"></div>
+    </div>
+    <div class="pane" id="savedPane">
+      <div class="tree" id="savedList"></div>
+    </div>
+  </aside>
+
+  <section class="workspace">
+    <div class="editor-wrap">
+      <div class="sheet-tabs" id="sheetTabs"></div>
+      <div class="toolbar">
+        <button class="primary" id="runBtn">Run <kbd>⌘⏎</kbd></button>
+        <button class="ghost" id="explainBtn">Query plan</button>
+        <label class="field">Rows
+          <input id="rowLimit" type="number" min="1" step="100" value="100" placeholder="all"
+                 title="Maximum rows to fetch — leave blank for no limit">
+        </label>
+        <label class="field">Stop after
+          <input id="timeout" type="number" min="1" step="5" value="30" placeholder="∞"
+                 title="Minutes — leave blank for no limit">
+          <span class="unit">min</span>
+        </label>
+        <span class="spacer"></span>
+        <button class="ghost" id="saveBtn" title="Save to documentation/queries/">Save…</button>
+        <button class="ghost" id="clearBtn">Clear</button>
+      </div>
+      <div class="editor" id="editor">
+        <pre class="hl" id="hl" aria-hidden="true"><code id="hlCode"></code></pre>
+        <textarea id="sql" spellcheck="false" autocomplete="off" autocapitalize="off"
+                  placeholder="SELECT * FROM dim_election ORDER BY election_id;"></textarea>
+        <div class="ac" id="acMenu" hidden></div>
+      </div>
+    </div>
+
+    <div class="statusbar" id="statusBar">
+      <span class="pill idle" id="statusPill">idle</span>
+      <span id="statusText">Write a query and press ⌘⏎ / Ctrl+Enter.</span>
+      <span class="spacer"></span>
+      <span class="counters" id="counters"></span>
+    </div>
+
+    <div class="results">
+      <div class="tabs results-tabs" role="tablist">
+        <button class="tab active" data-pane="resultsPane">Results</button>
+        <button class="tab" data-pane="planPane">Query plan</button>
+        <button class="tab" data-pane="historyPane">History</button>
+        <span class="spacer"></span>
+        <span class="result-actions" id="resultActions" hidden>
+          <button class="ghost" id="copyMdBtn">Copy as Markdown</button>
+          <a class="ghost button" id="csvLink" href="#" download>Download CSV</a>
+        </span>
+      </div>
+      <div class="pane active" id="resultsPane"><div class="empty">No results yet.</div></div>
+      <div class="pane" id="planPane"><div class="empty">Run “Query plan” to see how SQLite will execute the statement.</div></div>
+      <div class="pane" id="historyPane">
+        <input class="search" id="historySearch" type="search" placeholder="Search past queries…" autocomplete="off">
+        <div class="history" id="historyList"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="saveModal" hidden>
+  <div class="modal-card">
+    <h2>Save query</h2>
+    <p>Stored as a <code>.sql</code> file in <code>documentation/queries/</code>.</p>
+    <input id="saveName" type="text" placeholder="legislature_66_party_switches">
+    <div class="modal-actions">
+      <button class="ghost" id="saveCancel">Cancel</button>
+      <button class="primary" id="saveConfirm">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/editor.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

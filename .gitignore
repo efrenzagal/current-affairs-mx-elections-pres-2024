@@ -29,3 +29,6 @@ data/*
 
 # Stray lockfile from running npx in the repo root (the Node project is web/)
 /package-lock.json
+
+# Local query console state (history DB and cached result CSVs)
+/query_console/.state/
