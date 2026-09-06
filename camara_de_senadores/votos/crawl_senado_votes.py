@@ -119,8 +119,12 @@ def parse_vote_page(vote_id: int, html: str) -> dict[str, object]:
     )
     ordinal_match = re.search(r"(PRIMER|SEGUNDO)\s+PERIODO\s+ORDINARIO", period_text, re.IGNORECASE)
     period = ordinal_match.group(1).upper() if ordinal_match else None
+    # The source apostrophizes the ordinal before "AÑO": the pages read
+    # "TERCER AÑO DE EJERCICIO", never "TERCERO", so the old TERCERO
+    # alternative never matched and left exercise_year NULL for every vote
+    # from the tercer año onward (first seen on votacion 5123, 2026-09-02).
     year_match = re.search(
-        r"(PRIMER|SEGUNDO|TERCERO)\s+A[ÑN]O\s+DE\s+EJERCICIO", period_text, re.IGNORECASE
+        r"(PRIMER|SEGUNDO|TERCER)\s+A[ÑN]O\s+DE\s+EJERCICIO", period_text, re.IGNORECASE
     )
     exercise_year = year_match.group(1).upper() if year_match else None
 
