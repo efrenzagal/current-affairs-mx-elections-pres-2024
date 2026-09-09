@@ -1,7 +1,18 @@
+/**
+ * One federal district a municipality falls in, with the number of its
+ * secciones that sit there. The index lists these heaviest-first, because a
+ * split is rarely even: Cuauhtémoc is 300 secciones in district 12 against 89
+ * in district 2, and Cuernavaca is 209 against 2.
+ */
+export type DistrictShare = {
+  district: number;
+  secciones: number;
+};
+
 export type DistrictMunicipality = {
   id: number | null;
   name: string;
-  districts: number[];
+  districts: DistrictShare[];
 };
 
 export type DistrictState = {
@@ -21,7 +32,8 @@ export type DistrictResolution = {
   status: "resolved" | "ambiguous" | "not_found";
   state: DistrictState | null;
   municipality: DistrictMunicipality | null;
-  districts: number[];
+  /** Heaviest first, each carrying the share of the municipality it holds. */
+  districts: (DistrictShare & { share: number })[];
   message: string;
 };
 
@@ -52,67 +64,44 @@ export function findDistrictState(index: DistrictLookupIndex, stateName: string)
   return index.states.find((state) => canonicalState(state.name) === wanted) ?? null;
 }
 
+/**
+ * Addressable identity for one municipality. Oaxaca holds two pairs of
+ * distinct municipalities that share a name (SAN JUAN MIXTEPEC 208/209 and
+ * SAN PEDRO MIXTEPEC 316/317), each sitting in a different federal district,
+ * so the name on its own cannot pick one out.
+ */
+export function municipalityKey(municipality: DistrictMunicipality) {
+  return municipality.id === null
+    ? normalizeDistrictLocation(municipality.name)
+    : String(municipality.id);
+}
+
 export function resolveMunicipalityDistricts(
   index: DistrictLookupIndex,
   stateName: string,
-  municipalityName: string,
+  key: string,
 ): DistrictResolution {
   const state = findDistrictState(index, stateName);
   if (!state) {
     return { status: "not_found", state: null, municipality: null, districts: [], message: "No encontramos el estado." };
   }
-  const wanted = normalizeDistrictLocation(municipalityName);
   const municipality = state.municipalities.find(
-    (candidate) => normalizeDistrictLocation(candidate.name) === wanted,
+    (candidate) => municipalityKey(candidate) === key,
   ) ?? null;
   if (!municipality) {
     return { status: "not_found", state, municipality: null, districts: [], message: "No encontramos el municipio en el marco electoral de 2024." };
   }
-  const districts = [...municipality.districts].sort((a, b) => a - b);
+  const total = municipality.districts.reduce((sum, entry) => sum + entry.secciones, 0);
+  const districts = [...municipality.districts]
+    .sort((a, b) => b.secciones - a.secciones || a.district - b.district)
+    .map((entry) => ({ ...entry, share: total > 0 ? entry.secciones / total : 0 }));
   return {
     status: districts.length === 1 ? "resolved" : "ambiguous",
     state,
     municipality,
     districts,
     message: districts.length === 1
-      ? `Distrito federal ${districts[0]}`
-      : `Este municipio abarca ${districts.length} distritos federales.`,
+      ? `Distrito federal ${districts[0].district}`
+      : `Este municipio abarca ${districts.length} distritos federales; el primero cubre la mayor parte.`,
   };
 }
-
-type PostalPlace = { "place name": string; state: string };
-type PostalResponse = { places?: PostalPlace[] };
-
-export async function resolveFederalDistrict(
-  index: DistrictLookupIndex,
-  query: { postalCode: string } | { state: string; municipality: string },
-): Promise<DistrictResolution> {
-  if ("state" in query) {
-    return resolveMunicipalityDistricts(index, query.state, query.municipality);
-  }
-  const postalCode = query.postalCode.trim();
-  if (!/^\d{5}$/.test(postalCode)) {
-    return { status: "not_found", state: null, municipality: null, districts: [], message: "Escribe un código postal de cinco dígitos." };
-  }
-  try {
-    const response = await fetch(`https://api.zippopotam.us/MX/${postalCode}`);
-    if (!response.ok) throw new Error(String(response.status));
-    const payload = await response.json() as PostalResponse;
-    for (const place of payload.places ?? []) {
-      const result = resolveMunicipalityDistricts(index, place.state, place["place name"]);
-      if (result.status !== "not_found") return result;
-    }
-    const first = payload.places?.[0];
-    const state = first ? findDistrictState(index, first.state) : null;
-    return {
-      status: "not_found",
-      state,
-      municipality: null,
-      districts: [],
-      message: "Ubicamos el estado, pero no el municipio. Selecciónalo abajo para continuar.",
-    };
-  } catch {
-    return { status: "not_found", state: null, municipality: null, districts: [], message: "No pudimos consultar ese código postal. Usa estado y municipio." };
-  }
-}
-

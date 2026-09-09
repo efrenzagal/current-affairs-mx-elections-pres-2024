@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   findDistrictState,
-  resolveFederalDistrict,
+  municipalityKey,
   resolveMunicipalityDistricts,
   type DistrictLookupIndex,
   type DistrictResolution,
@@ -24,6 +24,18 @@ import {
 } from "./votes";
 
 export type Chamber = "diputados" | "senado";
+
+/**
+ * Share of a municipality's secciones sitting in one district. Rounds away
+ * from 0% and 100% so a real sliver never reads as none of the municipality,
+ * and a near-total never reads as all of it.
+ */
+function formatMunicipalityShare(share: number) {
+  const pct = share * 100;
+  if (pct > 0 && pct < 1) return "<1%";
+  if (pct < 100 && pct > 99) return ">99%";
+  return `${Math.round(pct)}%`;
+}
 
 /** Occupancy state published by the official directory, plus our own fallback. */
 type SeatStatus = "en_funciones" | "licencia" | "vacante" | "sin_directorio";
@@ -397,9 +409,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
   const [districtFilter, setDistrictFilter] = useState("Todos");
   const [districtIndex, setDistrictIndex] = useState<DistrictLookupIndex | null>(null);
   const [municipalityFilter, setMunicipalityFilter] = useState("");
-  const [postalCode, setPostalCode] = useState("");
   const [districtResolution, setDistrictResolution] = useState<DistrictResolution | null>(null);
-  const [postalLoading, setPostalLoading] = useState(false);
   const [districtQuery, setDistrictQuery] = useState("");
   const [districtOpen, setDistrictOpen] = useState(false);
   const [topic, setTopic] = useState(ALL_TOPICS);
@@ -642,17 +652,34 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
     );
   }, [data]);
 
+  // A chosen municipality is a claim about which districts are in play, so the
+  // district control has to honour it: offering the whole state next to it left
+  // two controls describing the same thing and disagreeing.
+  const municipalityDistricts = useMemo(() => {
+    if (!districtResolution?.municipality || districtResolution.districts.length === 0) return null;
+    return new Map(districtResolution.districts.map((entry) => [entry.district, entry.share]));
+  }, [districtResolution]);
+
   // Districts only exist under a chosen state (numbering restarts at 1 in
   // every state) and only for MR seats — the Senado runs no district ballot,
   // so this stays empty there and the control disappears rather than search
   // a filter with nothing to find.
   const districtsForState = useMemo(() => {
     if (!data || stateFilter === "Todos") return [];
-    return data.seats
+    const options = data.seats
       .filter((seat): seat is Seat & { district: number } => seat.state === stateFilter && seat.district !== null)
-      .map((seat) => ({ district: seat.district, label: `Distrito ${seat.district}${seat.districtSeat ? ` · ${seat.districtSeat}` : ""}` }))
-      .sort((a, b) => a.district - b.district);
-  }, [data, stateFilter]);
+      .filter((seat) => !municipalityDistricts || municipalityDistricts.has(seat.district))
+      .map((seat) => ({
+        district: seat.district,
+        label: `Distrito ${seat.district}${seat.districtSeat ? ` · ${seat.districtSeat}` : ""}`,
+        share: municipalityDistricts?.get(seat.district) ?? null,
+      }));
+    // Under a municipality the likeliest district leads; district number would
+    // bury the one holding 77% of Cuauhtémoc beneath the one holding 23%.
+    return municipalityDistricts
+      ? options.sort((a, b) => (b.share ?? 0) - (a.share ?? 0) || a.district - b.district)
+      : options.sort((a, b) => a.district - b.district);
+  }, [data, stateFilter, municipalityDistricts]);
 
   const lookupState = useMemo(
     () => districtIndex && stateFilter !== "Todos"
@@ -661,10 +688,23 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
     [districtIndex, stateFilter],
   );
 
-  const municipalitiesForState = useMemo(
-    () => [...(lookupState?.municipalities ?? [])].sort((a, b) => a.name.localeCompare(b.name, "es")),
-    [lookupState],
-  );
+  const municipalitiesForState = useMemo(() => {
+    const list = [...(lookupState?.municipalities ?? [])].sort((a, b) =>
+      a.name.localeCompare(b.name, "es"),
+    );
+    const nameCounts = new Map<string, number>();
+    for (const municipality of list) {
+      nameCounts.set(municipality.name, (nameCounts.get(municipality.name) ?? 0) + 1);
+    }
+    return list.map((municipality) => ({
+      key: municipalityKey(municipality),
+      // Same-named municipalities are told apart by the district they sit in,
+      // which is the only thing that distinguishes them for the reader.
+      label: (nameCounts.get(municipality.name) ?? 0) > 1
+        ? `${municipality.name} (distrito ${municipality.districts.map((entry) => entry.district).sort((a, b) => a - b).join(", ")})`
+        : municipality.name,
+    }));
+  }, [lookupState]);
 
   function applyDistrictResolution(result: DistrictResolution) {
     setDistrictResolution(result);
@@ -674,18 +714,10 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
       )?.state;
       if (matchingState) setStateFilter(matchingState);
     }
-    if (result.municipality) setMunicipalityFilter(result.municipality.name);
-    setDistrictFilter(result.districts.length === 1 ? String(result.districts[0]) : "Todos");
+    if (result.municipality) setMunicipalityFilter(municipalityKey(result.municipality));
+    setDistrictFilter(result.districts.length === 1 ? String(result.districts[0].district) : "Todos");
     setDistrictQuery("");
     setDistrictOpen(false);
-  }
-
-  async function findByPostalCode() {
-    if (!districtIndex) return;
-    setPostalLoading(true);
-    const result = await resolveFederalDistrict(districtIndex, { postalCode });
-    applyDistrictResolution(result);
-    setPostalLoading(false);
   }
 
   const queryNormalized = normalize(query);
@@ -764,9 +796,20 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
   // shape never jumps as a filter changes. The name search no longer mutes:
   // searching now picks a person outright, and a filter that also dimmed the
   // chamber on every keystroke made the two controls fight over the same pixels.
+  /**
+   * One district rule for both chambers' grids. With no single district picked,
+   * a selected municipality still narrows the field to the districts it covers,
+   * which — like picking a district outright — leaves out the RP seats.
+   */
+  const matchesDistrictFilter = (seat: Seat) => {
+    if (districtFilter !== "Todos") return String(seat.district) === districtFilter;
+    if (!municipalityDistricts) return true;
+    return seat.district !== null && municipalityDistricts.has(seat.district);
+  };
+
   const isSeatVisible = (seat: Seat) => {
     if (stateFilter !== "Todos" && seat.state !== stateFilter) return false;
-    if (districtFilter !== "Todos" && String(seat.district) !== districtFilter) return false;
+    if (!matchesDistrictFilter(seat)) return false;
     const occupant = occupants.get(seat.id);
     if (!occupant) return true;
     return partyFilter === "Todos" || occupant.party === partyFilter;
@@ -793,7 +836,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
 
   const isVoteSeatVisible = (seat: Seat) => {
     if (stateFilter !== "Todos" && seat.state !== stateFilter) return false;
-    if (districtFilter !== "Todos" && String(seat.district) !== districtFilter) return false;
+    if (!matchesDistrictFilter(seat)) return false;
     return voteFilterParty === "Todos" || voteVoterBySeat.get(seat.id)?.party === voteFilterParty;
   };
 
@@ -981,35 +1024,8 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
               <div className="district-finder">
                 <div>
                   <strong>Encuentra tu distrito</strong>
-                  <span>Selecciona estado y municipio; el código postal está en beta.</span>
+                  <span>Selecciona estado y municipio.</span>
                 </div>
-                <form
-                  className="postal-lookup"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void findByPostalCode();
-                  }}
-                >
-                  <label>
-                    <span className="sr-only">Código postal</span>
-                    <input
-                      value={postalCode}
-                      inputMode="numeric"
-                      maxLength={5}
-                      pattern="[0-9]{5}"
-                    placeholder="Código postal (beta)"
-                      onChange={(event) => setPostalCode(event.target.value.replace(/\D/g, ""))}
-                    />
-                  </label>
-                  <button type="submit" disabled={postalLoading || postalCode.length !== 5}>
-                    {postalLoading ? "Buscando…" : "Buscar"}
-                  </button>
-                </form>
-                {districtResolution && !districtResolution.state && (
-                  <p className="postal-feedback" aria-live="polite">
-                    {districtResolution.message}
-                  </p>
-                )}
               </div>
             )}
 
@@ -1060,8 +1076,8 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                   >
                     <option value="">Selecciona municipio</option>
                     {municipalitiesForState.map((municipality) => (
-                      <option key={`${municipality.id}-${municipality.name}`} value={municipality.name}>
-                        {municipality.name}
+                      <option key={municipality.key} value={municipality.key}>
+                        {municipality.label}
                       </option>
                     ))}
                   </select>
@@ -1069,20 +1085,6 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                 {districtResolution && (
                   <div className="district-resolution" aria-live="polite">
                     <span>{districtResolution.message}</span>
-                    {districtResolution.districts.length > 1 && (
-                      <div>
-                        {districtResolution.districts.map((district) => (
-                          <button
-                            type="button"
-                            key={district}
-                            className={districtFilter === String(district) ? "active" : ""}
-                            onClick={() => setDistrictFilter(String(district))}
-                          >
-                            Distrito {district}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -1148,6 +1150,14 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                             }}
                           >
                             {option.label}
+                            {option.share !== null && (
+                              // The cabecera can name a different municipality
+                              // than the one just chosen, which reads as an
+                              // error until the share explains the overlap.
+                              <span className="district-share">
+                                {formatMunicipalityShare(option.share)} del municipio
+                              </span>
+                            )}
                           </button>
                         ))}
                     </div>

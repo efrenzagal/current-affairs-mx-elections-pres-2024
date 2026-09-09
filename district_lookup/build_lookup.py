@@ -22,20 +22,23 @@ def build_index(db_path: Path) -> dict:
                 nombre_estado,
                 id_municipio,
                 municipio,
-                id_distrito_federal
+                id_distrito_federal,
+                COUNT(*) AS secciones
             FROM dim_geography
             WHERE election_id = 'DIP_MR_2024'
               AND municipio IS NOT NULL
               AND id_distrito_federal > 0
             GROUP BY id_estado, nombre_estado, id_municipio, municipio,
                      id_distrito_federal
-            ORDER BY id_estado, municipio, id_distrito_federal
+            -- Heaviest district first: a municipality split 300/89 secciones
+            -- has an obvious answer, and district number does not carry it.
+            ORDER BY id_estado, municipio, secciones DESC, id_distrito_federal
             """
         ).fetchall()
 
     states: dict[int, dict] = {}
     municipalities: dict[tuple[int, int | None, str], dict] = {}
-    for state_id, state_name, municipality_id, municipality_name, district in rows:
+    for state_id, state_name, municipality_id, municipality_name, district, secciones in rows:
         state = states.setdefault(
             state_id,
             {"id": state_id, "name": state_name, "municipalities": []},
@@ -50,10 +53,10 @@ def build_index(db_path: Path) -> dict:
             }
             municipalities[key] = municipality
             state["municipalities"].append(municipality)
-        municipality["districts"].append(district)
+        municipality["districts"].append({"district": district, "secciones": secciones})
 
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "electionId": "DIP_MR_2024",
         "source": "INE election geography loaded in dim_geography",
         "states": list(states.values()),
