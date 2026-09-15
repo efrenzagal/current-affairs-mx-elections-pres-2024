@@ -492,6 +492,29 @@ footer > span { justify-self: end; }
 .electoral-map-legend { border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: center; padding: 13px 4px 0; }
 .electoral-map-legend span { color: var(--muted); font-size: 9px; }
 .electoral-map-legend i { border-radius: 50%; display: inline-block; height: 7px; margin-right: 5px; width: 7px; }
+.turnout-scale { align-items: center; display: inline-flex; gap: 6px; }
+.turnout-scale-swatch { border-radius: 3px; display: inline-block; height: 8px; width: 90px; }
+
+.judicial-map-section { margin: 0 auto; max-width: 900px; padding: 40px 4vw; }
+.judicial-scope-note { color: var(--muted); font-family: var(--serif); font-size: 15px; line-height: 1.5; margin: 0 0 28px; max-width: 68ch; }
+.judicial-races-grid { display: grid; gap: 20px; grid-template-columns: repeat(2, 1fr); }
+.judicial-race-card { background: var(--white); border: 1px solid var(--line); border-radius: 4px; padding: 22px 24px; }
+.judicial-race-card header { border-bottom: 1px solid var(--line); margin-bottom: 14px; padding-bottom: 12px; }
+.judicial-race-card h3 { font-family: var(--serif); font-size: 21px; font-weight: 400; margin: 0 0 4px; }
+.judicial-race-card header p { color: var(--muted); font-size: 11px; letter-spacing: .06em; margin: 0; text-transform: uppercase; }
+.judicial-race-card ol { list-style: none; margin: 0; padding: 0; }
+.judicial-region { margin-top: 18px; }
+.judicial-region:first-child { margin-top: 0; }
+.judicial-region h4 { color: #517967; font-size: 10px; letter-spacing: .08em; margin: 0 0 8px; text-transform: uppercase; }
+.judicial-candidate-row { align-items: center; border-top: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: 20px 1fr auto; padding: 10px 0; }
+.judicial-candidate-row:first-child { border-top: 0; }
+.judicial-candidate-rank { color: var(--muted); font-family: var(--serif); font-size: 15px; }
+.judicial-candidate-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.judicial-candidate-name { font-size: 14px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.judicial-candidate-meta { color: var(--muted); font-size: 10.5px; }
+.judicial-candidate-votes { text-align: right; }
+.judicial-candidate-votes strong { display: block; font-family: var(--serif); font-size: 15px; }
+.judicial-candidate-votes small { color: var(--muted); font-size: 10px; }
 .trajectory-panel { display: flex; flex-direction: column; }
 .trajectory-methodology-link { color: #517967; font-size: 9px; font-weight: 750; letter-spacing: .1em; margin-top: 2px; text-transform: uppercase; text-underline-offset: 3px; }
 .trajectory-methodology-link:hover { color: var(--ink); }
@@ -810,6 +833,8 @@ footer > span { justify-self: end; }
   .electoral-panel > header, .electoral-detail-heading { align-items: start; flex-direction: column; gap: 12px; }
   .electoral-map-panel > header > p { text-align: left; }
   .electoral-map-wrap { padding: 4px 8px 14px; }
+  .judicial-map-section { padding: 28px 4vw; }
+  .judicial-races-grid { grid-template-columns: 1fr; }
   .trajectory-definition { margin-inline: 18px; }
   .trajectory-triangle-wrap { padding-inline: 8px; }
   .trajectory-readout { grid-template-columns: repeat(2, 1fr); }

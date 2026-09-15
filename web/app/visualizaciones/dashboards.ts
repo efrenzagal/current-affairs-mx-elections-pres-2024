@@ -51,6 +51,19 @@ export const DASHBOARDS: Dashboard[] = [
     topics: ["Elecciones", "Estados", "Trayectoria", "Partidos y coaliciones"],
   },
   {
+    slug: "judicial",
+    href: "/visualizaciones/judicial",
+    area: "Elecciones",
+    title: "Elección judicial 2025",
+    subtitle: "Primera elección popular del Poder Judicial · 32 entidades",
+    summary:
+      "Participación por estado en la primera elección judicial de México, comparada con la " +
+      "presidencial de 2024, y quiénes ganaron las cuatro carreras de representación nacional o " +
+      "regional: SCJN, Tribunal de Disciplina Judicial y ambas salas del TEPJF.",
+    scope: "6 carreras judiciales · escala nacional y estatal",
+    topics: ["Elecciones", "Poder Judicial", "Estados", "Participación"],
+  },
+  {
     slug: "votaciones",
     href: "/visualizaciones/votaciones",
     area: "Congreso",
