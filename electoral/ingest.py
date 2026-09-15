@@ -131,6 +131,21 @@ ELECTION_META = {
     },
 }
 
+# 2025 judicial election ("elección judicial"). Kept separate from
+# ELECTION_META/SCHEMA_MAP on purpose -- those drive the party-vote
+# ingest_election() path (dim_party/fact_casilla_vote), which doesn't apply
+# here (votes go to a candidato_id, not a party_key). One raw CSV shape
+# for this cycle, so ingest_judicial_election() reads columns directly
+# rather than going through a per-year SCHEMA_MAP indirection.
+JUDICIAL_ELECTION_META = {
+    election_id: {
+        "clean_dir": Path("data/electoral_data_clean/clean_eleccion_judicial_2025"),
+    }
+    for election_id in (
+        "MIN_2025", "TDJ_2025", "TEPJF_SS_2025", "TEPJF_SR_2025", "TCCA_2025", "JD_2025",
+    )
+}
+
 # Per-cycle column mapping: canonical SQLite column -> source parquet column
 # name for that cycle, or None if the field doesn't exist in that cycle's
 # source data (NULL gets inserted). Keyed by year since both election types
@@ -485,10 +500,87 @@ class ElectionWarehouse:
             CREATE INDEX IF NOT EXISTS idx_candidatos_type ON dim_candidatos(election_type, id_estado, party_key);
             CREATE INDEX IF NOT EXISTS idx_mun_map_election ON dim_municipio_map_crosswalk(election_id, id_estado);
             CREATE INDEX IF NOT EXISTS idx_mun_map_cvegeo ON dim_municipio_map_crosswalk(inegi_cvegeo);
+
+            -- 2025 judicial election ("elección judicial"): votes go to an
+            -- individual candidate scoped to a judicial district, not a
+            -- party -- there is no party_key equivalent, so this gets its
+            -- own candidate/fact tables rather than reusing dim_party /
+            -- fact_casilla_vote. dim_geography, dim_casilla and dim_election
+            -- ARE reused (see the ALTER TABLE calls below for the few extra
+            -- nullable columns judicial rows need there).
+            CREATE TABLE IF NOT EXISTS dim_candidato_judicial (
+                candidato_id                TEXT PRIMARY KEY,
+                election_id                 TEXT NOT NULL,
+                circuito_judicial           INTEGER,
+                distrito_judicial_electoral INTEGER,
+                circunscripcion             INTEGER,
+                id_entidad                  INTEGER,
+                id_candidato                INTEGER,
+                no_candidato                TEXT NOT NULL,
+                nombre_candidato            TEXT,
+                genero                      TEXT,
+                materia                     TEXT,
+                poder_postulante            TEXT,
+                estatus_cancelado           TEXT,
+                created_at                  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (election_id) REFERENCES dim_election(election_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS fact_judicial_casilla_vote (
+                vote_id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                election_id             TEXT NOT NULL,
+                casilla_id              TEXT NOT NULL,
+                candidato_id            TEXT NOT NULL,
+                no_candidato            TEXT NOT NULL,
+                votes                   INTEGER NOT NULL DEFAULT 0,
+                votos_nulos             INTEGER,
+                recuadros_no_utilizados INTEGER,
+                total_votos_casilla     INTEGER,
+                numero_personas_votaron INTEGER,
+                lista_nominal_casilla   INTEGER,
+                created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (election_id)  REFERENCES dim_election(election_id),
+                FOREIGN KEY (candidato_id) REFERENCES dim_candidato_judicial(candidato_id),
+                UNIQUE(election_id, casilla_id, candidato_id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_jud_fact_election  ON fact_judicial_casilla_vote(election_id);
+            CREATE INDEX IF NOT EXISTS idx_jud_fact_candidato ON fact_judicial_casilla_vote(candidato_id);
+            CREATE INDEX IF NOT EXISTS idx_jud_cand_election  ON dim_candidato_judicial(election_id);
         """)
+
+        # A handful of nullable columns that only the 2025 judicial election
+        # populates, added onto the existing shared tables rather than
+        # forking them. NULL for every pre-existing (non-judicial) row.
+        self._add_column_if_missing("dim_election", "actas_esperadas", "INTEGER")
+        self._add_column_if_missing("dim_election", "actas_computadas", "INTEGER")
+        self._add_column_if_missing("dim_election", "pct_actas_computadas", "REAL")
+        self._add_column_if_missing("dim_election", "lista_nominal_actas_computadas", "INTEGER")
+        self._add_column_if_missing("dim_election", "total_personas_votaron", "INTEGER")
+        self._add_column_if_missing("dim_election", "pct_participacion_ciudadana", "REAL")
+        self._add_column_if_missing("dim_election", "total_votos", "INTEGER")
+
+        # circunscripcion already exists on dim_geography (used for diputados
+        # RP circunscripciones 1-5); TEPJF Salas Regionales reuses the same
+        # 5-region numbering, so no new column needed for that one.
+        self._add_column_if_missing("dim_geography", "circuito_judicial", "INTEGER")
+        self._add_column_if_missing("dim_geography", "distrito_judicial_electoral", "INTEGER")
+
+        self._add_column_if_missing("dim_casilla", "observaciones", "TEXT")
+        self._add_column_if_missing("dim_casilla", "sha", "TEXT")
+        self._add_column_if_missing("dim_casilla", "fecha_hora", "TEXT")
+
+        # dim_candidato_judicial predates adding circunscripcion (TEPJF_SR's
+        # scope column) to the CREATE TABLE above; safe to add after the fact.
+        self._add_column_if_missing("dim_candidato_judicial", "circunscripcion", "INTEGER")
 
         self.conn.commit()
         print("✓ Schema created with indexes")
+
+    def _add_column_if_missing(self, table: str, column: str, sql_type: str) -> None:
+        existing = {row[1] for row in self.cursor.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            self.cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
 
     # ── Ingestion ──────────────────────────────────────────────────────────────
 
@@ -500,6 +592,27 @@ class ElectionWarehouse:
             # not rely on ON DELETE CASCADE.
             self.cursor.execute(
                 "DELETE FROM fact_casilla_vote WHERE election_id = ?", (election_id,)
+            )
+            self.cursor.execute(
+                "DELETE FROM dim_casilla WHERE election_id = ?", (election_id,)
+            )
+            self.cursor.execute(
+                "DELETE FROM dim_geography WHERE election_id = ?", (election_id,)
+            )
+            self.cursor.execute(
+                "DELETE FROM dim_election WHERE election_id = ?", (election_id,)
+            )
+        self.conn.commit()
+
+    def delete_judicial_elections(self, election_ids: list[str]) -> None:
+        """Delete selected judicial races without touching any other cycle."""
+        for election_id in election_ids:
+            print(f"  ♻️  Removing existing {election_id} rows...")
+            self.cursor.execute(
+                "DELETE FROM fact_judicial_casilla_vote WHERE election_id = ?", (election_id,)
+            )
+            self.cursor.execute(
+                "DELETE FROM dim_candidato_judicial WHERE election_id = ?", (election_id,)
             )
             self.cursor.execute(
                 "DELETE FROM dim_casilla WHERE election_id = ?", (election_id,)
@@ -692,6 +805,153 @@ class ElectionWarehouse:
 
         self.conn.commit()
 
+    def ingest_judicial_election(self, election_id: str, clean_dir: Path):
+        """
+        Ingests one race of the 2025 judicial election. Unlike
+        ingest_election(), this reads columns directly rather than through a
+        per-year SCHEMA_MAP -- there is only one raw CSV shape for this
+        cycle, so that indirection would add nothing.
+        """
+        print(f"\n⚖️  Ingesting {election_id}...")
+
+        dim_exists = self.cursor.execute(
+            "SELECT 1 FROM dim_election WHERE election_id = ?", (election_id,)
+        ).fetchone() is not None
+        facts_exist = self.cursor.execute(
+            "SELECT 1 FROM fact_judicial_casilla_vote WHERE election_id = ? LIMIT 1", (election_id,)
+        ).fetchone() is not None
+
+        if dim_exists and facts_exist:
+            print(f"  ⚠️  {election_id} already exists, skipping...")
+            return
+        if dim_exists or facts_exist:
+            print(f"  ⚠️  {election_id} found in a partial state — clearing before re-ingest...")
+            self.delete_judicial_elections([election_id])
+
+        # 1. dim_election — one row, carrying the officially published
+        # turnout/actas summary alongside it.
+        df_election = pd.read_parquet(clean_dir / "dim_election.parquet")
+        row = df_election[df_election["election_id"] == election_id].iloc[0]
+        self.cursor.execute(
+            """INSERT INTO dim_election
+               (election_id, year, election_type, chamber, seat_method, total_seats, term_years,
+                actas_esperadas, actas_computadas, pct_actas_computadas,
+                lista_nominal_actas_computadas, total_personas_votaron,
+                pct_participacion_ciudadana, total_votos)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                election_id, int(row["year"]), row["election_type"], row["chamber"],
+                row["seat_method"], int(row["total_seats"]), int(row["term_years"]),
+                int(row["actas_esperadas"]), int(row["actas_computadas"]), float(row["pct_actas_computadas"]),
+                int(row["lista_nominal_actas_computadas"]), int(row["total_personas_votaron"]),
+                float(row["pct_participacion_ciudadana"]), int(row["total_votos"]),
+            ),
+        )
+        print("  ✓ Election metadata")
+
+        # 2. dim_geography
+        df_geo = pd.read_parquet(clean_dir / "dim_geography.parquet")
+        df_geo = df_geo[df_geo["election_id"] == election_id]
+        geo_rows = [
+            (
+                row["geo_id"], election_id,
+                int(row["ID_ENTIDAD"]), canonical_estado(row["ID_ENTIDAD"], row["ENTIDAD"]), int(row["SECCION"]),
+                int(row["ID_DISTRITO_FEDERAL"]), row["DISTRITO_FEDERAL"],
+                int(row["CIRCUNSCRIPCION"]) if pd.notna(row["CIRCUNSCRIPCION"]) else None,
+                int(row["CIRCUITO_JUDICIAL"]), int(row["DISTRITO_JUDICIAL_ELECTORAL"]),
+            )
+            for _, row in df_geo.iterrows()
+        ]
+        self.cursor.executemany(
+            """INSERT INTO dim_geography
+               (geo_id, election_id, id_estado, nombre_estado, seccion,
+                id_distrito_federal, cabecera_distrital_federal, circunscripcion,
+                circuito_judicial, distrito_judicial_electoral)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            geo_rows,
+        )
+        print(f"  ✓ Geography ({len(df_geo):,} sections)")
+
+        # 3. dim_casilla
+        df_casilla = pd.read_parquet(clean_dir / "dim_casilla.parquet")
+        df_casilla = df_casilla[df_casilla["election_id"] == election_id]
+        casilla_rows = [
+            (
+                row["casilla_id"], election_id, row["geo_id"],
+                int(row["ID_ENTIDAD"]), int(row["SECCION"]), row["CLAVE_CASILLA"],
+                row["TIPO_CASILLA_SECCIONAL"], int(row["ID_CASILLA"]),
+                int(row["LISTA_NOMINAL_CASILLA"]), row["ESTATUS_CASILLA"],
+                row["OBSERVACIONES"], row["SHA"], row["FECHA_HORA"],
+            )
+            for _, row in df_casilla.iterrows()
+        ]
+        self.cursor.executemany(
+            """INSERT INTO dim_casilla
+               (casilla_id, election_id, geo_id, id_estado, seccion, acta_casilla_mec,
+                tipo_casilla, id_casilla, lista_nominal, estatus_acta,
+                observaciones, sha, fecha_hora)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            casilla_rows,
+        )
+        print(f"  ✓ Casillas ({len(df_casilla):,} rows)")
+
+        # 4. dim_candidato_judicial
+        df_cand = pd.read_parquet(clean_dir / "dim_candidato_judicial.parquet")
+        df_cand = df_cand[df_cand["election_id"] == election_id]
+        cand_rows = [
+            (
+                row["candidato_id"], election_id,
+                int(row["CIRCUITO_JUDICIAL"]) if pd.notna(row["CIRCUITO_JUDICIAL"]) else None,
+                int(row["DISTRITO_JUDICIAL_ELECTORAL"]) if pd.notna(row["DISTRITO_JUDICIAL_ELECTORAL"]) else None,
+                int(row["CIRCUNSCRIPCION"]) if pd.notna(row["CIRCUNSCRIPCION"]) else None,
+                int(row["ID_ENTIDAD"]) if pd.notna(row["ID_ENTIDAD"]) else None,
+                int(row["ID_CANDIDATO"]) if pd.notna(row["ID_CANDIDATO"]) else None,
+                row["NO_CANDIDATO"], row["NOMBRE_CANDIDATO"], row["GENERO"],
+                row["MATERIA"] if pd.notna(row["MATERIA"]) else None,
+                row["PODER_POSTULANTE"], row["ESTATUS_CANCELADO"],
+            )
+            for _, row in df_cand.iterrows()
+        ]
+        self.cursor.executemany(
+            """INSERT INTO dim_candidato_judicial
+               (candidato_id, election_id, circuito_judicial, distrito_judicial_electoral,
+                circunscripcion, id_entidad, id_candidato, no_candidato, nombre_candidato, genero,
+                materia, poder_postulante, estatus_cancelado)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            cand_rows,
+        )
+        print(f"  ✓ Candidatos ({len(df_cand):,} rows)")
+
+        # 5. fact_judicial_casilla_vote — bulk insert (largest table)
+        fact_path = clean_dir / "fact_judicial_casilla_vote.parquet" / f"election_id={election_id}"
+        if not fact_path.exists():
+            print(f"  ⚠️  No partition found for {election_id}")
+            self.conn.commit()
+            return
+        df_fact = pd.read_parquet(fact_path)
+        fact_rows = [
+            (
+                election_id, row["casilla_id"], row["candidato_id"], row["no_candidato"], int(row["votes"]),
+                int(row["VOTOS_NULOS"]) if pd.notna(row["VOTOS_NULOS"]) else None,
+                int(row["RECUADROS_NO_UTILIZADOS"]) if pd.notna(row["RECUADROS_NO_UTILIZADOS"]) else None,
+                int(row["TOTAL_VOTOS_CASILLA"]) if pd.notna(row["TOTAL_VOTOS_CASILLA"]) else None,
+                int(row["NUMERO_PERSONAS_VOTARON"]) if pd.notna(row["NUMERO_PERSONAS_VOTARON"]) else None,
+                int(row["LISTA_NOMINAL_CASILLA"]) if pd.notna(row["LISTA_NOMINAL_CASILLA"]) else None,
+            )
+            for _, row in df_fact.iterrows()
+        ]
+        self.cursor.executemany(
+            """INSERT INTO fact_judicial_casilla_vote
+               (election_id, casilla_id, candidato_id, no_candidato, votes, votos_nulos,
+                recuadros_no_utilizados, total_votos_casilla, numero_personas_votaron,
+                lista_nominal_casilla)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            fact_rows,
+        )
+        print(f"  ✓ Votes ({len(df_fact):,} rows)")
+
+        self.conn.commit()
+
     def ingest_candidatos(self, clean_dirs: list[Path]):
         """
         Load dim_candidatos.parquet (built once per cycle by the notebook) into
@@ -776,11 +1036,33 @@ class ElectionWarehouse:
         for _, row in df.iterrows():
             print(f"    {row['election_id']:<15} {row['votes']:>15,}")
 
+        jud_count = self.cursor.execute("SELECT COUNT(*) FROM fact_judicial_casilla_vote").fetchone()[0]
+        if jud_count:
+            print("\n📊 Judicial Election (2025)")
+            print("─" * 50)
+            for label, sql in {
+                "Races":          "SELECT COUNT(*) FROM dim_election WHERE election_type = 'JUD'",
+                "Candidatos":     "SELECT COUNT(*) FROM dim_candidato_judicial",
+                "Vote records":   "SELECT COUNT(*) FROM fact_judicial_casilla_vote",
+                "Total votes":    "SELECT SUM(votes) FROM fact_judicial_casilla_vote",
+            }.items():
+                result = self.cursor.execute(sql).fetchone()[0] or 0
+                print(f"  {label:<20} {result:>15,}")
+
+            df = self.query(
+                "SELECT election_id, COUNT(*) as votes FROM fact_judicial_casilla_vote "
+                "GROUP BY election_id ORDER BY election_id"
+            )
+            print("\n  By race:")
+            for _, row in df.iterrows():
+                print(f"    {row['election_id']:<15} {row['votes']:>15,}")
+
 
 def run_ingest(
     db_path: str = DB_PATH,
     parquet_dir: Path = None,
     year: Optional[int] = None,
+    judicial: bool = False,
 ):
     import os
     print("=" * 55)
@@ -789,16 +1071,20 @@ def run_ingest(
     if parquet_dir is not None:
         print(f"  (--clean-dir override: {parquet_dir} used for ALL elections)\n")
 
+    # Targeted mode: --year touches only legacy cycles, --judicial touches
+    # only the 2025 judicial races, either on its own. Plain (no flags) mode
+    # is a full clean rebuild of everything, including judicial.
+    targeted = year is not None or judicial
     selected = {
         election_id: meta
         for election_id, meta in ELECTION_META.items()
-        if year is None or meta["year"] == year
+        if not judicial and (year is None or meta["year"] == year)
     }
-    if not selected:
+    if year is not None and not selected:
         valid_years = sorted({meta["year"] for meta in ELECTION_META.values()})
         raise ValueError(f"No elections registered for year {year}; choose from {valid_years}")
 
-    if year is None:
+    if not targeted:
         # Full mode starts from a clean slate so normalization changes cannot
         # leave stale rows in other cycles.
         for suffix in ("", "-wal", "-shm"):
@@ -806,8 +1092,10 @@ def run_ingest(
             if os.path.exists(p):
                 os.remove(p)
                 print(f"  Removed existing {p}")
-    else:
+    elif year is not None:
         print(f"  Targeted cycle refresh: {year} ({', '.join(selected)})")
+    else:
+        print(f"  Targeted judicial refresh: {', '.join(JUDICIAL_ELECTION_META)}")
 
     with ElectionWarehouse(db_path=db_path) as wh:
         wh.create_schema()
@@ -816,22 +1104,28 @@ def run_ingest(
         for election_id, meta in selected.items():
             wh.ingest_election(election_id, meta, parquet_dir)
 
+        if not judicial:
+            # Collect every distinct clean_dir referenced by ELECTION_META (or
+            # just the override, if one was passed) so candidatos get a
+            # chance to load from each cycle's folder, not just the first one.
+            if parquet_dir is not None:
+                clean_dirs = [parquet_dir]
+            else:
+                seen = set()
+                clean_dirs = []
+                for meta in selected.values():
+                    d = meta["clean_dir"]
+                    if d not in seen:
+                        seen.add(d)
+                        clean_dirs.append(d)
+            wh.ingest_candidatos(clean_dirs)
 
-        # Collect every distinct clean_dir referenced by ELECTION_META (or just
-        # the override, if one was passed) so candidatos get a chance to load
-        # from each cycle's folder, not just the first one.
-        if parquet_dir is not None:
-            clean_dirs = [parquet_dir]
-        else:
-            seen = set()
-            clean_dirs = []
-            for meta in selected.values():
-                d = meta["clean_dir"]
-                if d not in seen:
-                    seen.add(d)
-                    clean_dirs.append(d)
+        if judicial or not targeted:
+            if judicial:
+                wh.delete_judicial_elections(list(JUDICIAL_ELECTION_META))
+            for election_id, meta in JUDICIAL_ELECTION_META.items():
+                wh.ingest_judicial_election(election_id, parquet_dir or meta["clean_dir"])
 
-        wh.ingest_candidatos(clean_dirs)
         wh.stats()
     print("\n✓ Ingest complete")
 
@@ -859,10 +1153,15 @@ if __name__ == "__main__":
         choices=sorted({meta["year"] for meta in ELECTION_META.values()}),
         help="Replace only elections in this cycle; omit for a full clean rebuild",
     )
+    parser.add_argument(
+        "--judicial", action="store_true",
+        help="Replace only the 2025 judicial election races, leaving every other cycle untouched",
+    )
     args = parser.parse_args()
 
     run_ingest(
         db_path=args.db,
         parquet_dir=Path(args.clean_dir) if args.clean_dir else None,
         year=args.year,
+        judicial=args.judicial,
     )
