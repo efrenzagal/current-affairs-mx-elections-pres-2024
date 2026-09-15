@@ -4,7 +4,7 @@ This folder documents the normalized tables in `election_data.db`, the clean
 electoral parquet inputs used to build them, and representative raw INE source
 layouts.
 
-Start with `overview.csv`. It lists all 27 normalized tables currently present
+Start with `overview.csv`. It lists all 39 normalized tables currently present
 in the SQLite warehouse, including their primary keys, row grains, purposes,
 and important joins. The table-specific CSVs define columns and domains.
 
@@ -93,6 +93,10 @@ President and Senate are marked “Not held” because those contests follow
 six-year cycles. This election-result coverage is separate from the legislative
 roll-call coverage described below.
 
+This matrix covers only PRE/DIP/SEN contests. The 2025 judicial election (6
+more `dim_election` rows, `election_type = 'JUD'`) is tracked separately and
+does not appear in it — see "2025 Judicial Election" below.
+
 Only mayoría-relativa election results are loaded for federal deputies and
 senators. RP result files exist for 2024, but RP vote-result ingestion has not
 been implemented. This is separate from the official chamber-composition
@@ -116,6 +120,38 @@ These tables are created and populated by `electoral/ingest.py`:
   historical vote-option keys.
 - `dim_candidatos.csv` — candidate catalog rows where supplied by a clean cycle.
 - `fact_casilla_vote.csv` — long-format party votes at election/casilla grain.
+
+### 2025 Judicial Election
+
+Mexico's first popular judicial election (June 1, 2025) elected six separate
+races in one go: SCJN ministers, the Tribunal de Disciplina Judicial, TEPJF
+Sala Superior and Salas Regionales, circuit magistrates, and district judges.
+Votes go to an individual candidate scoped to their race (and, for circuit/
+district races, their own judicial district) rather than to a party, so this
+gets its own candidate/fact tables instead of reusing `dim_party` /
+`fact_casilla_vote`. `dim_election`, `dim_geography`, and `dim_casilla` ARE
+reused, with a handful of judicial-only nullable columns added onto them
+(turnout/actas summary fields on `dim_election`; `circuito_judicial` and
+`distrito_judicial_electoral` on `dim_geography`; `observaciones`, `sha`, and
+`fecha_hora` on `dim_casilla`) — NULL on every pre-existing row.
+
+These tables are populated by `electoral/raw_to_parquet/csv_to_arrow_judicial_2025.py`
+(clean parquets) and `ElectionWarehouse.ingest_judicial_election()` in
+`electoral/ingest.py`. Unlike the federal cycles, there is only one raw CSV
+shape for this election, so ingestion reads columns directly rather than
+going through the per-year `SCHEMA_MAP` indirection used by `ingest_election()`.
+Run `python -m electoral.ingest --judicial` to (re)load just these six races
+without touching any other cycle; a plain `python -m electoral.ingest` with no
+flags now includes them as part of a full rebuild.
+
+- `dim_candidato_judicial.csv` — one row per candidate, scoped to their race
+  and (for circuit/district races) their judicial district. `candidato_id` is
+  synthesized rather than using the raw `NO_CANDIDATO` label (e.g. `CAND01`),
+  because that label resets to 1 at the start of every separate judicial-
+  district race sharing one source file.
+- `fact_judicial_casilla_vote.csv` — one row per candidate per casilla per
+  race. Carries the same kind of per-casilla-repeated-aggregate gotcha as
+  `fact_casilla_vote` (see that table's `_GOTCHA` row and this one's own).
 
 ### Geography and Election Calendar
 

@@ -34,6 +34,10 @@ TABLE_GROUPS: OrderedDict[str, list[str]] = OrderedDict(
             "dim_municipio_map_crosswalk",
             "dim_state_election_calendar",
         ],
+        "2025 Judicial Election": [
+            "dim_candidato_judicial",
+            "fact_judicial_casilla_vote",
+        ],
         "Presidential Approval": [
             "dim_approval_pollster",
             "dim_approval_source",
