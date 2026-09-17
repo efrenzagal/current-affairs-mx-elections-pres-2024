@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   findDistrictState,
@@ -148,6 +148,14 @@ type SiteData = {
 /** Which identity the hemicycle names in each seat. */
 type View = "actual" | "electoral";
 type HistoryMode = "all" | "titular" | "suplente";
+
+type SeatHoverInfo = {
+  name: string;
+  party: string;
+  choice: string | null;
+  top: number;
+  left: number;
+};
 
 /**
  * What the panel is reading. A seat resolves its occupant through the active
@@ -405,6 +413,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
   );
   const [partyFilter, setPartyFilter] = useState("Todos");
   const [voteFilterParty, setVoteFilterParty] = useState("Todos");
+  const [seatHover, setSeatHover] = useState<SeatHoverInfo | null>(null);
   const [stateFilter, setStateFilter] = useState("Todos");
   const [districtFilter, setDistrictFilter] = useState("Todos");
   const [districtIndex, setDistrictIndex] = useState<DistrictLookupIndex | null>(null);
@@ -837,7 +846,12 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
   const isVoteSeatVisible = (seat: Seat) => {
     if (stateFilter !== "Todos" && seat.state !== stateFilter) return false;
     if (!matchesDistrictFilter(seat)) return false;
-    return voteFilterParty === "Todos" || voteVoterBySeat.get(seat.id)?.party === voteFilterParty;
+    if (voteFilterParty === "Todos") return true;
+    // A seat with no record for this roll call still belongs to its party —
+    // falling back to the occupant keeps it highlighted under that party's
+    // filter instead of reading as if it had cast a different party's vote.
+    const party = voteVoterBySeat.get(seat.id)?.party ?? occupants.get(seat.id)?.party;
+    return party === voteFilterParty;
   };
 
   /** Every selection resets the reading below it; only the route differs. */
@@ -861,6 +875,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
     // Belongs to the previous roll call's party lineup, which the new vote
     // does not share.
     setVoteFilterParty("Todos");
+    setSeatHover(null);
   }
 
   /**
@@ -883,6 +898,25 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
         : { kind: "person", key: person.key },
     );
     setQuery("");
+  }
+
+  /**
+   * One listener on the decision hemicycle rather than a handler per seat,
+   * reading the seat's own data attributes. Mirrors the vote explorer's
+   * `.square-tip`: the native `title` tooltip forces a `help` cursor, waits a
+   * second, and cannot be styled.
+   */
+  function readVoteSeat(event: ReactMouseEvent<HTMLDivElement>) {
+    const dot = (event.target as HTMLElement).closest<HTMLElement>(".seat-dot");
+    if (!dot) return;
+    const rect = dot.getBoundingClientRect();
+    setSeatHover({
+      name: dot.dataset.name ?? "",
+      party: dot.dataset.party ?? "",
+      choice: dot.dataset.choice || null,
+      top: rect.top,
+      left: Math.min(Math.max(rect.left + rect.width / 2, 120), window.innerWidth - 120),
+    });
   }
 
   function selectView(nextView: View) {
@@ -1671,6 +1705,8 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
               aria-label={`Hemiciclo de ${data.manifest.seatCount} escaños, coloreado por sentido del voto${
                 voteFilterParty !== "Todos" ? `, atenuado a ${voteFilterParty}` : ""
               }`}
+              onMouseOver={readVoteSeat}
+              onMouseLeave={() => setSeatHover(null)}
             >
               <div className="dais" aria-hidden="true" />
               {coords.map((seat) => {
@@ -1687,7 +1723,9 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                     className={`seat-dot seat-${seat.seatType.toLowerCase()} ${
                       seat.id === floorSeatId ? "selected" : ""
                     } ${unrecorded ? "no-record" : ""} ${isVoteSeatVisible(seat) ? "" : "muted"}`}
-                    title={`${voter?.name ?? occupant.name} · ${voter?.party ?? occupant.party}: ${choice ? voteLabel(choice) : "sin registro en esta votación"}`}
+                    data-name={voter?.name ?? occupant.name}
+                    data-party={voter?.party ?? occupant.party}
+                    data-choice={choice ?? ""}
                     style={{
                       left: `${seat.x}%`,
                       top: `${seat.y}%`,
@@ -1699,6 +1737,14 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                 );
               })}
             </div>
+            {seatHover && (
+              <div className="square-tip" style={{ top: seatHover.top, left: seatHover.left }} role="presentation">
+                <strong>{seatHover.name}</strong>
+                <span>
+                  {seatHover.party} · {seatHover.choice ? voteLabel(seatHover.choice) : "sin registro en esta votación"}
+                </span>
+              </div>
+            )}
             <div className="legend legend-vote decision-legend">
               {["Favor", "Contra", "Abstención", "Ausente", "Quórum *"]
                 .filter((choice) => (choiceTotals.get(choice) ?? 0) > 0)
