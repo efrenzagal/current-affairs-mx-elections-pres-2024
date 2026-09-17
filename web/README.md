@@ -19,12 +19,12 @@ fabricated vote.
 
 ## Current product
 
-- **Cámara** (`/visualizaciones/diputados`): 500 seats, 295 Gaceta roll calls.
-- **Senado** (`/visualizaciones/senado`): 128 seats, 378 roll calls.
+- **Cámara** (`/visualizaciones/diputados`): 500 seats, 297 Gaceta roll calls.
+- **Senado** (`/visualizaciones/senado`): 128 seats, 389 roll calls.
 - **Geografía electoral** (`/visualizaciones/trayectoria`): mapa seleccionable
   de las 32 entidades y resultados nacionales/estatales para Presidencia,
   Senado y Diputaciones, con trayectoria y desglose por boleta/coalición y partido.
-- **Buscador de votaciones** (`/visualizaciones/votaciones`): las 673 votaciones
+- **Buscador de votaciones** (`/visualizaciones/votaciones`): las 686 votaciones
   nominales de ambas cámaras, buscables por texto y filtrables por las cuatro
   ejes de clasificación, con el desglose por grupo parlamentario en cuadros.
 - Each explorer opens on **composición actual** and can switch to the **2024
@@ -54,10 +54,10 @@ voting today, and the gap is large enough to be misleading if ignored:
 
 | | Cámara | Senado |
 | --- | --- | --- |
-| Seats whose occupant is not the elected titular | 45 | 25 |
-| Seats whose parliamentary group ≠ election party | 24 | 13 |
-| Licencia / vacante | 5 licencia | 1 vacante |
-| Current occupants with no linked roll-call identity | 12 | 11 |
+| Seats whose occupant is not the elected titular | 45 | 24 |
+| Seats whose parliamentary group ≠ election party | 27 | 14 |
+| Licencia / vacante | 2 licencia | 0 |
+| Current occupants with no linked roll-call identity | 3 | 0 |
 
 The site offers exactly two views and no date picker: **quién ocupa el escaño
 hoy** and **quién lo ganó en 2024**. The roster cutoff is stated once, in the
@@ -66,13 +66,13 @@ because it is an analysis tool; this is a reader's page, and a third temporal
 axis made it read like a database console.
 
 Both chambers work identically. The Senado is not a special case: it has its own
-directory snapshot, 25 substituted seats and the legislature's one vacancy.
+directory snapshot and 24 substituted seats.
 
 **Why not derive "current" from the last roll call?** It was considered and
 rejected on evidence:
 
 - The directory is *fresher*, not staler. Cutoffs at the time of writing:
-  roll calls end 2026-05-28, the directory was observed 2026-08-08.
+  roll calls end 2026-09-14, the directory was observed 2026-09-16.
 - The two agree. Party-by-party, the last Cámara roll call and the directory
   return identical benches once `MRN` is canonicalized to `MORENA`.
 - Roll calls carry person and party but **no seat**. The hemicycle is seat-based,
@@ -352,14 +352,14 @@ the seat keeps its elected occupant rather than disappearing).
 
 ### Placing former members
 
-77 voting identities (35 Cámara, 42 Senado) appear in no seat snapshot. They are
-overwhelmingly suplentes who covered a licencia: Bonilla Herrera cast 310 of 378
+72 voting identities (27 Cámara, 45 Senado) appear in no seat snapshot. They are
+overwhelmingly suplentes who covered a licencia: Bonilla Herrera cast 310 of 389
 Senate roll calls. Roll-call rows carry no geography — `dim_gaceta_deputy` is an
 id and a name — so the *only* route from one of these records back to a place in
 the chamber is `ine_substitute_name`, the suplente the INE registered per seat.
 
-`link_former_members` in `export_gaceta_web.py` does that match and places 74 of
-77. It is name matching, which the web layer is forbidden to do — that is exactly
+`link_former_members` in `export_gaceta_web.py` does that match and places all 72.
+It is name matching, which the web layer is forbidden to do — that is exactly
 why it lives in the export, resolved once against the warehouse and shipped as an
 id. Comparison is on accent-stripped, order-independent tokens, with a lone
 initial allowed to stand for a given name; a candidate counts only when it is the
@@ -402,14 +402,14 @@ npm test
 ```
 
 `npm test` performs a production build and checks the important invariants.
-Expected current counts are 500/295 for Cámara and 128/378 for Senado. All 628
+Expected current counts are 500/297 for Cámara and 128/389 for Senado. All 628
 official seats must remain linked. The 300 Cámara MR seats and 96 Senate MR/FM
 seats must have electoral results; RP results must remain null. Every identity a
 seat can resolve to, under either view, must have an entry in `histories`, and
 `substitutedSeats` must stay above zero — a zero there means the roster overlay
 silently stopped applying.
 
-`votes-66.json` must carry all 673 roll calls, every one resolving to a
+`votes-66.json` must carry all 686 roll calls, every one resolving to a
 namespaced party breakdown whose four choice totals equal the chamber tally —
 the squares are drawn by expanding those counts, so a breakdown that does not
 sum renders a grid of the wrong size. Every classification code it uses must
@@ -448,7 +448,7 @@ On the vote explorer specifically:
   `pushState`: ticking four chips must not cost four presses of Back.
 - Facet options are derived from the votes the other filters already allow, with
   counts, so a chip that would return nothing is never offered.
-- The list renders 10 rows and grows on request. Rendering all 673 made the page
+- The list renders 10 rows and grows on request. Rendering all 686 made the page
   unusable to scroll, and the detail panel sits below it. The page counter
   resets by comparing a signature of the filter state during render, not from an
   effect, so narrowing a filter always returns you to the top of the results.

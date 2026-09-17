@@ -134,6 +134,7 @@ export const INSTRUMENT_LABELS: Record<string, string> = {
   acuerdo_o_proposicion: "Acuerdo o proposición",
   mocion_procedimental: "Moción procedimental",
   permiso: "Permiso",
+  otro: "Otro",
   no_claro: "Instrumento no claro",
 };
 

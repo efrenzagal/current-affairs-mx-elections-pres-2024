@@ -95,7 +95,7 @@ type Ballots = {
   ballots: Record<string, Record<string, Record<string, number[]>>>;
 };
 
-/** Rows added per press of "mostrar más". 673 at once is unreadable. */
+/** Rows added per press of "mostrar más". 686 at once is unreadable. */
 const PAGE_SIZE = 10;
 
 const CHAMBER_LABELS: Record<Chamber, string> = {
