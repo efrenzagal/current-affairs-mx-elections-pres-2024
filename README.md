@@ -702,6 +702,13 @@ python3 camara_de_diputados/votos/ingest.py
 python3 camara_de_diputados/votos/materialize.py --force
 ```
 
+This loads the warehouse (and, via `materialize.py --force`, `fact_legislature_66_vote_threshold`
+— the quorum/majority table the website export requires). It does **not** publish
+anything to the website: `aux_scripts/update_legislative_tracker.py` stops here too, since it
+only refreshes what MIEL depends on. To make new roll calls show up on the site, also run the
+"Update warehouse schema"-adjacent `web/` commands below (`escanos/seat_members.py` then
+`web/scripts/export_gaceta_web.py`) for both chambers, then rebuild/redeploy `web/`.
+
 ### Scrape and ingest Senado roll-call votes
 
 Usually open:
@@ -719,6 +726,10 @@ python3 camara_de_senadores/votos/crawl_senado_votes.py --all-votes
 /usr/bin/python3 camara_de_senadores/votos/ingest.py
 python -m camara_de_senadores.escanos.ingest
 ```
+
+As with the Cámara, this only loads the warehouse — it does not publish to the website. See
+the `web/` section below for the `web/scripts/export_gaceta_web.py` step needed to make new
+roll calls show up on the site.
 
 For optional Senado semantic classification, use `prepare` → `submit` →
 `retrieve` → `review` → `apply`. The review step preserves the raw model CSV

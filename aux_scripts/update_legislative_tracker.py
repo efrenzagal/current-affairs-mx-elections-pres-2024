@@ -6,6 +6,13 @@ Chains the individually-documented crawl/parse/ingest steps from README.md
 legislature number for the Gaceta parse/ingest steps instead of a hardcoded
 one, so this keeps working unchanged once a new legislature starts.
 
+This refreshes the warehouse ONLY. It does not rebuild
+`fact_legislature_66_seat_member` (Camara `escanos/seat_members.py`) and does
+not publish anything to web/public/data/*.json -- after this finishes, still
+run the `web/` section of README.md (`escanos/seat_members.py` then
+`web/scripts/export_gaceta_web.py`) to make new roll calls show up on the
+site.
+
 Usage:
     /usr/bin/python3 aux_scripts/update_legislative_tracker.py
 """
