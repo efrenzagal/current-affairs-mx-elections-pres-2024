@@ -458,6 +458,10 @@ def materialize(db_path: Path, out_dir: Path, force: bool) -> None:
 
     conn = connect(db_path)
 
+    print("Storing fact_legislature_66_vote_threshold...")
+    n_thresholds = materialize_lxvi_vote_thresholds(conn)
+    print(f"  -> {n_thresholds:,} rows")
+
     print("Loading gaceta_vote_index...")
     votes = load_votes(conn)
     votes = add_vote_thresholds(votes)

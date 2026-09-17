@@ -221,6 +221,11 @@ AUDITED_OVERRIDES: dict[int, dict[str, str]] = {
         "requiere_revision": "true",
         "review_note": "La fuente dice proyecto de decreto, pero no identifica si proviene de dictamen, minuta o iniciativa.",
     },
+    5133: {
+        "origen": "no_claro",
+        "requiere_revision": "true",
+        "review_note": "La fuente identifica un decreto, pero no permite determinar si proviene de dictamen, minuta, iniciativa u otro origen.",
+    },
 }
 
 
