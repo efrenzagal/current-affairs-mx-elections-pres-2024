@@ -60,6 +60,9 @@ matching (`ui/person_names.match_person_name`). This handles INE's
 - `AUDITED_GACETA_NAME_OVERRIDES` in `camara_de_diputados/escanos/ingest.py`: manually
   verified aliases for cases the conservative matcher can't prove (source
   typos, unusual abbreviations). Every entry is comment-annotated with why.
+- `AUDITED_EFFECTIVE_PARTY_OVERRIDES` preserves source-cited INE effective
+  affiliation determinations when they differ from the coalition party stored
+  in the raw integration CSV. The raw file remains unchanged for auditability.
 - Validation is strict: `materialize_dim_diputados` refuses to commit unless
   all 500 seats resolve, IDs are unique, no seat maps to more than one
   Gaceta identity, and every approximate match clears the score threshold.
@@ -96,6 +99,23 @@ Two temporal facts are rebuilt from those append-only snapshots:
 - `fact_congress_party_membership` keeps official-directory and vote-reported
   affiliation episodes as separate source series. It never overwrites the
   immutable INE `election_party`.
+
+### Refresh dependency after new roll calls
+
+`fact_congress_party_membership` is a derived table, not a live view. Its
+`vote_reported` episodes and observation counts are rebuilt by the composition
+ingest from the current contents of `fact_gaceta_deputy_vote`. Therefore, after
+ingesting new Gaceta roll calls, rerun the following command even when the
+downloaded SITL roster CSV has not changed:
+
+```bash
+python3 -m camara_de_diputados.composicion.ingest
+```
+
+Without this step, party episode boundaries may remain correct while their
+`observations`, latest affiliation, and reconciliation output lag behind the
+underlying roll-call facts. A future pipeline cleanup should make the Gaceta
+update workflow trigger this rebuild automatically.
 
 `data/diputados_roster_reconciliation.csv` (and its
 `data/senadores_roster_reconciliation.csv` counterpart — one per chamber,

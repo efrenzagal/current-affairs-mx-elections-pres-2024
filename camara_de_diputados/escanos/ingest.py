@@ -57,6 +57,24 @@ AUDITED_GACETA_NAME_OVERRIDES = {
 }
 
 
+# The integration CSV's PARTIDO_POLITICO column identifies the coalition party
+# to which an MR formula was assigned.  For the chamber's elected-party field,
+# INE's later effective-affiliation determination controls when the two differ.
+# Keep these exceptional determinations explicit and fail if a future source
+# refresh no longer has the expected underlying party.
+#
+# Source: INE, "Anteproyecto de acuerdo para asignacion de Diputaciones de
+# Representacion Proporcional", effective-affiliation table (2024), Juan
+# Antonio Melendez Ortega: convenio PAN, afiliacion efectiva PRI.
+# https://centralelectoral.ine.mx/wp-content/uploads/2024/08/Anteproyecto-de-acuerdo-para-asignacion-de-Diputaciones-de-Representacion-Proporcional.pdf
+AUDITED_EFFECTIVE_PARTY_OVERRIDES = {
+    "DIP_567FF8FC3D31": {
+        "source_party": "PAN",
+        "effective_party": "PRI",
+    },
+}
+
+
 TABLE_SCHEMA = """
 CREATE TABLE {table_name} (
     diputado_id                 TEXT PRIMARY KEY,
@@ -130,6 +148,22 @@ def diputado_seat_key(row: pd.Series) -> str:
 def diputado_id_for_row(row: pd.Series) -> str:
     digest = hashlib.sha1(diputado_seat_key(row).encode("utf-8")).hexdigest()[:12].upper()
     return f"DIP_{digest}"
+
+
+def effective_party_for_row(row: pd.Series) -> str:
+    """Return INE effective affiliation, preserving audited exceptions."""
+    source_party = str(row["PARTIDO_POLITICO"]).strip()
+    diputado_id = diputado_id_for_row(row)
+    override = AUDITED_EFFECTIVE_PARTY_OVERRIDES.get(diputado_id)
+    if override is None:
+        return source_party
+    if source_party != override["source_party"]:
+        raise ValueError(
+            "Audited effective-party override no longer matches the INE "
+            f"integration source for {diputado_id}: expected "
+            f"{override['source_party']!r}, found {source_party!r}"
+        )
+    return override["effective_party"]
 
 
 def load_official_deputy_rows(path: Path = INTEGRACION_PATH) -> pd.DataFrame:
@@ -247,7 +281,7 @@ def build_dim_diputados(
             "election_id": ELECTION_ID,
             "legislature": LEGISLATURE,
             "seat_type": "MR" if is_mr else "RP",
-            "party_key": str(source["PARTIDO_POLITICO"]).strip(),
+            "party_key": effective_party_for_row(source),
             "id_estado": _integer_or_none(source["ID_ESTADO"]),
             "nombre_estado": (
                 str(source["NOMBRE_ESTADO"]).strip()

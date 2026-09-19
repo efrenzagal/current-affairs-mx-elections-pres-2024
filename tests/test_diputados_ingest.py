@@ -1,6 +1,12 @@
 import unittest
 
-from camara_de_diputados.escanos.ingest import resolve_gaceta_identity
+import pandas as pd
+
+from camara_de_diputados.escanos.ingest import (
+    diputado_id_for_row,
+    effective_party_for_row,
+    resolve_gaceta_identity,
+)
 
 
 class ResolveGacetaIdentityTests(unittest.TestCase):
@@ -45,6 +51,27 @@ class ResolveGacetaIdentityTests(unittest.TestCase):
         )
 
         self.assertEqual(result, (None, None, "unmatched", None))
+
+
+class EffectivePartyTests(unittest.TestCase):
+    @staticmethod
+    def _melendez_row(party: str = "PAN") -> pd.Series:
+        return pd.Series({
+            "TIPO_DE_CANDIDATURA": "DIP_MR",
+            "ID_ESTADO": 8,
+            "ID_DISTRITO_FEDERAL": 5,
+            "PARTIDO_POLITICO": party,
+        })
+
+    def test_melendez_uses_ine_effective_affiliation(self):
+        row = self._melendez_row()
+
+        self.assertEqual(diputado_id_for_row(row), "DIP_567FF8FC3D31")
+        self.assertEqual(effective_party_for_row(row), "PRI")
+
+    def test_melendez_override_detects_source_drift(self):
+        with self.assertRaisesRegex(ValueError, "expected 'PAN', found 'PRI'"):
+            effective_party_for_row(self._melendez_row("PRI"))
 
 
 if __name__ == "__main__":
