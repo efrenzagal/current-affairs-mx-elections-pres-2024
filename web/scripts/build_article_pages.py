@@ -41,12 +41,15 @@ class Article:
     published: str
     summary: str
     topics: tuple[str, ...]
+    kind: str = "quarto"  # "quarto" (rendered notebook, owns its own <head>/<body>)
+    # or "prose" (a hand-authored body-only HTML fragment this script wraps into
+    # a full page — used for articles whose figures are placeholders today).
 
 
 ARTICLES: tuple[Article, ...] = (
     Article(
         slug="espectro-politico",
-        source=ROOT / "article_brujula_politica" / "quarto" / "brujula_politica.html",
+        source=ROOT / "articles" / "article_brujula_politica" / "quarto" / "brujula_politica.html",
         title="El Espectro Político en México",
         subtitle="La geometría de las elecciones presidenciales",
         author="Efrén Zagal",
@@ -58,6 +61,22 @@ ARTICLES: tuple[Article, ...] = (
             "voto mexicano que dos ejes perpendiculares no alcanzan a describir."
         ),
         topics=("Elecciones presidenciales", "1994–2024", "Reducción de dimensiones"),
+    ),
+    Article(
+        slug="brujula-legislativa",
+        source=ROOT / "articles" / "article_brujula_legislativa" / "brujula_legislativa.html",
+        title="Brújula Legislativa",
+        subtitle="Transparencia legislador por legislador en San Lázaro y el Senado",
+        author="Efrén Zagal",
+        published="2026-09-17",
+        summary=(
+            "500 diputados y 128 senadores votan con más frecuencia de la que se "
+            "cubre. Cruzando la Gaceta Parlamentaria, el Senado y los resultados del "
+            "INE, la Brújula Legislativa arma el historial de voto de cada "
+            "legislador, escaño por escaño."
+        ),
+        topics=("Cámara de Diputados", "Senado", "Transparencia legislativa"),
+        kind="prose",
     ),
 )
 
@@ -169,6 +188,99 @@ body.ca-locked{overflow:hidden}
   main.content>*{padding-left:16px;padding-right:16px}
   main.content .cell-output-display{margin:30px auto!important;max-width:100%!important}
   .ca-figure .plotly-graph-div{height:min(74vh,560px)!important}
+}
+"""
+
+# Typography and placeholder-figure styling for hand-authored ("prose") articles.
+# These pieces don't come out of Quarto, so they carry no prose styling or
+# column measure of their own — this is the whole visual system for them,
+# built from the same tokens CHROME_CSS already defines, and deliberately
+# mirrors the structure FIGURE_CSS gives the Quarto article: a full-width
+# white reading surface floating on the page's cream background, with the
+# 760px measure applied per text element rather than on a boxed container —
+# so a wide figure can still break out to its own, wider measure.
+# The link colour (#18bc9c) and card-vs-page contrast are lifted straight
+# from the Quarto/Flatly theme espectro-politico.html renders with, sampled
+# from its own output, so the two articles read as one visual system.
+PROSE_CSS = """
+/* This page is a standalone document (see publish_prose), not wrapped by the
+   Next.js app, so it never inherits globals.css's `body{margin:0}` reset —
+   without this, the browser's default 8px body margin exposes a thin band of
+   the page's default (unstyled) background all the way around it. Invisible
+   in light mode, but browsers auto-darken that unstyled band in dark mode,
+   which reads as a stray black border on every edge. */
+html,body{margin:0;padding:0}
+html{background:var(--paper)}
+body{background:var(--paper)!important}
+.ca-article{background:var(--white);color:var(--ink);font-family:var(--serif);padding:64px 0 80px}
+.ca-article-header,.ca-article>p,.ca-article>h2,.ca-article>ul,.ca-article>ol{
+  margin-left:auto;margin-right:auto;max-width:760px;padding-left:20px;padding-right:20px}
+.ca-article-header{margin-bottom:8px}
+/* Small-caps meta labels stay sans (matching the site's nav/eyebrow
+   convention) even though the base article font below is now serif — only
+   the title and reading copy should read as Georgia/Times New Roman. */
+.ca-eyebrow{color:var(--muted);font-family:var(--sans);font-size:11px;font-weight:650;letter-spacing:.1em;margin:0 0 14px;text-transform:uppercase}
+.ca-title{font-family:var(--serif);font-size:clamp(36px,5.5vw,60px);font-weight:400;letter-spacing:-.03em;line-height:1.04;margin:0 0 16px}
+.ca-subtitle{color:var(--muted);font-family:var(--serif);font-size:20px;font-style:italic;margin:0 0 18px}
+.ca-byline-label{color:var(--muted);font-family:var(--sans);font-size:11px;font-weight:650;letter-spacing:.1em;margin:0 0 6px;text-transform:uppercase}
+.ca-byline-name{color:var(--ink);font-family:var(--sans);font-size:14px;margin:0 0 48px}
+.ca-article h2{border-bottom:1px solid var(--line);font-family:var(--serif);font-size:28px;font-weight:400;letter-spacing:-.01em;margin:52px auto 18px;padding-bottom:12px}
+.ca-article p{font-size:18px;line-height:1.7;margin:0 auto 20px}
+.ca-article a{color:#18bc9c;text-decoration:underline;text-decoration-color:rgba(24,188,156,.35)}
+.ca-article a:hover{text-decoration-color:currentColor}
+/* CHROME_CSS's .ca-back (shared with the Quarto article) sets no colour of
+   its own — the Quarto page reads teal only because Bootstrap/Flatly's own
+   theme applies a page-wide `a{color:#18bc9c}` that happens to cover it too.
+   This page has no such global rule, so without this it falls back to the
+   browser's default (often visited-purple) link colour instead. */
+.ca-back{color:#18bc9c}
+.ca-viz-placeholder{background:var(--paper-deep);border:1.5px dashed var(--line);border-radius:6px;margin:36px auto 44px;max-width:min(900px,92vw);padding:48px 28px;text-align:center}
+.ca-viz-kind{color:var(--muted);font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:.1em;margin:0 0 10px;text-transform:uppercase}
+.ca-viz-title{color:var(--ink);font-family:var(--serif);font-size:20px;margin:0 0 8px}
+.ca-viz-note{color:var(--muted);font-family:var(--sans);font-size:13px;line-height:1.5;margin:0 auto;max-width:480px}
+.ca-embed{margin:36px auto 44px;max-width:min(980px,92vw)}
+.ca-embed iframe{background:transparent;border:0;display:block;width:100%}
+/* Extra room for embeds whose content itself is a 2-up grid (or otherwise
+   wants more breathing room than 980px) — mirrors .ca-embed-row's ceiling. */
+.ca-embed.ca-embed-wide{max-width:min(1400px,94vw)}
+/* auto-fit rather than a hard 2-column split: below ~1480px of available
+   width (a modest, non-maximized browser window), a forced 2-up split would
+   squeeze each hemicycle under 720px — both where its legend starts
+   truncating and where the app's own 700px breakpoint quietly drops the
+   metrics row — so this collapses to one column instead of letting either
+   happen. */
+.ca-embed-row{display:grid;gap:20px;grid-template-columns:repeat(auto-fit,minmax(min(720px,100%),1fr));margin:36px auto 44px;max-width:min(1600px,94vw)}
+/* Capped independently of the grid track: below the 2-up breakpoint a lone
+   track can be much wider than 720px, and a hemicycle stretched that wide
+   needs real extra height (taller arc, legend down to one row) that a single
+   fixed iframe height can't also give the 2-up case without leaving it half
+   empty. Pinning the iframe's own width keeps one height number honest
+   either way — and keeps it above the app's 700px breakpoint either way. */
+.ca-embed-row iframe{background:transparent;border:0;display:block;margin:0 auto;max-width:760px;width:100%}
+
+/* Closing "explore the rest of the tool" row — three square link cards
+   instead of inline text links, so the article ends on something more
+   clickable than a sentence. Same 760px measure as the prose above it. */
+.ca-explore-label{color:var(--muted);font-family:var(--sans);font-size:11px;font-weight:650;letter-spacing:.1em;margin:44px auto -6px;text-transform:uppercase}
+.ca-explore{display:grid;gap:14px;grid-template-columns:repeat(3,1fr);margin:20px auto 48px}
+.ca-explore-label,.ca-explore{max-width:760px;padding-left:20px;padding-right:20px}
+.ca-explore-card{aspect-ratio:1;background:var(--white);border:1px solid var(--line);border-radius:6px;color:var(--ink);display:flex;flex-direction:column;font-family:var(--sans);justify-content:space-between;padding:20px;text-decoration:none;transition:background .15s ease,border-color .15s ease,color .15s ease,transform .15s ease}
+/* Beats `.ca-article a`'s teal link color (0-1-1 specificity) with two
+   classes (0-2-0) rather than !important. */
+.ca-article .ca-explore-card{color:var(--ink);text-decoration:none}
+.ca-explore-card-eyebrow{color:var(--muted);font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+.ca-explore-card-title{font-family:var(--serif);font-size:19px;line-height:1.15}
+.ca-explore-card-arrow{align-self:flex-end;font-size:17px}
+.ca-article .ca-explore-card:hover,.ca-article .ca-explore-card:focus-visible{background:var(--navy);border-color:var(--navy);color:#f7f2e7;outline:0;transform:translateY(-2px)}
+.ca-explore-card:hover .ca-explore-card-eyebrow,.ca-explore-card:focus-visible .ca-explore-card-eyebrow{color:#8dbca5}
+
+@media(max-width:700px){
+  .ca-article{padding:40px 0 60px}
+  .ca-embed-row{grid-template-columns:1fr}
+  .ca-article-header,.ca-article>p,.ca-article>h2,.ca-article>ul,.ca-article>ol{padding-left:18px;padding-right:18px}
+  .ca-explore-label,.ca-explore{padding-left:18px;padding-right:18px}
+  .ca-explore{gap:10px;grid-template-columns:1fr}
+  .ca-explore-card{aspect-ratio:auto;padding:18px}
 }
 """
 
@@ -486,12 +598,12 @@ def slim(html: str) -> tuple[str, dict[str, int]]:
     return html, stats
 
 
-def wrap(html: str) -> str:
-    """Inject site chrome, figure styling and the Plotly resize behaviour."""
+def wrap(html: str, extra_css: str = FIGURE_CSS, script: str = "") -> str:
+    """Inject site chrome and page-specific styling/behaviour around a body."""
     head_close = html.lower().rfind("</head>")
     if head_close == -1:
         raise ValueError("rendered article has no </head>; is this a Quarto html file?")
-    injection = f"<style>{CHROME_CSS}{FIGURE_CSS}</style>"
+    injection = f"<style>{CHROME_CSS}{extra_css}</style>"
     html = html[:head_close] + injection + html[head_close:]
 
     body_open = re.search(r"<body[^>]*>", html, re.I)
@@ -502,11 +614,17 @@ def wrap(html: str) -> str:
     body_close = html.lower().rfind("</body>")
     if body_close == -1:
         raise ValueError("rendered article has no </body>")
-    tail = chrome_footer() + f"<script>{FIGURE_JS}</script>"
+    tail = chrome_footer() + (f"<script>{script}</script>" if script else "")
     return html[:body_close] + tail + html[body_close:]
 
 
-def publish(article: Article) -> tuple[Path, int]:
+def publish(article: Article) -> tuple[Path, dict[str, int]]:
+    if article.kind == "prose":
+        return publish_prose(article)
+    return publish_quarto(article)
+
+
+def publish_quarto(article: Article) -> tuple[Path, dict[str, int]]:
     if not article.source.exists():
         raise FileNotFoundError(
             f"{article.source} is missing. Render it with Quarto first:\n"
@@ -519,7 +637,7 @@ def publish(article: Article) -> tuple[Path, int]:
             "without executing the notebook; re-render before publishing."
         )
     slimmed, stats = slim(html)
-    wrapped = wrap(slimmed)
+    wrapped = wrap(slimmed, extra_css=FIGURE_CSS, script=FIGURE_JS)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     destination = OUT_DIR / f"{article.slug}.html"
     destination.write_text(wrapped, encoding="utf-8")
@@ -530,6 +648,35 @@ def publish(article: Article) -> tuple[Path, int]:
             "the de-duplication in slim() removed too much."
         )
     return destination, stats
+
+
+def publish_prose(article: Article) -> tuple[Path, dict[str, int]]:
+    """Wrap a hand-authored, body-only HTML fragment into a full site page.
+
+    Unlike a Quarto render, the fragment has no <head>/<body> of its own —
+    just the article markup (see PROSE_CSS for the classes it expects), so
+    this builds a minimal document around it before handing off to wrap().
+    """
+    if not article.source.exists():
+        raise FileNotFoundError(f"{article.source} is missing.")
+    fragment = article.source.read_text(encoding="utf-8")
+    document = (
+        "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>{article.title} · current affairs mx</title></head>"
+        f"<body>{fragment}</body></html>"
+    )
+    wrapped = wrap(document, extra_css=PROSE_CSS)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    destination = OUT_DIR / f"{article.slug}.html"
+    destination.write_text(wrapped, encoding="utf-8")
+    return destination, {
+        "plotly_removed": 0,
+        "mathjax_removed": 0,
+        "cdn_removed": 0,
+        "bytes_before": len(fragment),
+        "bytes_after": len(wrapped),
+    }
 
 
 def main() -> None:

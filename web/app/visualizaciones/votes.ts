@@ -19,15 +19,21 @@ export const CHOICE_COLORS: Record<string, string> = {
   "Abstención": "#d4a72c",
   Abstencion: "#d4a72c",
   Ausente: "#9b9a94",
+  // Not a Senado roll-call choice -- inserted by camara_de_senadores/votos/
+  // ingest.py for a vote the source silently omitted the senator from
+  // (see votes.ts callers gated on isSenate). Kept visually distinct from
+  // Ausente: unlike an explicit AUSENTE, this is our own inference, not
+  // something the roll call reported.
+  "Sin registro": "#8a6d3b",
   "Quórum *": "#537a8f",
 };
 
 /**
  * Reading order for a vote breakdown: the two directional choices first, then
- * the three ways of not taking a side. The square grid, the stacked bars and
- * every legend iterate this, so they can never disagree on ordering.
+ * the ways of not taking a side. The square grid, the stacked bars and every
+ * legend iterate this, so they can never disagree on ordering.
  */
-export const CHOICE_ORDER = ["Favor", "Contra", "Abstención", "Ausente", "Quórum *"];
+export const CHOICE_ORDER = ["Favor", "Contra", "Abstención", "Ausente", "Sin registro", "Quórum *"];
 
 export function choiceColor(choice: string) {
   return CHOICE_COLORS[choice] ?? "#8b8b86";

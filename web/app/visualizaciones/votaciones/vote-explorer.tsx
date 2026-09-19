@@ -20,7 +20,6 @@ import {
   normalize,
   originLabel,
   reviewKey,
-  reviewLabel,
   shortDate,
   stageLabel,
   topicLabel,
@@ -95,7 +94,8 @@ type Ballots = {
   ballots: Record<string, Record<string, Record<string, number[]>>>;
 };
 
-/** Rows added per press of "mostrar más". 686 at once is unreadable. */
+/** Default `pageSize`: rows shown initially and added per press of "mostrar
+ * más". 686 at once is unreadable. */
 const PAGE_SIZE = 10;
 
 const CHAMBER_LABELS: Record<Chamber, string> = {
@@ -325,7 +325,14 @@ const PartyGrids = memo(function PartyGrids({
   );
 });
 
-export default function VoteExplorer() {
+export default function VoteExplorer({
+  interactive = true,
+  pageSize = PAGE_SIZE,
+}: {
+  interactive?: boolean;
+  /** Rows shown initially and added per press of "mostrar más". */
+  pageSize?: number;
+}) {
   const [data, setData] = useState<VotesData | null>(null);
   const [ballots, setBallots] = useState<Ballots | null>(null);
   const [error, setError] = useState(false);
@@ -494,8 +501,8 @@ export default function VoteExplorer() {
   const signature = JSON.stringify([
     query, chamber, activeFacets, activeReview, result, margin, sort,
   ]);
-  const [page, setPage] = useState({ signature, visible: PAGE_SIZE });
-  const visible = page.signature === signature ? page.visible : PAGE_SIZE;
+  const [page, setPage] = useState({ signature, visible: pageSize });
+  const visible = page.signature === signature ? page.visible : pageSize;
   const shown = useMemo(() => filtered.slice(0, visible), [filtered, visible]);
 
   const selected = useMemo(
@@ -702,28 +709,6 @@ export default function VoteExplorer() {
                 </div>
               </fieldset>
 
-              <fieldset className="vote-filter-group">
-                <legend>Revisión de la clasificación</legend>
-                <div className="vote-chips">
-                  {reviewOptions.map(([value, count]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      className={review.includes(value) ? "active" : ""}
-                      aria-pressed={review.includes(value)}
-                      onClick={() =>
-                        setReview((current) =>
-                          current.includes(value)
-                            ? current.filter((entry) => entry !== value)
-                            : [...current, value],
-                        )
-                      }
-                    >
-                      {reviewLabel(value)} <small>{count}</small>
-                    </button>
-                  ))}
-                </div>
-              </fieldset>
             </div>
 
             {activeFilters > 0 && (
@@ -763,12 +748,20 @@ export default function VoteExplorer() {
                     <li key={key}>
                       <button
                         type="button"
-                        className={key === selectedKey ? "vote-row active" : "vote-row"}
+                        className={
+                          (key === selectedKey ? "vote-row active" : "vote-row") +
+                          (interactive ? "" : " vote-row-static")
+                        }
                         aria-current={key === selectedKey}
-                        onClick={() => {
-                          pendingScroll.current = true;
-                          setSelectedKey(key);
-                        }}
+                        disabled={!interactive}
+                        onClick={
+                          interactive
+                            ? () => {
+                                pendingScroll.current = true;
+                                setSelectedKey(key);
+                              }
+                            : undefined
+                        }
                       >
                         <span className="vote-row-meta">
                           <span>{shortDate(vote.date)}</span>
@@ -815,10 +808,10 @@ export default function VoteExplorer() {
                 <button
                   type="button"
                   onClick={() =>
-                    setPage({ signature, visible: visible + PAGE_SIZE })
+                    setPage({ signature, visible: visible + pageSize })
                   }
                 >
-                  Mostrar {Math.min(PAGE_SIZE, filtered.length - visible)} más
+                  Mostrar {Math.min(pageSize, filtered.length - visible)} más
                 </button>
                 <small>
                   Mostrando {visible} de {filtered.length}. Usa los filtros para acotar la
@@ -859,11 +852,6 @@ export default function VoteExplorer() {
               <span>{stageLabel(selected.stage)}</span>
               <span>{originLabel(selected.origin)}</span>
               <span>{instrumentLabel(selected.instrument)}</span>
-              <span
-                className={selected.review.requiresReview ? "vote-review flagged" : "vote-review"}
-              >
-                {reviewLabel(reviewKey(selected.review))}
-              </span>
             </div>
 
             <div className="vote-metrics">
@@ -964,8 +952,7 @@ export default function VoteExplorer() {
               Cada cuadro es una legisladora o un legislador; pasa el cursor para ver su nombre. El
               desglose por grupo proviene del conteo que publica la propia cámara para esa votación,
               no de la composición actual del pleno: es el denominador correcto para ese día. La
-              clasificación temática es asistida por modelo y se indica arriba con qué nivel de
-              revisión cuenta.
+              clasificación temática es asistida por modelo.
             </p>
           </section>
         )}

@@ -40,7 +40,7 @@ function formatMunicipalityShare(share: number) {
 /** Occupancy state published by the official directory, plus our own fallback. */
 type SeatStatus = "en_funciones" | "licencia" | "vacante" | "sin_directorio";
 
-type Seat = {
+export type Seat = {
   id: string;
   seatType: "MR" | "FM" | "RP";
   stateId: number | null;
@@ -67,7 +67,7 @@ type Seat = {
   currentStatus: SeatStatus;
 };
 
-type Vote = {
+export type Vote = {
   id: string;
   date: string;
   title: string;
@@ -102,7 +102,7 @@ type FormerMember = {
   relationshipSourceUrl: string | null;
 };
 
-type SeatMember = {
+export type SeatMember = {
   personId: string;
   name: string;
   party: string;
@@ -113,7 +113,7 @@ type SeatMember = {
 
 type HistoryEntry = [string, string, number | null];
 
-type SiteData = {
+export type SiteData = {
   manifest: {
     schemaVersion: number;
     legislature: number;
@@ -221,22 +221,35 @@ function statusLabel(status: SeatStatus) {
   return "En funciones";
 }
 
-function electionActorLabel(actor: string | null) {
+export function electionActorLabel(actor: string | null) {
   return actor?.replaceAll("_", " · ") ?? "";
 }
 
 function seatTypeLabel(seatType: Seat["seatType"]) {
   if (seatType === "MR") return "mayoría relativa";
-  if (seatType === "FM") return "primera minoría";
+  if (seatType === "FM") return "Primera Minoría";
   return "representación proporcional";
+}
+
+/**
+ * The INE uses `SIN CANDIDATURA` as a value when a formula has no registered
+ * titular. It describes the seat, not a person, so it must never be rendered as
+ * somebody's name.
+ */
+export function hasRegisteredTitular(seat: Pick<Seat, "titularName">) {
+  return normalize(seat.titularName) !== "sin candidatura";
+}
+
+function titularLabel(seat: Pick<Seat, "titularName">) {
+  return hasRegisteredTitular(seat) ? seat.titularName : "Escaño sin titular registrado";
 }
 
 /**
  * The identity a seat carries under the active view.
  *
- * `licencia` and `vacante` deliberately override the party: the directory still
- * prints a group for a member on leave, but the seat is not voting with that
- * group, and colouring it as if it were would overstate the bloc.
+ * Party affiliation and occupancy status are separate facts. A member on
+ * leave keeps the party published by the directory; `licencia` is rendered as
+ * a status label, never as though it were a political party.
  */
 type Occupant = {
   name: string;
@@ -250,7 +263,7 @@ type Occupant = {
 function occupantOf(seat: Seat, view: View): Occupant {
   if (view === "electoral") {
     return {
-      name: seat.titularName,
+      name: titularLabel(seat),
       party: seat.electedParty,
       personId: seat.electedPersonId,
       status: "en_funciones",
@@ -258,15 +271,9 @@ function occupantOf(seat: Seat, view: View): Occupant {
       partyChanged: false,
     };
   }
-  const party =
-    seat.currentStatus === "licencia"
-      ? "LICENCIA"
-      : seat.currentStatus === "vacante"
-        ? "VACANTE"
-        : seat.currentParty;
   return {
     name: seat.currentName ?? "Escaño vacante",
-    party,
+    party: seat.currentParty,
     personId: seat.currentPersonId,
     status: seat.currentStatus,
     substituted: seat.currentPersonId !== seat.electedPersonId,
@@ -391,7 +398,16 @@ function seatCoordinates(seats: Seat[]) {
   });
 }
 
-export default function Explorer({ chamber }: { chamber: Chamber }) {
+export default function Explorer({
+  chamber,
+  interactive = true,
+}: {
+  chamber: Chamber;
+  /** False locks the hemicycle to hover-only — no seat click, no selection
+   * change — for an embed that just wants the chart, not the full profile
+   * drill-down (see app/visualizaciones/embed/hemiciclo's `bare` mode). */
+  interactive?: boolean;
+}) {
   const config = CHAMBERS[chamber];
   const isSenate = config.isSenate;
 
@@ -399,7 +415,14 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
   const [error, setError] = useState(false);
   const [view, setView] = useState<View>("actual");
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [selectedVoteId, setSelectedVoteId] = useState<string | null>(null);
+  // Deep-links a specific roll call open on load (e.g. for an article embed),
+  // same seeded-at-mount treatment as `query` below — the server render never
+  // reaches this far, so there is nothing to mismatch on hydration.
+  const [selectedVoteId, setSelectedVoteId] = useState<string | null>(() =>
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("vote"),
+  );
   const [hoveredSeatId, setHoveredSeatId] = useState<string | null>(null);
   // A name handed over from the other chamber's explorer, which links here when
   // its own search comes up empty. Seeded at mount rather than in an effect;
@@ -435,7 +458,12 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
       .then((payload: SiteData) => {
         if (cancelled) return;
         setData(payload);
-        const first = payload.seats[0];
+        // `?seat=` deep-links a specific seat open on load (e.g. for an
+        // article embed), same spirit as `?vote=` and `?q=` below — falls
+        // back to the first seat when absent or not found.
+        const seatParam = new URLSearchParams(window.location.search).get("seat");
+        const requested = seatParam ? payload.seats.find((seat) => seat.id === seatParam) : null;
+        const first = requested ?? payload.seats[0];
         setSelection(first ? { kind: "seat", id: first.id } : null);
         // No vote is preselected: the vote detail only appears once the reader
         // opens one, from the history list or the calendar.
@@ -464,6 +492,28 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
       cancelled = true;
     };
   }, [isSenate]);
+
+  // `?estado=`/`?municipio=` seeds the district search open on load (e.g. for
+  // an article embed demonstrating the lookup) — same one-time-seed spirit as
+  // `?seat=`/`?vote=` above, just deferred until the lookup index is in,
+  // since the resolution needs it. A no-op once the reader touches the
+  // controls themselves: data/districtIndex only ever go null -> value once.
+  useEffect(() => {
+    if (isSenate || !districtIndex || !data) return;
+    const params = new URLSearchParams(window.location.search);
+    const stateParam = params.get("estado");
+    const municipioParam = params.get("municipio");
+    if (!stateParam || !municipioParam) return;
+    const state = findDistrictState(districtIndex, stateParam);
+    const municipality = state?.municipalities.find(
+      (candidate) => normalize(candidate.name) === normalize(municipioParam),
+    );
+    if (!municipality) return;
+    applyDistrictResolution(
+      resolveMunicipalityDistricts(districtIndex, stateParam, municipalityKey(municipality)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSenate, districtIndex, data]);
 
   // Runs after the vote-detail section has been mounted by the render that
   // `openVote` triggered, which is the only point where it can be scrolled to.
@@ -954,13 +1004,27 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
   const activeVotes = history.filter(([, choice]) =>
     ["Favor", "Contra", "Abstención", "Abstencion"].includes(choice),
   );
+  // "Sin registro" (Senado only) is our own inference for a vote the source
+  // silently omitted the senator from — see CHOICE_COLORS in votes.ts. It
+  // counts against participación exactly like an explicit "Ausente": both
+  // mean the person did not cast a ballot on that vote.
+  const didNotParticipate = (choice: string) => choice === "Ausente" || choice === "Sin registro";
   const attendance = history.length
-    ? 1 - history.filter(([, choice]) => choice === "Ausente").length / history.length
+    ? 1 - history.filter(([, choice]) => didNotParticipate(choice)).length / history.length
     : 0;
   const favorRate = activeVotes.length
     ? activeVotes.filter(([, choice]) => choice === "Favor").length / activeVotes.length
     : 0;
-  const previewActive = previewHistory.filter(([, choice]) => choice !== "Ausente");
+  const previewActive = previewHistory.filter(([, choice]) => !didNotParticipate(choice));
+  // Same attendance/favorRate formulas as the profile panel's own metrics,
+  // just read off the hovered seat's history instead of the selected one —
+  // the hover-reader bar tracks the cursor, so its numbers should too.
+  const previewAttendance = previewHistory.length
+    ? 1 - previewHistory.filter(([, choice]) => didNotParticipate(choice)).length / previewHistory.length
+    : 0;
+  const previewFavorRate = previewActive.length
+    ? previewActive.filter(([, choice]) => choice === "Favor").length / previewActive.length
+    : 0;
   const partyVotePercentages = Object.entries((selectedVote && data.partyVotes[selectedVote.id]) ?? {})
     .map(([party, counts]) => {
       const favor = counts.Favor ?? 0;
@@ -1224,8 +1288,8 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                     type="button"
                     aria-label={
                       isOrigin
-                        ? `Escaño titular de ${seat.titularName}; escaño de origen de ${reading.name}; hoy lo ocupa ${occupant.name}, ${occupant.party}${seat.substituteName ? `; suplente registrado: ${seat.substituteName}` : ""}`
-                        : `${seat.titularName}, titular; ${occupant.party}; ${seatTypeLabel(seat.seatType)}${seat.substituteName ? `; suplente registrado: ${seat.substituteName}` : ""}`
+                        ? `${titularLabel(seat)}; escaño de origen de ${reading.name}; hoy lo ocupa ${occupant.name}, ${occupant.party}${seat.substituteName ? `; suplente registrado: ${seat.substituteName}` : ""}`
+                        : `${occupant.name}; ${occupant.party}; ${seatTypeLabel(seat.seatType)}${seat.substituteName ? `; suplente registrado: ${seat.substituteName}` : ""}`
                     }
                     className={`seat-dot seat-${seat.seatType.toLowerCase()} ${
                       seat.id === floorSeatId ? "selected" : ""
@@ -1245,12 +1309,16 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                       borderColor: isOrigin
                         ? PARTY_COLORS[occupant.party] ?? "#74736e"
                         : undefined,
+                      // A native `disabled` button would also swallow hover —
+                      // this stays a real (enabled) button so onMouseEnter still
+                      // fires, and only the click handler below is dropped.
+                      cursor: interactive ? undefined : "default",
                     }}
                     onMouseEnter={() => setHoveredSeatId(seat.id)}
                     onMouseLeave={() => setHoveredSeatId(null)}
                     onFocus={() => setHoveredSeatId(seat.id)}
                     onBlur={() => setHoveredSeatId(null)}
-                    onClick={() => selectSeat(seat)}
+                    onClick={interactive ? () => selectSeat(seat) : undefined}
                   />
                 );
               })}
@@ -1296,30 +1364,63 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                   {previewOccupant.party}
                 </div>
                 <div className="hover-identity">
-                  <strong>{previewSeat.titularName}</strong>
+                  <strong>{previewOccupant.name}</strong>
                   <span>
                     {previewSeat.seatType} · {previewSeat.state ?? `Circunscripción ${previewSeat.circunscripcion}`}
                   </span>
-                  {previewSeat.substituteName && (
+                  {!hasRegisteredTitular(previewSeat) && isCurrentView ? (
+                    <span className="registered-substitute">
+                      Suplente en funciones · sin titular registrado
+                    </span>
+                  ) : previewSeat.substituteName && (
                     <span className="registered-substitute">Suplente: {previewSeat.substituteName}</span>
                   )}
-                  {previewOccupant.substituted ? (
+                  {previewOccupant.substituted && (
                     <span className="election-result-preview">
                       En funciones: {previewOccupant.name}
                     </span>
-                  ) : (
-                    previewSeat.seatType !== "RP" && previewSeat.winningPct !== null && (
-                      <span className="election-result-preview">
-                        {previewSeat.seatType === "FM" ? "Primera minoría en 2024 con " : "Ganó en 2024 con "}
-                        {previewSeat.winningPct.toLocaleString("es-MX", {
-                          minimumFractionDigits: 1,
-                          maximumFractionDigits: 2,
-                        })}% · {previewSeat.winningVotes?.toLocaleString("es-MX")} votos
-                      </span>
-                    )
                   )}
                 </div>
-                <span className="hover-count">{previewActive.length} participaciones</span>
+                <div className="hover-metrics">
+                  <div className="hover-metric">
+                    <strong>{previewHistory.length}</strong>
+                    <span>registros del escaño</span>
+                  </div>
+                  <div className="hover-metric">
+                    <strong>
+                      {previewAttendance.toLocaleString("es-MX", { style: "percent", maximumFractionDigits: 0 })}
+                    </strong>
+                    <span>participación</span>
+                  </div>
+                  <div className="hover-metric">
+                    <strong>
+                      {previewFavorRate.toLocaleString("es-MX", { style: "percent", maximumFractionDigits: 0 })}
+                    </strong>
+                    <span>voto a favor</span>
+                  </div>
+                  <div className="hover-election-tile">
+                    {previewSeat.seatType !== "RP" && previewSeat.winningPct !== null ? (
+                      <>
+                        <strong>
+                          {previewSeat.winningPct.toLocaleString("es-MX", {
+                            minimumFractionDigits: 1,
+                            maximumFractionDigits: 2,
+                          })}
+                          %
+                        </strong>
+                        <span>
+                          {previewSeat.winningVotes?.toLocaleString("es-MX")} votos ·{" "}
+                          {previewSeat.seatType === "FM" ? "Primera Minoría" : "elección 2024"}
+                        </span>
+                      </>
+                    ) : previewSeat.seatType === "RP" ? (
+                      <>
+                        <strong>Lista {previewSeat.listNumber}</strong>
+                        <span>asignación RP · 2024</span>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1338,7 +1439,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
             </div>
             <div className="seat-type-key" aria-label="Tipo de elección del escaño">
               <span><i className="key-square" /> Mayoría relativa · {data.seats.filter((seat) => seat.seatType === "MR").length}</span>
-              {isSenate && <span><i className="key-diamond" /> Primera minoría · 32</span>}
+              {isSenate && <span><i className="key-diamond" /> Primera Minoría · 32</span>}
               <span><i className="key-circle" /> Representación proporcional · {data.seats.filter((seat) => seat.seatType === "RP").length}</span>
             </div>
 
@@ -1398,7 +1499,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                 <span className="large-party" style={{ color: PARTY_COLORS[reading.party] }}>
                   {reading.party}
                 </span>
-                <h2>{isSeatHistory && selectedSeat ? selectedSeat.titularName : reading.name}</h2>
+                <h2>{reading.name}</h2>
                 <p>
                   {seatless
                     ? `${config.short} · sin escaño identificado`
@@ -1410,7 +1511,9 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                           ? `Representación proporcional · Lista nacional · Posición ${selectedSeat!.listNumber}`
                           : `${seatTypeLabel(selectedSeat!.seatType)} · ${selectedSeat!.state}`}
                   {reading.status && isCurrentView ? ` · ${statusLabel(reading.status)}` : ""}
-                  {selectedSeat?.substituteName && (
+                  {selectedSeat && !hasRegisteredTitular(selectedSeat) && isCurrentView ? (
+                    <><br />Suplente en funciones · sin titular registrado</>
+                  ) : selectedSeat?.substituteName && (
                     <><br />Suplente: {selectedSeat.substituteName}</>
                   )}
                 </p>
@@ -1444,7 +1547,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                 ) : (
                   <>
                     Cubrió la suplencia de este escaño, ganado en 2024 por{" "}
-                    <strong>{selectedSeat.titularName}</strong> ({selectedSeat.electedParty}), que
+                    <strong>{titularLabel(selectedSeat)}</strong> ({selectedSeat.electedParty}), que
                     hoy vuelve a ocuparlo.{" "}
                     {reading.former.relationshipSourceUrl && (
                       <a href={reading.former.relationshipSourceUrl} target="_blank" rel="noreferrer">
@@ -1468,7 +1571,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                 ) : (
                   <>
                     Ocupa este escaño hoy. En 2024 lo ganó{" "}
-                    <strong>{selectedSeat!.titularName}</strong> ({selectedSeat!.electedParty}).
+                    <strong>{titularLabel(selectedSeat!)}</strong> ({selectedSeat!.electedParty}).
                   </>
                 )}
               </p>
@@ -1479,7 +1582,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                 {isSeatHistory ? (
                   <>En funciones: <strong>{reading.name}</strong> · suplencia.</>
                 ) : (
-                  <>Suplente del escaño de <strong>{selectedSeat!.titularName}</strong>.</>
+                  <>Suplente del escaño de <strong>{titularLabel(selectedSeat!)}</strong>.</>
                 )}
               </p>
             )}
@@ -1549,7 +1652,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
 
             <div className={`deputy-metrics ${seatless ? "metrics-seatless" : ""}`}>
               <div><strong>{history.length}</strong><span>{isSeatHistory ? "registros del escaño" : "registros"}</span></div>
-              <div><strong>{attendance.toLocaleString("es-MX", { style: "percent", maximumFractionDigits: 0 })}</strong><span>asistencia</span></div>
+              <div><strong>{attendance.toLocaleString("es-MX", { style: "percent", maximumFractionDigits: 0 })}</strong><span>participación</span></div>
               <div><strong>{favorRate.toLocaleString("es-MX", { style: "percent", maximumFractionDigits: 0 })}</strong><span>voto a favor</span></div>
               {!seatless && (
                 <div className="election-metric">
@@ -1559,7 +1662,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                         minimumFractionDigits: 1,
                         maximumFractionDigits: 2,
                       })}%</strong>
-                      <span>{selectedSeat!.winningVotes?.toLocaleString("es-MX")} votos · {selectedSeat!.seatType === "FM" ? "primera minoría" : "elección 2024"}</span>
+                      <span>{selectedSeat!.winningVotes?.toLocaleString("es-MX")} votos · {selectedSeat!.seatType === "FM" ? "Primera Minoría" : "elección 2024"}</span>
                       {selectedSeat!.electionActor && (
                         <small>{electionActorLabel(selectedSeat!.electionActor)}</small>
                       )}
@@ -1630,6 +1733,7 @@ export default function Explorer({ chamber }: { chamber: Chamber }) {
                   <span><i style={{ background: CHOICE_COLORS.Contra }} /> Contra</span>
                   <span><i style={{ background: CHOICE_COLORS["Abstención"] }} /> Abst.</span>
                   <span><i style={{ background: CHOICE_COLORS.Ausente }} /> Ausente</span>
+                  {isSenate && <span><i style={{ background: CHOICE_COLORS["Sin registro"] }} /> Sin registro</span>}
                   {!isSenate && <span><i style={{ background: CHOICE_COLORS["Quórum *"] }} /> Presente, sin voto</span>}
                   <span className="calendar-hint">Cada rectángulo, una votación.</span>
                 </div>

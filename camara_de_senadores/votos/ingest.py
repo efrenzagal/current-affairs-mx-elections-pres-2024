@@ -129,6 +129,72 @@ def ingest(conn: sqlite3.Connection, clean_dir: Path) -> None:
     print(f"  votes={len(dim_vote):,}  senadores={len(dim_senador):,}  senador_votes={len(fact_senador_vote):,}")
 
 
+def missing_no_registro_pairs(
+    vote_order: list[int], existing_by_senador: dict[int, set[int]]
+) -> list[tuple[int, int]]:
+    """(senador_id, votacion_id) pairs to backfill as SIN_REGISTRO.
+
+    The Senado's own per-vote page omits a senator entirely when they are
+    absent without a registered reason, instead of publishing an explicit
+    AUSENTE row the way it does for a documented one (e.g. "comisión
+    oficial"). That silently shrinks the denominator of any attendance figure
+    built from these rows, and does so unevenly: a senator whose absences
+    happen to get logged is penalized, one whose absences are simply omitted
+    is not.
+
+    Only gaps strictly inside a senator's own attested span -- between their
+    own first and last recorded vote -- are filled. Nothing is backfilled
+    before their first appearance or after their last: a senator's own
+    surrounding votes are the only evidence we have that they held the seat
+    at that point, so a genuine substitution boundary (a handful of votes
+    right at the handover) is deliberately left alone rather than guessed at.
+    """
+    position = {vote_id: index for index, vote_id in enumerate(vote_order)}
+    pairs: list[tuple[int, int]] = []
+    for senador_id, votes in existing_by_senador.items():
+        positions = sorted(position[vote_id] for vote_id in votes if vote_id in position)
+        if len(positions) < 2:
+            continue
+        have = set(positions)
+        for index in range(positions[0], positions[-1] + 1):
+            if index not in have:
+                pairs.append((senador_id, vote_order[index]))
+    return pairs
+
+
+def backfill_no_registro(conn: sqlite3.Connection) -> int:
+    """Insert SIN_REGISTRO rows for the gaps the source leaves silent.
+
+    Runs after ``ingest`` has loaded the real, scraped rows, so it only ever
+    fills genuine gaps -- it never reruns on top of its own output, since
+    the normal workflow reloads Senado tables from scratch (``--force``)
+    before calling this.
+    """
+    vote_order = [
+        row[0]
+        for row in conn.execute(
+            "SELECT votacion_id FROM dim_senado_vote WHERE legislature = ? "
+            "ORDER BY vote_date, votacion_id",
+            (LEGISLATURE,),
+        )
+    ]
+    existing_by_senador: dict[int, set[int]] = {}
+    for senador_id, votacion_id in conn.execute(
+        "SELECT senador_id, votacion_id FROM fact_senador_vote"
+    ):
+        existing_by_senador.setdefault(senador_id, set()).add(votacion_id)
+
+    pairs = missing_no_registro_pairs(vote_order, existing_by_senador)
+    conn.executemany(
+        "INSERT INTO fact_senador_vote (votacion_id, senador_id, voto) "
+        "VALUES (?, ?, 'SIN_REGISTRO')",
+        [(votacion_id, senador_id) for senador_id, votacion_id in pairs],
+    )
+    conn.commit()
+    print(f"  backfilled {len(pairs):,} SIN_REGISTRO rows (gaps inside each senator's own known span)")
+    return len(pairs)
+
+
 def _warn(msg: str) -> None:
     print(f"  WARNING: {msg}")
 
@@ -137,7 +203,7 @@ def _fail(msg: str) -> None:
     print(f"  ERROR:   {msg}")
 
 
-KNOWN_VOTO_VALUES = {"PRO", "CONTRA", "ABSTENCIÓN", "AUSENTE"}
+KNOWN_VOTO_VALUES = {"PRO", "CONTRA", "ABSTENCIÓN", "AUSENTE", "SIN_REGISTRO"}
 
 
 def validate(conn: sqlite3.Connection) -> bool:
@@ -226,6 +292,7 @@ def main() -> None:
 
     try:
         ingest(conn, clean_dir)
+        backfill_no_registro(conn)
     except Exception as e:
         conn.rollback()
         print(f"  ERROR: {e}")

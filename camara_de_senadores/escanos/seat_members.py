@@ -59,12 +59,17 @@ AUDITED_FORMER_SEAT_OVERRIDES = load_seat_overrides()
 AUDITED_PERSON_ALIASES = load_person_aliases()
 
 # The Senado roll call stores its own vocabulary. Normalize to the Camara's so
-# a merged history reads the same either side of the building.
+# a merged history reads the same either side of the building. SIN_REGISTRO is
+# not a Senado choice -- it is inserted by camara_de_senadores/votos/ingest.py
+# to fill the gaps the source leaves silent, so histories built from this
+# table reflect a senator's full known span rather than only their logged
+# rows.
 SENATE_CHOICE = {
     "PRO": "Favor",
     "CONTRA": "Contra",
     "ABSTENCIÓN": "Abstención",
     "AUSENTE": "Ausente",
+    "SIN_REGISTRO": "Sin registro",
 }
 
 SEATS_SQL = """
@@ -520,6 +525,9 @@ def build_seat_vote_data(
         )
         if existing:
             return
+        # SIN_REGISTRO entries pad a person's own history to their full known
+        # span (see SENATE_CHOICE); they are not a vote this person cast, so
+        # they must not inflate the count shown for them here.
         seat_members[seat_id].append(
             {
                 "personId": person,
@@ -527,7 +535,9 @@ def build_seat_vote_data(
                 "party": party,
                 "role": role,
                 "sourceUrl": source_url,
-                "voteCount": len(histories.get(person, [])),
+                "voteCount": sum(
+                    1 for _, choice in histories.get(person, []) if choice != "Sin registro"
+                ),
             }
         )
 

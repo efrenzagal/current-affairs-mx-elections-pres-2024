@@ -1,0 +1,231 @@
+<article class="ca-article">
+  <header class="ca-article-header">
+    <p class="ca-eyebrow">Congreso · Transparencia legislativa</p>
+    <h1 class="ca-title">Brújula Legislativa</h1>
+    <p class="ca-subtitle">Transparencia legislador por legislador en San Lázaro y el Senado</p>
+    <p class="ca-byline-label">Autor/a</p>
+    <p class="ca-byline-name">Efrén Zagal</p>
+  </header>
+
+  <p>
+    Cuando se habla de política nacional, usualmente el poder ejecutivo —particularmente
+    presidentes y gobernadores— es el centro de atención, como exploramos en
+    <a href="/articulos/espectro-politico.html">El Espectro Político en México</a>. Cada seis
+    años vemos desfilar rostros y nombres que terminan por volverse sumamente reconocibles, y la
+    cobertura mediática es extensa respecto a lo que hacen, desde sus últimas declaraciones hasta
+    a dónde viajan y por qué. Esto se junta con
+    <a href="/visualizaciones/aprobacion">encuestas de aprobación</a> que dan aún más alcance a
+    estas figuras y escrutinio a todas sus decisiones.
+  </p>
+
+  <p>
+    El poder legislativo, por otro lado, no recibe tanto interés, y es fácil ver por qué: la
+    Cámara Baja cuenta con 500 diputados, 200 de los cuales ni siquiera requirieron hacer campaña
+    electoral para ocupar el puesto (plurinominales). La Cámara Alta es similar, pues 32
+    senadores son elegidos por representación proporcional de los votos a nivel nacional. Sumado
+    a la gran cantidad de legisladores, éstos deciden con mucha frecuencia: hasta el corte de
+    esta edición (agosto 2026), la LXVI legislatura acumula 295 votos de diputados y 378 de
+    senadores. Aunque ambas cámaras publican la información de sus votos —por medio de la
+    <a href="https://gaceta.diputados.gob.mx/Gaceta/Votaciones/66/tabla2or2-9.php3">Gaceta
+    Parlamentaria</a> y la <a href="https://www.senado.gob.mx/66/votacion/4712">página oficial
+    del Senado</a>—, es difícil encontrar esa información agregada a nivel legislador. Entre
+    votos de sustitutos, licencias y cambios en las coaliciones, una visión holística del poder
+    legislativo es complicada.
+  </p>
+
+  <p>
+    Para resolver este problema presentamos la Brújula Legislativa, un proyecto de datos que
+    busca ofrecer transparencia en las decisiones de política pública.
+  </p>
+
+  <h2>¿Cómo funciona?</h2>
+  <p>
+    A grosso modo, la Brújula Legislativa empieza como un proceso de <em>web scraping</em> en el
+    que se identifican todos los votos disponibles en ambas páginas, para después extraer los
+    metadatos de cada voto (como fecha, título de la iniciativa, quién la propone o el
+    hipervínculo al sitio fuente) y los nombres de los legisladores, junto con el voto y el
+    partido al que representan. Esta información se cruza también con una base de datos de
+    sustitutos y licencias, así como con los resultados electorales del INE, para ver de dónde
+    proviene la selección de cada diputado o senador. Usamos un proceso automatizado para
+    categorizar los votos: si una iniciativa es en lo particular o en lo general, y a qué tema de
+    política pública responde cada voto. Tras una limpieza para cuadrar nombres y apellidos,
+    podemos construir los siguientes hemiciclos.
+  </p>
+
+  <div class="ca-embed-row">
+    <iframe
+      src="/visualizaciones/embed/hemiciclo?chamber=diputados&amp;bare=1"
+      height="730"
+      loading="lazy"
+      title="Hemiciclo interactivo: Cámara de Diputados"
+    ></iframe>
+    <iframe
+      src="/visualizaciones/embed/hemiciclo?chamber=senado&amp;bare=1"
+      height="745"
+      loading="lazy"
+      title="Hemiciclo interactivo: Senado de la República"
+    ></iframe>
+  </div>
+
+  <h2>El perfil de un legislador</h2>
+  <p>
+    Al dar clic en cualquiera de los escaños podemos observar el perfil de cada legislador,
+    incluyendo cuántos registros de voto hay asociados, así como su suplente, su asistencia y el
+    porcentaje de votos a favor. Adicionalmente, en el recuadro de la derecha se muestra cómo
+    llegó a su posición, junto con su historial de votaciones y un calendario que permite
+    identificar tendencias como ausencias prolongadas o rachas de muchos votos en contra.
+  </p>
+  <p>
+    Ricardo Anaya, uno de los senadores más mediáticos tras su postulación presidencial en 2018,
+    llegó a su posición por representación proporcional. Su perfil muestra asistencia perfecta,
+    pero uno de los porcentajes de votos a favor más bajos de ambas cámaras. Adán Augusto López,
+    antiguo secretario de Gobernación en el gobierno de AMLO, presenta en cambio un historial de
+    voto a favor en prácticamente todas las iniciativas de la presente legislatura.
+  </p>
+  <div class="ca-embed ca-embed-wide">
+    <iframe
+      src="/visualizaciones/embed/legislador?chamber=senado&amp;seats=SEN_08A5F1A9E996,SEN_2C8F3C495265"
+      height="850"
+      loading="lazy"
+      title="Perfil comparado: Ricardo Anaya y Adán Augusto López"
+    ></iframe>
+  </div>
+
+  <p>
+    Un desafío importante de este proyecto es que no todos los legisladores electos o designados
+    en 2024 se han mantenido durante toda la legislatura. Un ejemplo es Omar Harfuch, quien fue
+    senador sólo unos meses antes de convertirse en secretario de Seguridad y Protección
+    Ciudadana del gabinete de la presidenta Claudia Sheinbaum. En este caso hicimos un trabajo de
+    integración con los votos de quien fuera su suplente, el ahora senador Francisco Chíguil
+    Figueroa: aunque los votos aparecen bajo el nombre del titular, ambos historiales se pueden
+    distinguir.
+  </p>
+
+  <div class="ca-embed ca-embed-wide">
+    <iframe
+      src="/visualizaciones/embed/legislador?chamber=senado&amp;seats=SEN_3ADFEDCF3EB3"
+      height="750"
+      loading="lazy"
+      title="Perfil del escaño: Omar Harfuch y Francisco Chíguil"
+    ></iframe>
+  </div>
+
+  <h2>Una votación, examinada de cerca</h2>
+  <p>
+    Además de ver la línea temporal completa, la Brújula Legislativa permite dar clic en alguna
+    votación específica para ver de qué se trata. Un ejemplo es la contenciosa reforma al Poder
+    Judicial, votada el 10 de septiembre de 2024, donde el voto del senador Miguel Ángel Yunes
+    fue decisivo para alcanzar la mayoría calificada —lo que derivó en su expulsión de su partido
+    y su posterior acercamiento al bloque de Morena en el Senado.
+  </p>
+  <p>
+    En esta vista se puede ver el resultado de la votación, la cantidad de legisladores en el
+    padrón de ese día y los datos agregados por partido, o filtrar para regresar a la vista del
+    hemiciclo, lo que ofrece una visualización dinámica e interpretable. Asimismo, se muestra un
+    enlace a la fuente oficial que permite validar la información presentada.
+  </p>
+
+  <div class="ca-embed">
+    <iframe
+      src="/visualizaciones/embed/votacion?chamber=senado&amp;vote=4716&amp;seat=SEN_213507BA1C52"
+      height="1080"
+      loading="lazy"
+      title="Detalle de la votación: reforma al Poder Judicial, 10 de septiembre de 2024"
+    ></iframe>
+  </div>
+
+  <h2>Dos funciones interesantes</h2>
+  <p>
+    El <a href="http://sil.gobernacion.gob.mx/portal/AsuntosLegislativos/busquedaAvanzada">Sistema
+    de Información Legislativa</a> (SIL) cuenta con una base de datos robusta que permite buscar
+    información por legislador o iniciativa, pero hemos encontrado algunas diferencias entre
+    ese sitio y la cantidad de votaciones reportada en las fuentes oficiales de la Cámara de
+    Diputados y el Senado. Creemos, además, que la Brújula Legislativa ofrece visualizaciones más
+    contundentes y fáciles de entender sobre el historial de votaciones.
+  </p>
+  <p>
+    Una característica que encontramos particularmente útil es haber cruzado estos datos con los
+    resultados electorales de 2024 publicados por el INE. Esto permite identificar cómo el voto
+    de cada distrito o estado se ha materializado en política pública. Por ejemplo, alguien que
+    votó en la alcaldía Miguel Hidalgo, en la Ciudad de México, puede seleccionar esa ubicación en
+    el buscador, que automáticamente identifica que le corresponde el Distrito 10 de la capital,
+    representado por la diputada Margarita Zavala.
+  </p>
+  <p>
+    Más aún, al ver sus votos, la Brújula Legislativa permite filtrar por tema según nuestra
+    clasificación interna, lo que deja ver sobre qué se legisla y en qué dirección. Siguiendo el
+    mismo ejemplo, la diputada Zavala ha votado a favor en las 13 iniciativas relacionadas con
+    cultura y deporte, mientras que en las 38 votaciones relacionadas con finanzas públicas —un
+    tema mucho más contencioso— el voto a favor apenas alcanza el 27%.
+  </p>
+
+  <div class="ca-embed">
+    <iframe
+      src="/visualizaciones/embed/hemiciclo?chamber=diputados&amp;seat=DIP_8EDE38266502&amp;estado=CIUDAD%20DE%20MEXICO&amp;municipio=Miguel%20Hidalgo&amp;singleView=1"
+      height="1810"
+      loading="lazy"
+      title="Buscador por distrito y filtro por tema: Diputada Margarita Zavala, Distrito 10"
+    ></iframe>
+  </div>
+
+  <p>
+    Esta visualización se actualizará cada semana, ya que ambas cámaras entraron recientemente a
+    un periodo ordinario de sesiones que durará hasta mediados de diciembre, lo que permitirá
+    tener un panorama actual de todo el poder legislativo. Más aún, esta base de datos hará
+    posibles más análisis que iremos publicando en el sitio: qué tan alineados están los partidos
+    y sus respectivas alianzas, cuáles han sido los votos más y menos reñidos, y qué tan relevante
+    ha sido este historial rumbo a las elecciones de diputados de 2027.
+  </p>
+
+  <p>
+    Finalmente, presentamos una herramienta de la Brújula Legislativa que también parece útil: el
+    buscador de votaciones. Como su nombre indica, permite buscar entre todas las iniciativas en
+    que las Cámaras han votado, filtrando por tema, palabras claves o porcentaje de consenso,
+    asimismo, se pueden ordenar los resultados de búsqueda por diferentes dimensiones, como la
+    fecha, la participación o las más divididas.
+  </p>
+
+  <div class="ca-embed ca-embed-wide">
+    <iframe
+      src="/visualizaciones/embed/votaciones?camara=diputados&amp;orden=divididas"
+      height="1230"
+      loading="lazy"
+      title="Buscador de votaciones: filtra por tema y ordena por consenso"
+    ></iframe>
+  </div>
+
+  <p>
+    Al dar click en cualquiera de estos resultados, por ejemplo, la votación de la Cámara de
+    Diputados para prohibir los vapeadores realizada el 9 de diciembre del 2025, podemos observar
+    el título completo, algunas categorías, un link a la fuente original y una visualización de
+    los votos por partido:
+  </p>
+
+  <div class="ca-embed ca-embed-wide">
+    <iframe
+      src="/visualizaciones/embed/votaciones?v=diputados%3AGACETA_L66_TABLA2OR1_76&amp;bare=1"
+      height="1250"
+      loading="lazy"
+      title="Detalle de la votación: prohibición de vapeadores, Cámara de Diputados, 9 de diciembre de 2025"
+    ></iframe>
+  </div>
+
+  <p class="ca-explore-label">Explora la Brújula Legislativa</p>
+  <div class="ca-explore">
+    <a class="ca-explore-card" href="/visualizaciones/diputados">
+      <span class="ca-explore-card-eyebrow">Congreso</span>
+      <span class="ca-explore-card-title">Cámara de Diputados</span>
+      <span class="ca-explore-card-arrow" aria-hidden="true">→</span>
+    </a>
+    <a class="ca-explore-card" href="/visualizaciones/senado">
+      <span class="ca-explore-card-eyebrow">Congreso</span>
+      <span class="ca-explore-card-title">Senado de la República</span>
+      <span class="ca-explore-card-arrow" aria-hidden="true">→</span>
+    </a>
+    <a class="ca-explore-card" href="/visualizaciones/votaciones">
+      <span class="ca-explore-card-eyebrow">Congreso</span>
+      <span class="ca-explore-card-title">Buscador de votaciones</span>
+      <span class="ca-explore-card-arrow" aria-hidden="true">→</span>
+    </a>
+  </div>
+</article>

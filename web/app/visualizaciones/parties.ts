@@ -23,14 +23,13 @@ export const PARTY_COLORS: Record<string, string> = {
   IND: "#7c7f82",
   CAND_INDEPENDIENTE: "#7c7f82",
   SG: "#7c7f82",
-  LICENCIA: "#b9b4a8",
   VACANTE: "#d9d4c8",
 };
 
 /** Seating order, left to right. Unknown parties sort to the end. */
 export const PARTY_ORDER = [
   "PT", "MORENA", "MRN", "PVEM", "MC", "PRI", "PAN", "PRD",
-  "IND", "CAND_INDEPENDIENTE", "SG", "LICENCIA", "VACANTE",
+  "IND", "CAND_INDEPENDIENTE", "SG", "VACANTE",
 ];
 
 export function partyRank(party: string) {

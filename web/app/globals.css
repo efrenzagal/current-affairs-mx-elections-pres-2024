@@ -141,9 +141,21 @@ a { color: inherit; }
 .hover-reader { align-items: center; background: #f1eee6; border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: auto minmax(170px,1fr) auto; min-height: 74px; padding: 12px 18px; }
 .party-badge { align-items: center; border-radius: 999px; color: white; display: flex; font-size: 9px; font-weight: 800; height: 38px; justify-content: center; min-width: 38px; padding: 0 6px; white-space: nowrap; }
 .hover-identity strong { display: block; font-family: var(--serif); font-size: 17px; font-weight: 600; }
-.hover-identity span, .hover-count { color: var(--muted); display: block; font-size: 10px; }
+.hover-identity span { color: var(--muted); display: block; font-size: 10px; }
 .hover-identity .election-result-preview { color: var(--ink); font-weight: 650; margin-top: 3px; }
-.hover-count { text-align: right; }
+/* The hover-reader's compact stand-in for .deputy-metrics — same four
+   numbers (registros/asistencia/voto a favor/2024 result), read off
+   whichever seat is hovered instead of whichever is selected. */
+.hover-metrics { display: flex; gap: 16px; }
+.hover-metric { text-align: center; }
+.hover-metric strong { display: block; font-family: var(--serif); font-size: 15px; font-weight: 400; }
+.hover-metric span { color: var(--muted); display: block; font-size: 8px; letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; }
+/* Same visual language as .deputy-metrics .election-metric in the full
+   profile panel — a "profile" showing a 2024 result reads as this square
+   everywhere in the app, not just behind a click. */
+.hover-election-tile { background: #eeebe3; border-radius: 4px; min-width: 92px; padding: 6px 10px; text-align: center; }
+.hover-election-tile strong { color: #8e2533; display: block; font-family: var(--serif); font-size: 15px; font-weight: 400; }
+.hover-election-tile span { color: var(--muted); display: block; font-size: 8px; letter-spacing: .03em; text-transform: uppercase; }
 .legend { display: flex; flex-wrap: wrap; gap: 12px 20px; justify-content: center; padding: 15px; }
 .legend span { color: var(--muted); font-size: 10px; font-weight: 650; }
 .legend i, .choice-key i { border-radius: 50%; display: inline-block; height: 7px; margin-right: 5px; width: 7px; }
@@ -192,6 +204,84 @@ a { color: inherit; }
 .calendar-key span { align-items: center; display: inline-flex; font-size: 9px; font-weight: 650; }
 .calendar-key i { border-radius: 50%; display: inline-block; height: 7px; margin-right: 5px; width: 7px; }
 .calendar-hint { font-style: italic; font-weight: 500; margin-left: auto; }
+
+/* Standalone LegislatorCard embeds (see app/visualizaciones/embed/legislador),
+   iframed into static article pages outside the full hemicycle explorer. */
+.embed-legislator-grid { display: grid; gap: 20px; padding: 4px; }
+.embed-legislator-grid-multi { grid-template-columns: repeat(2, 1fr); }
+@media (max-width: 700px) { .embed-legislator-grid-multi { grid-template-columns: 1fr; } }
+
+/* The real Explorer, bare (see app/visualizaciones/embed/hemiciclo) — hides
+   the site header/footer and the green "Así vota el pleno" hero it renders
+   internally (the article gives its own framing), since the iframing article
+   page already has its own. Nothing else about Explorer is touched. */
+.embed-hemiciclo .site-header, .embed-hemiciclo main > footer,
+.embed-hemiciclo .method-note, .embed-hemiciclo .hero { display: none; }
+
+/* `?bare=1` (see the embed page's `bare` flag): strip the seat-browser down
+   to just the hemicycle chart and its hover-preview bar underneath — no
+   tabs, no heading, no party/state/district filters, no profile panel.
+   `interactive={false}` on Explorer (same flag) drops the seat click; this
+   is the rest of "just show the chart" that CSS alone can do. */
+.hemiciclo-bare .view-tabs, .hemiciclo-bare .section-heading,
+.hemiciclo-bare .toolbar, .hemiciclo-bare .district-finder,
+.hemiciclo-bare aside.deputy-panel, .hemiciclo-bare .panel-search { display: none; }
+.hemiciclo-bare .explorer-grid { grid-template-columns: 1fr; }
+
+/* `?singleView=1`: hide the "quién ganó en 2024" toggle when an embed is
+   built around the "current holder" view only (that tab stays the default
+   regardless, so this is purely about not showing a control with nowhere
+   useful to go). */
+.hemiciclo-single-view .view-tabs { display: none; }
+
+/* Same real Explorer, scoped down to just one deep-linked vote's decision
+   view (see app/visualizaciones/embed/votacion) — hides the site chrome, the
+   hero and the seat-browser section above the vote detail, leaving only the
+   vote itself. */
+.embed-votacion .site-header, .embed-votacion main > footer,
+.embed-votacion .method-note, .embed-votacion .explorer,
+.embed-votacion .hero { display: none; }
+
+/* The real VoteExplorer (see app/visualizaciones/embed/votaciones) — hides
+   the site chrome and the "Buscador de votaciones" hero it renders
+   internally (the article gives its own framing), leaving the search box,
+   filters, sortable results list and, if a reader opens one, its detail
+   view. Unlike Explorer, VoteExplorer renders its <footer> as a sibling of
+   <main> rather than nested inside it, so this targets it directly. */
+.embed-votaciones .site-header, .embed-votaciones footer,
+.embed-votaciones .vote-hero { display: none; }
+/* `.vote-filters` sticks `top: 78px` to clear the full page's site header;
+   with that header gone here, it would stick to a phantom offset and clip
+   its own bottom against the iframe's fixed height. The embed's iframe
+   already sizes itself to the content instead of scrolling internally, so
+   the sidebar can just render at its natural height like the results
+   column next to it — the same override the mobile breakpoint already
+   applies for the same reason (stacked layout, no sticky sidebar either). */
+.embed-votaciones .vote-filters { max-height: none; overflow-y: visible; position: static; }
+
+/* Same collapsed "Más filtros" treatment VoteExplorer already gives narrow
+   viewports (see the `max-width:700px` block below), applied here at every
+   width: a wall of topic/stage/origin/instrument/result/margin chips open
+   by default is the tallest part of the sidebar, and this embed sits inside
+   an article rather than a dedicated browsing page. The toggle still reveals
+   all of it — see the embed page's `pageSize={7}` comment for the other half
+   of this trim. */
+.embed-votaciones .vote-filter-more { align-items: center; background: var(--paper); border: 1px solid var(--line); border-radius: 3px; color: var(--ink); cursor: pointer; display: flex; font-size: 10px; font-weight: 750; justify-content: space-between; letter-spacing: .08em; padding: 11px 12px; text-transform: uppercase; width: 100%; }
+.embed-votaciones .vote-filter-more:hover { background: var(--paper-deep); }
+.embed-votaciones .vote-filter-more span:last-child { color: var(--muted); font-size: 9px; }
+.embed-votaciones .vote-filter-advanced { border-top: 1px solid var(--line); display: none; flex-direction: column; gap: 20px; padding-top: 18px; }
+.embed-votaciones .vote-filter-advanced.expanded { display: flex; }
+
+/* `?bare=1` (see the embed page's `bare` flag): strip the hero and the whole
+   search/filter/results column, leaving only the deep-linked vote's own
+   detail section — for an embed built around one specific roll call. "Volver
+   a la lista" points at the now-hidden list, so it goes too. */
+.votaciones-bare .vote-hero, .votaciones-bare .vote-layout { display: none; }
+.votaciones-bare .vote-links a[href="#resultados"] { display: none; }
+/* Wider than the shared 8px cell: with only one or two cards per embed
+   (versus 500 seats' worth of history in the full hemicycle), there's room
+   for each vote to read as a square instead of a thin bar. */
+.embed-legislator-grid .calendar-cell { width: 15px; }
 
 .deputy-panel { display: flex; flex-direction: column; max-height: 900px; overflow: hidden; }
 .deputy-heading { align-items: start; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 26px 26px 22px; }
@@ -649,6 +739,12 @@ footer > span { justify-self: end; }
 .vote-row { background: var(--white); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; text-align: left; width: 100%; }
 .vote-row:hover { border-color: rgba(21,35,33,.35); }
 .vote-row.active { background: var(--navy); border-color: var(--navy); color: var(--white); }
+/* `interactive={false}` (see VoteExplorer) — a browsable, non-clickable
+   list: cards read as plain rows, not buttons, and a disabled `<button>`
+   should not still look interactive on hover. */
+.vote-row-static { cursor: default; }
+.vote-row-static:hover { border-color: var(--line); cursor: default; }
+.vote-row-static:disabled { color: inherit; opacity: 1; }
 .vote-row-meta { align-items: center; color: var(--muted); display: flex; font-size: 9px; gap: 10px; letter-spacing: .07em; text-transform: uppercase; }
 .vote-row.active .vote-row-meta, .vote-row.active .vote-row-foot { color: rgba(255,255,255,.6); }
 .vote-row-chamber { border-left: 1px solid var(--line); padding-left: 10px; }
@@ -675,8 +771,6 @@ footer > span { justify-self: end; }
 .vote-links { display: flex; flex-direction: column; gap: 10px; }
 .vote-links a { border-bottom: 1px solid rgba(255,255,255,.4); font-size: 11px; padding: 6px 0; text-decoration: none; white-space: nowrap; }
 .vote-detail-full .vote-tags { flex-wrap: wrap; }
-.vote-review { border-color: rgba(141,188,165,.5) !important; color: #8dbca5 !important; }
-.vote-review.flagged { border-color: rgba(212,167,44,.6) !important; color: #d4a72c !important; }
 
 .vote-metrics { display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin: auto; max-width: 1560px; }
 .vote-metric { background: #f5f1e7; color: var(--ink); padding: 20px 22px; }
@@ -778,7 +872,7 @@ footer > span { justify-self: end; }
   .dais { height: 20px; }
   .dais span { display: none; }
   .hover-reader { grid-template-columns: auto 1fr; }
-  .hover-count { display: none; }
+  .hover-metrics { display: none; }
   .legend { gap: 8px 12px; }
   .seat-type-key { gap: 14px; }
   .panel-calendar { padding: 6px 12px 14px; }
