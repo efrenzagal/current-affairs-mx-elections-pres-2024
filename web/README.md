@@ -123,13 +123,6 @@ Consequences that are easy to get wrong:
 ## Hosting
 
 The app deploys to **Cloudflare Workers on your own account** via Wrangler.
-It was originally scaffolded onto OpenAI Sites; that coupling has been
-removed (see "Migration from Sites" below).
-
-The old Sites preview at `brujula-legislativa-mx.efrenzagal.chatgpt.site`
-still serves whatever was last deployed there. It is owner-only by Sites
-access policy and is now independent of this source tree — retire it once the
-Cloudflare deploy is verified.
 
 ## Architecture
 
@@ -224,8 +217,16 @@ It also strips what `embed-resources` duplicates. Quarto inlines the entire
 4.8 MB Plotly bundle **once per figure**, and ships MathJax whether or not the
 article contains a formula. For the current article that was 3 redundant Plotly
 copies, 4 unused MathJax copies and a `cdn.plot.ly` import whose URL 404s:
-**20.4 MB → 6.3 MB, and 6.2 MB → 1.9 MB gzipped.** The test asserts exactly one
-Plotly bundle survives, so a regression here cannot ship quietly.
+**20.4 MB → 6.3 MB, and 6.2 MB → 1.9 MB gzipped.**
+
+The copy that survives is not inlined either. When every trace is `scatter`,
+`bar` or `pie`, the script swaps it for a link to the versioned basic bundle in
+`public/vendor/` (1.1 MB, ~370 KB gzipped, cached once for every article), which
+takes the page to **1.8 MB, ~550 KB gzipped**. Any other trace type keeps the
+full bundle inline and says so. When Quarto moves to a new Plotly version,
+download the matching `plotly.js-basic-dist-min` build into `public/vendor/`.
+The test asserts no inline bundle and exactly one vendored link, so a
+regression here cannot ship quietly.
 
 To add an article: render the `.qmd` with Quarto, add an `Article(...)` entry to
 `ARTICLES` in the script, then rerun it.
