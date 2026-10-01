@@ -101,8 +101,23 @@ def build(con: duckdb.DuckDBPyConnection) -> None:
             "estimaciones with the question, the category label and the place name joined in."
         )
 
+    published = CLEAN_DIR / "resultados_publicados.parquet"
+    if published.exists():
+        con.execute(f"CREATE VIEW resultados_publicados AS SELECT * FROM read_parquet({quote(str(published))})")
+        dictionary = CLEAN_DIR / "indicadores_publicados.parquet"
+        con.execute(f"CREATE TABLE indicadores_publicados AS SELECT * FROM read_parquet({quote(str(dictionary))})")
+        TABLE_COMMENTS["resultados_publicados"] = (
+            "INEGI's published EIC 2025 results, one row per place x indicator: value, se, li/ls (90%) and cv. "
+            "geo_level: nacional, estatal, municipal, localidad (50,000+) or resto (a state's localities under "
+            "50,000). flag: MI (insufficient sample) or NA (not applicable), value null. Official definitions "
+            "and universes: prefer these over estimaciones when an indicator is published."
+        )
+        TABLE_COMMENTS["indicadores_publicados"] = (
+            "The 341 published indicators: mnemonic, section, name and INEGI's description."
+        )
+
     for name, comment in TABLE_COMMENTS.items():
-        kind = "TABLE" if name.startswith("codebook_") else "VIEW"
+        kind = "TABLE" if name.startswith("codebook_") or name == "indicadores_publicados" else "VIEW"
         con.execute(f"COMMENT ON {kind} {name} IS {quote(comment)}")
 
     # Column comments: "Description — ¿full question?" so the schema browser

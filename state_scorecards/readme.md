@@ -36,6 +36,7 @@ python3 -m query_console --db state_scorecards/data/eic2025.duckdb
 
 - `personas`, `viviendas`, `migrantes` hold the microdata, one row per sampled respondent. Always weight by `FACTOR`.
 - `estimaciones` and `estimaciones_etiquetadas` hold 5.3 million pre-computed estimates: every category of every question as a total and a percentage, and every numeric variable as an average. They cover the nation, all 32 states and all 2,478 municipios. Each estimate carries INEGI's standard error, 90% confidence interval and coefficient of variation. The method reproduces INEGI's published results exactly.
+- `resultados_publicados` and `indicadores_publicados` hold INEGI's 341 published indicators for the nation, states, municipios and cities of 50,000+, with official definitions and margins of error. The website's state scorecard reads these.
 - `codebook_variables`, `codebook_categories`, `codebook_classifiers`, `entidades` and `municipios` hold the question wording, answer labels and place names.
 
 For anything already published, prefer the published figure. Before relying on a municipio estimate, check its `cv`: above about 30 it is unreliable.

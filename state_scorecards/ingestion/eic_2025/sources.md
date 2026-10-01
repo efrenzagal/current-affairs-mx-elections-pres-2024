@@ -20,6 +20,7 @@ Run from the repository root:
 python3 state_scorecards/ingestion/eic_2025/download.py        # all 32 states; skips those in the manifest
 python3 state_scorecards/ingestion/eic_2025/raw_to_parquet.py  # reconverts only states whose zip changed
 python3 state_scorecards/ingestion/eic_2025/estimates.py      # every estimate, all levels, with INEGI precision (~3 min)
+python3 state_scorecards/ingestion/eic_2025/published_to_parquet.py  # INEGI's published results, long (seconds)
 python3 state_scorecards/ingestion/eic_2025/build_duckdb.py    # rebuilds state_scorecards/data/eic2025.duckdb (seconds)
 python3 -m query_console --db state_scorecards/data/eic2025.duckdb
 ```
@@ -47,6 +48,16 @@ Values are unchanged from the CSVs. Columns marked "Numérico" are int64 and the
 - **Precision.** `ESTRATO` and `UPM` carry the sample design and are needed for standard errors. The published tables give 90% confidence limits.
 - **Coverage.** `COBERTURA` is 1 for a municipio that was fully enumerated, 2 for a sampled one and 3 where the sample is insufficient. INEGI publishes no municipio-level estimates for code 3.
 - **Income.** `INGTRMEN` is monthly. Most answers were given per week and multiplied by 4.3, so values cluster on round numbers (8,600 = 2,000 × 4.3). Prefer means or income bands to medians.
+
+## Published results
+
+`published_to_parquet.py` turns INEGI's wide published file into `clean/eic_2025/resultados_publicados.parquet`: one row per place × indicator (341 indicators × 2,776 places) with `value`, `se`, `li`/`ls` (90%) and `cv`, plus `indicadores_publicados.parquet` with each indicator's section, name and description. In DuckDB they are `resultados_publicados` and `indicadores_publicados`.
+
+- `geo_level` is `nacional`, `estatal`, `municipal`, `localidad` (cities of 50,000+) or `resto` (a state's localities under 50,000, together).
+- INEGI's `MI` (insufficient sample) and `NA` (not applicable) become a null `value` with the code in `flag`. The `*`/`**` after a municipio's name moves to `municipio_flag` (`censado`, `muestra_insuficiente`).
+- The script stops if the data and the dictionary disagree on indicators, if a place lacks any of the five statistics, or if the states do not sum to the national population.
+
+These are the official figures with INEGI's universes (schooling for ages 15+, unemployment over the economically active, and so on). Prefer them to `estimaciones` whenever an indicator is published. The website's state scorecard reads them (`web/scripts/export_eic_states.py`).
 
 ## Pre-computed estimates
 
