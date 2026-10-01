@@ -15,6 +15,10 @@ function parseChamber(text) {
   return { ...payload, histories };
 }
 
+function castVotes(history = []) {
+  return history.filter(([, choice]) => choice !== "Sin registro").length;
+}
+
 async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
@@ -291,8 +295,10 @@ test("carries the current occupancy overlay, not only the 2024 winners", async (
           ["titular", "suplente"].includes(member.role),
           `${slug} ${seat.id} labels titular versus suplencia`,
         );
+        // voteCount is ballots actually cast; the history also carries the
+        // inferred "Sin registro" gaps inside a senator's own span.
         assert.equal(
-          histories[member.personId]?.length ?? 0,
+          castVotes(histories[member.personId]),
           member.voteCount,
           `${slug} ${seat.id} keeps the attributed person's vote total`,
         );
@@ -348,7 +354,8 @@ test("merges source-name aliases but keeps substitute votes attributed", async (
   assert.equal(raymundo.role, "suplente");
   assert.equal(raymundo.voteCount, 195);
   assert.match(raymundo.sourceUrl, /^https:\/\/sil\.gobernacion\.gob\.mx\//);
-  assert.equal(senate.histories[raymundo.personId].length, 195);
+  assert.equal(castVotes(senate.histories[raymundo.personId]), 195);
+  assert.equal(senate.histories[raymundo.personId].length, 204, "includes 9 inferred Sin registro gaps");
 
   assert.equal(senate.seatVoteConflicts.length, 1);
   assert.deepEqual(senate.seatVoteConflicts[0].reportedPersonIds.sort(), ["1566", "1661"]);
