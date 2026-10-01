@@ -138,13 +138,15 @@ The app deploys to **Cloudflare Workers on your own account** via Wrangler.
 | `app/visualizaciones/explorer.tsx` | The chamber explorer: hemicycle, name search over sitting/elected/former members, and the person panel. One component, `chamber` prop |
 | `app/visualizaciones/{diputados,senado}/page.tsx` | Thin routes over `explorer.tsx` |
 | `app/visualizaciones/votaciones/` | Vote search across both chambers, with the party square grid |
-| `app/estados/state-explorer.tsx` | **Conoce tu estado** (`/estados`): choropleth, animated population pyramid, stat tiles, demographic-transition charts and remittances for one state or the nation |
+| `app/estados/state-explorer.tsx` | **Conoce tu estado** (`/estados`): choropleth, animated population pyramid, stat tiles, demographic-transition charts, the economy (state GDP), the Intercensal 2025 scorecard and remittances for one state or the nation |
 | `app/articulos/page.tsx` | Artículos index, driven by `public/data/articles.json` |
 | `app/datos/page.tsx` | Datos: warehouse dictionary, master-detail over every table |
 | `app/globals.css` | Complete visual system and responsive layout |
 | `app/layout.tsx` | Metadata and social preview configuration |
 | `scripts/export_gaceta_web.py` | Materializes the static web snapshots from SQLite + INE CSV |
 | `scripts/export_conapo_states.py` | Writes `public/data/estados/` from the CONAPO warehouse tables |
+| `scripts/export_pibe_states.py` | Writes `public/data/estados/economia.json` from `fact_pibe_state_annual` |
+| `scripts/export_eic_states.py` | Writes `public/data/estados/eic2025.json` from `state_scorecards/data/eic2025.duckdb` |
 | `scripts/build_article_pages.py` | Publishes rendered Quarto articles with site chrome |
 | `public/articulos/*.html` | Published articles, served as static files |
 | `public/data/legislature-66.json` | Cámara seats, votes, packed histories and party totals. 1.1 MB, ~120 KB gzipped |
@@ -153,7 +155,7 @@ The app deploys to **Cloudflare Workers on your own account** via Wrangler.
 | `public/data/vote-ballots-66.json` | Names for the individual squares, mirroring `partyVotes`. 0.8 MB, ~64 KB gzipped |
 | `public/data/visualizaciones.json` | Manifest-only digest so the index need not load both chamber files |
 | `public/data/dictionary.json` | Table dictionaries, coverage matrices and column samples |
-| `public/data/estados/` | `index.json` (state list + map values, 48 KB) and one file per geography, `00.json`–`32.json` (≤22 KB each) |
+| `public/data/estados/` | `index.json` (state list + map values, 48 KB), one file per geography, `00.json`–`32.json` (≤22 KB each), `economia.json` (every geography's GDP, 181 KB, ~78 KB gzipped) and `eic2025.json` (the Intercensal scorecard, 76 KB) |
 | `tests/rendered-html.test.mjs` | Build smoke test and core data invariants |
 | `worker/index.ts` | Cloudflare Worker entry; routes image optimization, else delegates to the app router |
 | `vite.config.ts` | vinext + Cloudflare plugin; declares the (empty) Worker binding config |
@@ -223,6 +225,34 @@ the reader picks it.
   national reference is a light gray that is always labelled directly. The hex
   values are in `COLORS` and were checked with the dataviz palette validator.
 - The state and year live in `?estado=16&anio=1990` (`replaceState`).
+- **The economy section is INEGI's PIBE, in millions of 2018 pesos.** It ports
+  the ideas of `state_scorecards/analysis/pibe_dashboard.R`: the 32-state
+  ranking for any activity, the primary/secondary/tertiary mix (share or real
+  value) and a per-sector view (index or real value). `economia.json` holds
+  every geography in one file because the ranking needs all of them; it loads
+  after the population data. The series is additive, and both the exporter and
+  the test check that sectors, groups, value added + taxes and the 32 states
+  add up. Sectors start in 2003; before that INEGI publishes only the three
+  groups, so the sector views clamp to 2003 and say so.
+- **The economy has its own year** (1980–2024, set from the section's select or
+  by clicking a chart), separate from the population slider, which stops in
+  2019. GDP per resident is not shown: for 2020–2024 its denominator would be a
+  CONAPO projection.
+- Fifteen tertiary sectors are too many lines for one chart, so the sector view
+  is a ranked list (share of the state's value added, with the national share
+  as a tick) that opens one sector's line at a time.
+- **Radiografía 2025 is INEGI's Encuesta Intercensal 2025.** 46 indicators in
+  11 categories, curated in `CATEGORIES` in `scripts/export_eic_states.py`
+  (add or drop a row there). Each shows the state's value, the national value,
+  its rank among the 32 states and a strip of all 32. Figures are INEGI's
+  published results, with INEGI's universes, which the page names under each
+  indicator. The exception is income from work, which INEGI does not publish:
+  it is this project's estimate from the microdata, labelled as such.
+- **Rank 1 is the highest value**, good or bad; the page says so rather than
+  scoring states. The bracketed range is the ranks the state could hold given
+  sampling error: it moves only past states whose 90% interval lies entirely
+  above or below. A value whose coefficient of variation exceeds 30 gets a †.
+  On phones the strip is hidden so the rank column fits.
 
 ## Articles
 

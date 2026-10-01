@@ -1026,7 +1026,8 @@ footer > span { justify-self: end; }
 .estado-pyramid-readout { border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; font-size: 12px; gap: 4px 14px; margin: 14px 0 0; min-height: 46px; padding-top: 12px; }
 .estado-pyramid-readout strong { font-family: var(--serif); font-size: 15px; font-weight: 400; }
 .estado-pyramid-readout .muted { color: var(--muted); }
-.estado-tiles { background: var(--white); border: 1px solid var(--line); border-radius: 4px; display: grid; grid-template-columns: repeat(5, 1fr); margin: 18px 0 0; }
+.estado-tiles { background: var(--white); border: 1px solid var(--line); border-radius: 4px; display: grid; grid-template-columns: repeat(var(--tiles, 5), 1fr); margin: 18px 0 0; }
+.estado-tiles.flat { border: 0; border-bottom: 1px solid var(--line); border-radius: 0; margin: 0; }
 .estado-tiles > div { display: grid; gap: 3px; grid-template-rows: auto auto auto 1fr; padding: 18px 22px 14px; }
 .estado-tiles > div + div { border-left: 1px solid var(--line); }
 .estado-tiles dt { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
@@ -1080,10 +1081,68 @@ footer > span { justify-self: end; }
 .estado-top-list li > div { display: flex; font-size: 12px; justify-content: space-between; margin-bottom: 4px; }
 .estado-top-list li span { color: var(--muted); font-variant-numeric: tabular-nums; }
 .estado-top-list li > i { background: var(--state, #0a7d54); border-radius: 0 4px 4px 0; display: block; height: 6px; }
+/* Economy section (INEGI PIBE). Group colours live in GROUP_COLORS. */
+.estado-section-loading { padding: 30px; }
+.estado-section-aside { display: grid; gap: 14px; justify-items: end; }
+.estado-section-aside > p { color: var(--muted); font-family: var(--serif); font-size: 15px; line-height: 1.45; margin: 0; max-width: 430px; }
+.estado-inline-select { align-items: center; display: flex; gap: 10px; }
+.estado-inline-select span { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+.estado-inline-select select, .estado-chips select { appearance: none; background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2364706c'/%3E%3C/svg%3E") no-repeat right 11px center; border: 1px solid var(--line); border-radius: 20px; color: var(--ink); cursor: pointer; font-size: 11px; font-weight: 700; padding: 6px 28px 6px 12px; }
+.estado-chips select { color: var(--muted); font-size: 10px; }
+.estado-chips select.active { background-color: var(--navy); border-color: var(--navy); color: var(--white); }
+.estado-chips.flush { padding: 0; margin: 12px 0 10px; }
+.estado-chips.inline { padding: 18px 24px 0; }
+.estado-chips button:disabled { cursor: default; opacity: .35; }
+.estado-chart-cell { background: var(--white); min-width: 0; }
+.estado-chart-cell .estado-chart { padding-top: 12px; }
+.estado-year-rule.strong { stroke: var(--white); stroke-opacity: .95; stroke-width: 1.5; }
+.estado-economy-grid { border-top: 1px solid var(--line); }
+.estado-rank > h3, .estado-sectors > h3 { font-family: var(--serif); font-size: 19px; font-weight: 400; margin: 0 0 3px; }
+.estado-rank > p:not(.estado-rank-readout), .estado-sectors > p { color: var(--muted); font-size: 11px; line-height: 1.45; margin: 0; }
+.estado-rank-readout { align-items: baseline; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; font-size: 12px; gap: 2px 12px; margin: 0 0 8px; min-height: 30px; padding-bottom: 8px; }
+.estado-rank-readout strong { font-family: var(--serif); font-size: 15px; font-weight: 400; }
+.estado-rank-readout span, .estado-rank-readout .muted { color: var(--muted); }
+.estado-rank-list, .estado-sector-list { display: grid; gap: 1px; list-style: none; margin: 0; padding: 0; }
+.estado-rank-list button, .estado-sector-list button { align-items: center; background: transparent; border: 0; border-radius: 2px; color: var(--ink); cursor: pointer; display: grid; font-size: 11px; gap: 10px; outline: none; padding: 2px 4px; text-align: left; width: 100%; }
+.estado-rank-list button { grid-template-columns: 20px minmax(110px, 168px) 1fr; }
+.estado-sector-list button { grid-template-columns: minmax(130px, 196px) 1fr 42px; padding: 3px 4px; }
+.estado-rank-list button:hover, .estado-rank-list button.hovered, .estado-sector-list button:hover, .estado-rank-list button:focus-visible, .estado-sector-list button:focus-visible { background: #f0ede5; }
+.estado-rank-list button.selected, .estado-sector-list button.selected { font-weight: 750; }
+.estado-sector-list button.selected { background: #f0ede5; }
+.estado-rank-list button > span:first-child { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.estado-sector-list button > span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.estado-rank-list .track, .estado-sector-list .track { display: block; height: 11px; position: relative; }
+.estado-rank-list .track i, .estado-sector-list .track i { border-radius: 0 4px 4px 0; display: block; height: 100%; transition: width .28s ease; }
+.estado-sector-list .track b { background: var(--ink); bottom: -3px; margin-left: -1px; position: absolute; top: -3px; width: 2px; }
+.estado-sector-chart { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 2px; }
+.estado-sector-chart .estado-chart { padding: 4px 0 0; }
+/* Radiografía 2025 (Encuesta Intercensal): grouped table with a 32-state strip per row. */
+.estado-chips.eic-chips { border-bottom: 1px solid var(--line); padding: 16px 30px; }
+.estado-eic-wrap { overflow-x: auto; padding: 0 30px; }
+.estado-eic { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; width: 100%; }
+.estado-eic thead th { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .09em; padding: 14px 10px 8px; text-align: right; text-transform: uppercase; white-space: nowrap; }
+.estado-eic thead th:first-child { padding-left: 0; text-align: left; }
+.estado-eic thead th:last-child { text-align: center; }
+.estado-eic thead small { font-size: 9px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.estado-eic-category th { border-bottom: 1px solid var(--ink); color: #517967; font-size: 10px; font-weight: 750; letter-spacing: .1em; padding: 20px 0 6px; text-align: left; text-transform: uppercase; }
+.estado-eic tbody tr:not(.estado-eic-category) > * { border-bottom: 1px solid var(--line); padding: 7px 10px; vertical-align: middle; }
+.estado-eic tbody th[scope="row"] { font-weight: 600; padding-left: 0; text-align: left; }
+.estado-eic tbody th small { color: var(--muted); display: block; font-size: 10px; font-weight: 400; line-height: 1.35; margin-top: 2px; max-width: 360px; }
+.estado-eic-value { font-family: var(--serif); font-size: 16px; text-align: right; white-space: nowrap; }
+.estado-eic-value sup { color: var(--muted); font-family: var(--sans); font-size: 10px; margin-left: 2px; }
+.estado-eic-national { color: var(--muted); text-align: right; white-space: nowrap; }
+.estado-eic-rank { font-weight: 700; text-align: right; white-space: nowrap; }
+.estado-eic-rank small { color: var(--muted); font-size: 10px; font-weight: 400; margin-left: 4px; }
+.estado-eic tbody tr:not(.estado-eic-category):hover > * { background: #f7f4ec; }
+.estado-strip { display: block; margin: 0 auto; overflow: visible; }
+.estado-strip circle { cursor: default; }
+.estado-strip-national { stroke: var(--ink); stroke-width: 1.5; }
+.estado-eic-note { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 0; padding: 16px 30px 22px; }
 
 @media (max-width: 1100px) {
   .landing-grid { grid-template-columns: 1fr 1fr; }
   .estado-master-detail, .estado-chart-grid, .estado-remittance-grid { grid-template-columns: 1fr; }
+  .estado-section-aside { justify-items: start; }
   .estado-tiles { grid-template-columns: repeat(3, 1fr); }
   .estado-tiles > div:nth-child(4) { border-left: 0; }
   .estado-tiles > div:nth-child(n+4) { border-top: 1px solid var(--line); }
@@ -1106,7 +1165,18 @@ footer > span { justify-self: end; }
   .estado-section-heading h2 { font-size: 32px; }
   .estado-chart { padding: 18px 14px 12px; }
   .estado-remittance-stats { grid-template-columns: 1fr; }
+  .estado-chips.inline { padding: 14px 14px 0; }
+  .estado-rank-list button { grid-template-columns: 20px minmax(92px, 120px) 1fr; }
+  .estado-sector-list button { grid-template-columns: minmax(110px, 140px) 1fr 40px; }
   .estado-remittance-stats > div + div { border-left: 0; border-top: 1px solid var(--line); }
   .estado-table summary { padding: 16px 18px; }
   .estado-table > div { padding: 0 18px 18px; }
+  .estado-chips.eic-chips { padding: 14px 18px; }
+  .estado-eic-wrap { padding: 0 18px; }
+  .estado-eic-note { padding: 14px 18px 18px; }
+  .estado-eic-strip { display: none; }
+  .estado-eic thead th, .estado-eic tbody tr:not(.estado-eic-category) > * { padding-left: 4px; padding-right: 4px; }
+  .estado-eic thead th:first-child, .estado-eic tbody th[scope="row"] { padding-left: 0; }
+  .estado-eic-value { font-size: 14px; }
+  .estado-eic-rank small { display: block; margin-left: 0; }
 }

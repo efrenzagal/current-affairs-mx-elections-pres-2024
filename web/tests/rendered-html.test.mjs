@@ -664,6 +664,61 @@ test("server-renders Conoce tu estado and links it from the front door", async (
   assert.match(landingHtml, /Conoce tu estado/);
 });
 
+test("ships state GDP whose sectors, groups and states add up", async () => {
+  const economy = JSON.parse(await readFile(new URL("../public/data/estados/economia.json", import.meta.url), "utf8"));
+  const codes = Object.keys(economy.geographies).sort();
+  assert.equal(codes.length, 33);
+  assert.equal(codes[0], "00");
+  assert.equal(economy.years[0], 1980);
+  assert.equal(economy.sectorYears.at(-1), economy.years.at(-1));
+  assert.equal(economy.sectors.length, 20);
+  // Values ship rounded to 0.1, so sums are checked to the rounding they carry.
+  const near = (a, b, terms, label) => assert.ok(Math.abs(a - b) <= 0.05 * terms + 1e-6, `${label}: ${a} vs ${b}`);
+  const offset = economy.years.indexOf(economy.sectorYears[0]);
+  for (const code of codes) {
+    const geo = economy.geographies[code];
+    assert.equal(geo.gdp.length, economy.years.length);
+    economy.years.forEach((year, i) => {
+      const groups = economy.groups.map((group) => geo.groups[group.id][i]);
+      near(groups.reduce((a, b) => a + b, 0), geo.valueAdded[i], 4, `${code} ${year} groups`);
+      assert.ok(geo.gdp[i] >= geo.valueAdded[i] - 0.1, `${code} ${year} GDP includes value added`);
+    });
+    economy.sectorYears.forEach((year, i) => {
+      for (const group of economy.groups) {
+        const members = economy.sectors.filter((sector) => sector.group === group.id);
+        const summed = members.reduce((sum, sector) => sum + geo.sectors[sector.id][i], 0);
+        near(summed, geo.groups[group.id][offset + i], members.length + 1, `${code} ${year} ${group.id} sectors`);
+      }
+    });
+  }
+  const states = codes.slice(1).map((code) => economy.geographies[code]);
+  economy.years.forEach((year, i) => {
+    near(states.reduce((sum, geo) => sum + geo.gdp[i], 0), economy.geographies["00"].gdp[i], 33, `${year} national GDP`);
+  });
+});
+
+test("ships the Intercensal 2025 scorecard with consistent ranks and intervals", async () => {
+  const eic = JSON.parse(await readFile(new URL("../public/data/estados/eic2025.json", import.meta.url), "utf8"));
+  const codes = Object.keys(eic.geographies).sort();
+  assert.equal(codes.length, 33);
+  assert.equal(codes[0], "00");
+  const indicators = eic.categories.flatMap((category) => category.indicators);
+  assert.ok(indicators.length >= 40, "a full scorecard, not a stub");
+  assert.equal(new Set(indicators.map((indicator) => indicator.id)).size, indicators.length, "no indicator twice");
+  for (const indicator of indicators) {
+    const states = codes.slice(1).map((code) => eic.geographies[code][indicator.id]);
+    for (const [code, row] of Object.entries(eic.geographies)) {
+      const [value, li, ls] = row[indicator.id];
+      assert.ok(li <= value && value <= ls, `${indicator.id} ${code}: value inside its interval`);
+    }
+    // Rank 1 is the highest value; ties share a rank; the range brackets it.
+    for (const [value, , , , rank, best, worst] of states) {
+      assert.equal(rank, 1 + states.filter((other) => other[0] > value).length, `${indicator.id} rank`);
+      assert.ok(best >= 1 && best <= rank && rank <= worst && worst <= 32, `${indicator.id} rank range`);
+    }
+  }
+});
+
 test("ships CONAPO state profiles without projections, each pyramid summing to its population", async () => {
   const dataDir = new URL("../public/data/estados/", import.meta.url);
   const index = JSON.parse(await readFile(new URL("index.json", dataDir), "utf8"));

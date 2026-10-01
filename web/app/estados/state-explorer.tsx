@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 
 import { SITE_NAME, SiteFooter, SiteHeader } from "../site-chrome";
 
@@ -39,6 +39,40 @@ type Geography = {
   };
 };
 
+type GroupId = "PRIMARY" | "SECONDARY" | "TERTIARY";
+
+/** INEGI PIBE, millions of 2018 pesos. Sectors start at `sectorYears[0]`. */
+type Economy = {
+  schemaVersion: number;
+  unit: string;
+  source: string;
+  years: number[];
+  sectorYears: number[];
+  groups: { id: GroupId; label: string }[];
+  sectors: { id: string; label: string; name: string; group: GroupId }[];
+  geographies: Record<string, {
+    gdp: number[];
+    valueAdded: number[];
+    groups: Record<GroupId, number[]>;
+    sectors: Record<string, number[]>;
+  }>;
+};
+
+/** Encuesta Intercensal 2025 scorecard. State rows: [value, li, ls, cv, rank, best, worst]. */
+type Eic = {
+  schemaVersion: number;
+  source: string;
+  lowPrecisionCv: number;
+  states: { code: string; name: string }[];
+  categories: {
+    id: string;
+    label: string;
+    indicators: { id: string; label: string; detail: string | null; unit: string; decimals: number; source: "inegi" | "propio" }[];
+  }[];
+  geographies: Record<string, Record<string, number[]>>;
+};
+type EicIndicator = Eic["categories"][number]["indicators"][number];
+
 type Position = [number, number];
 type StateFeature = {
   type: "Feature";
@@ -69,6 +103,12 @@ const COLORS = {
 };
 // Single-hue sequential ramp for the choropleth, light → dark.
 const MAP_RAMP = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"];
+// Primary/secondary/tertiary activity, checked with the dataviz palette
+// validator against --white. Olive, blue and ochre rather than the green,
+// orange and blue of the R explorer, which this page already spends on
+// births and on men/women.
+const GROUP_COLORS: Record<GroupId, string> = { PRIMARY: "#6d8a1e", SECONDARY: "#0f72a8", TERTIARY: "#a86d12" };
+const RANK_BAR = "#cfcabd";
 
 const integer = new Intl.NumberFormat("es-MX", { maximumFractionDigits: 0 });
 
@@ -86,6 +126,29 @@ function usd(millions: number) {
   return `${decimal(millions, millions >= 100 ? 0 : 1)} millones de dólares`;
 }
 
+/** Millions of pesos as words: "25.4 billones", "474.7 mil millones". */
+function pesos(millions: number) {
+  if (millions >= 1_000_000) return `${decimal(millions / 1_000_000, 1)} billones`;
+  if (millions >= 1000) return `${decimal(millions / 1000, millions >= 100_000 ? 0 : 1)} mil millones`;
+  return `${decimal(millions, millions >= 100 ? 0 : 1)} millones`;
+}
+
+/** Charts print raw tick numbers, so scale large series to thousands of millions first. */
+function pesoScale(values: number[]) {
+  return Math.max(...values) >= 10_000
+    ? { divisor: 1000, label: "Miles de millones de pesos de 2018" }
+    : { divisor: 1, label: "Millones de pesos de 2018" };
+}
+
+function indexed(values: number[]): Values {
+  const base = values[0];
+  return values.map((value) => base > 0 ? value / base * 100 : null);
+}
+
+function signed(value: number, digits = 1) {
+  return `${value >= 0 ? "+" : ""}${decimal(value, digits)}%`;
+}
+
 function niceScale(min: number, max: number, count = 4) {
   const span = max - min || Math.abs(max) || 1;
   const rough = span / count;
@@ -97,6 +160,14 @@ function niceScale(min: number, max: number, count = 4) {
   const ticks: number[] = [];
   for (let tick = low; tick <= high + step / 2; tick += step) ticks.push(Math.round(tick * 1e6) / 1e6);
   return { low, high, ticks };
+}
+
+/** Decade labels plus the final year, unless it would collide with the last decade. */
+function axisYears(years: number[], plotWidth: number) {
+  const decades = years.filter((year) => year % 10 === 0);
+  const last = years.at(-1)!;
+  const gap = ((last - (decades.at(-1) ?? years[0])) / Math.max(1, years.length - 1)) * plotWidth;
+  return decades.at(-1) === last || gap < 34 ? decades : [...decades, last];
 }
 
 function present(values: Values): number[] {
@@ -165,7 +236,7 @@ function LineChart({
   const y = (value: number) => margin.top + plotHeight - ((value - scale.low) / (scale.high - scale.low || 1)) * plotHeight;
   const selectedIndex = years.indexOf(year);
   const activeIndex = hoverIndex ?? selectedIndex;
-  const decades = years.filter((item, index) => item % 10 === 0 || index === years.length - 1);
+  const decades = axisYears(years, plotWidth);
   const tickDigits = scale.ticks.every(Number.isInteger) ? 0 : 1;
 
   // Direct labels at the line ends, nudged apart so two converging series
@@ -299,8 +370,9 @@ function Sparkline({ values, index }: { values: Values; index: number }) {
   const max = Math.max(...data);
   const x = (i: number) => 3 + (i / Math.max(1, values.length - 1)) * (width - 6);
   const y = (value: number) => height - 4 - ((value - min) / (max - min || 1)) * (height - 8);
+  // Restart the line after a gap (e.g. a growth rate has no first year).
   const path = values
-    .map((value, i) => value === null ? "" : `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(value).toFixed(1)}`)
+    .map((value, i) => value === null ? "" : `${i === 0 || values[i - 1] === null ? "M" : "L"}${x(i).toFixed(1)},${y(value).toFixed(1)}`)
     .join("");
   const current = values[index];
   return (
@@ -698,6 +770,642 @@ function DataTable({ geography }: { geography: Geography }) {
   );
 }
 
+/** 100% stacked area: each layer's share of the whole, year by year. */
+function StackedShare({
+  title, note, years, layers, year, onYear, height = 230,
+}: {
+  title: string;
+  note: string;
+  years: number[];
+  layers: { key: string; label: string; color: string; values: number[] }[];
+  year: number;
+  onYear: (year: number) => void;
+  height?: number;
+}) {
+  const [wrapRef, width] = useWidth<HTMLDivElement>();
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const margin = { top: 14, right: 104, bottom: 28, left: 46 };
+  const plotWidth = Math.max(0, width - margin.left - margin.right);
+  const plotHeight = height - margin.top - margin.bottom;
+  const x = (index: number) => margin.left + (years.length > 1 ? index / (years.length - 1) : 0) * plotWidth;
+  const y = (share: number) => margin.top + plotHeight - (share / 100) * plotHeight;
+  const selectedIndex = years.indexOf(year);
+  const decades = axisYears(years, plotWidth);
+
+  // Stack the last layer on the baseline, so the legend (first layer on top)
+  // reads in the same order as the bands.
+  const stacked = useMemo(() => {
+    const floor = years.map(() => 0);
+    return [...layers].reverse().map((layer) => {
+      const lower = [...floor];
+      layer.values.forEach((value, index) => { floor[index] += value; });
+      return { ...layer, lower, upper: [...floor] };
+    }).reverse();
+  }, [layers, years]);
+
+  const ends = stacked
+    .map((layer) => ({ key: layer.key, label: layer.label, y: y((layer.lower.at(-1)! + layer.upper.at(-1)!) / 2) }))
+    .sort((a, b) => a.y - b.y);
+  for (let i = 1; i < ends.length; i += 1) ends[i].y = Math.max(ends[i].y, ends[i - 1].y + 14);
+
+  const indexAt = (clientX: number, element: Element) => {
+    const box = element.getBoundingClientRect();
+    const ratio = (clientX - box.left - margin.left) / (plotWidth || 1);
+    return Math.max(0, Math.min(years.length - 1, Math.round(ratio * (years.length - 1))));
+  };
+
+  return (
+    <figure className="estado-chart">
+      <figcaption>
+        <h3>{title}</h3>
+        <p>{note}</p>
+      </figcaption>
+      <Legend items={layers.map((layer) => ({ label: layer.label, color: layer.color }))} />
+      <div className="estado-chart-plot" ref={wrapRef}>
+        {width > 0 && (
+          <svg
+            width={width}
+            height={height}
+            role="img"
+            aria-label={`${title}. ${layers.map((layer) => `${layer.label}: ${decimal(layer.values[selectedIndex] ?? 0, 1)}%`).join("; ")} en ${year}.`}
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft" && selectedIndex > 0) onYear(years[selectedIndex - 1]);
+              if (event.key === "ArrowRight" && selectedIndex < years.length - 1) onYear(years[selectedIndex + 1]);
+            }}
+          >
+            {stacked.map((layer) => {
+              const top = layer.upper.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`);
+              const bottom = layer.lower.map((value, index) => `${x(index).toFixed(1)},${y(value).toFixed(1)}`).reverse();
+              return <path key={layer.key} d={`M${top.join("L")}L${bottom.join("L")}Z`} fill={layer.color} stroke="var(--white)" strokeWidth={1.5} strokeLinejoin="round" />;
+            })}
+            {[0, 25, 50, 75, 100].map((tick) => (
+              <text key={tick} className="estado-tick" x={margin.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">{tick}%</text>
+            ))}
+            {decades.map((decade) => (
+              <text key={decade} className="estado-tick" x={x(years.indexOf(decade))} y={height - 8} textAnchor="middle">{decade}</text>
+            ))}
+            {selectedIndex >= 0 && (
+              <line className="estado-year-rule strong" x1={x(selectedIndex)} x2={x(selectedIndex)} y1={margin.top} y2={margin.top + plotHeight} />
+            )}
+            {hoverIndex !== null && hoverIndex !== selectedIndex && (
+              <line className="estado-year-rule strong" x1={x(hoverIndex)} x2={x(hoverIndex)} y1={margin.top} y2={margin.top + plotHeight} strokeDasharray="3 3" />
+            )}
+            {ends.map((end) => (
+              <text key={end.key} className="estado-end-label" x={margin.left + plotWidth + 10} y={end.y} dy="0.32em">{end.label}</text>
+            ))}
+            <rect
+              className="estado-hit"
+              x={margin.left}
+              y={margin.top}
+              width={plotWidth}
+              height={plotHeight}
+              onMouseMove={(event) => setHoverIndex(indexAt(event.clientX, event.currentTarget.ownerSVGElement ?? event.currentTarget))}
+              onMouseLeave={() => setHoverIndex(null)}
+              onClick={(event) => onYear(years[indexAt(event.clientX, event.currentTarget.ownerSVGElement ?? event.currentTarget)])}
+            />
+          </svg>
+        )}
+        {hoverIndex !== null && width > 0 && (
+          <div
+            className="estado-tooltip"
+            style={{
+              left: x(hoverIndex) > width / 2 ? undefined : x(hoverIndex) + 12,
+              right: x(hoverIndex) > width / 2 ? width - x(hoverIndex) + 12 : undefined,
+            }}
+          >
+            <strong>{years[hoverIndex]}</strong>
+            {layers.map((layer) => (
+              <span key={layer.key}>
+                <i style={{ background: layer.color }} />
+                {layer.label}
+                <b>{decimal(layer.values[hoverIndex], 1)}%</b>
+              </span>
+            ))}
+            <small>Clic para fijar el año</small>
+          </div>
+        )}
+      </div>
+    </figure>
+  );
+}
+
+/** Rank of `code` among the 32 states for each value list, 1 = largest. */
+function rankOf(code: string, values: Record<string, number>) {
+  return Object.entries(values)
+    .filter(([key]) => key !== NATIONAL)
+    .filter(([, value]) => value > values[code]).length + 1;
+}
+
+function EconomyTiles({ economy, code, year }: { economy: Economy; code: string; year: number }) {
+  const { years, geographies } = economy;
+  const index = years.indexOf(year);
+  const gdp = geographies[code].gdp;
+  const national = geographies[NATIONAL].gdp;
+  const growth: Values = gdp.map((value, i) => i === 0 ? null : (value / gdp[i - 1] - 1) * 100);
+  const byYear = years.map((_, i) => Object.fromEntries(Object.entries(geographies).map(([key, geo]) => [key, geo.gdp[i]])));
+
+  const tiles: { label: string; value: string; detail: string; spark: Values }[] = [
+    { label: `PIB ${year}`, value: pesos(gdp[index]), detail: "de pesos de 2018", spark: gdp },
+    {
+      label: "Variación anual",
+      value: growth[index] === null ? "—" : signed(growth[index]!),
+      detail: index > 0 ? `real, respecto a ${years[index - 1]}` : "primer año de la serie",
+      spark: growth,
+    },
+    {
+      label: `Crecimiento desde ${years[0]}`,
+      value: signed((gdp[index] / gdp[0] - 1) * 100, 0),
+      detail: `real, ${years[0]}–${year}`,
+      spark: indexed(gdp),
+    },
+  ];
+  if (code !== NATIONAL) {
+    const ranks = byYear.map((values) => rankOf(code, values));
+    const shares = gdp.map((value, i) => value / national[i] * 100);
+    tiles.push(
+      // Negated so the sparkline rises when the state climbs the ranking.
+      { label: "Lugar nacional", value: `${ranks[index]}.º`, detail: "de 32 entidades, por PIB", spark: ranks.map((rank) => -rank) },
+      { label: "Parte del PIB nacional", value: `${decimal(shares[index], 1)}%`, detail: "del PIB del país", spark: shares },
+    );
+  }
+  return (
+    <dl className="estado-tiles flat" style={{ "--tiles": tiles.length } as CSSProperties}>
+      {tiles.map((tile) => (
+        <div key={tile.label}>
+          <dt>{tile.label}</dt>
+          <dd>{tile.value}</dd>
+          <small>{tile.detail}</small>
+          <Sparkline values={tile.spark} index={index} />
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function EconomyStructure({ economy, code, year, onYear }: { economy: Economy; code: string; year: number; onYear: (year: number) => void }) {
+  const [mode, setMode] = useState<"share" | "value">("share");
+  const geo = economy.geographies[code];
+  const national = economy.geographies[NATIONAL];
+  const scale = pesoScale(geo.valueAdded);
+  const isNational = code === NATIONAL;
+  return (
+    <>
+      <div className="estado-chart-cell">
+        <div className="estado-chips inline" role="group" aria-label="Medida de la estructura económica">
+          <button type="button" className={mode === "share" ? "active" : ""} onClick={() => setMode("share")}>Participación</button>
+          <button type="button" className={mode === "value" ? "active" : ""} onClick={() => setMode("value")}>Valor real</button>
+        </div>
+        {mode === "share" ? (
+          <StackedShare
+            title="Estructura económica"
+            note="Parte del valor agregado que genera cada gran actividad."
+            years={economy.years}
+            layers={economy.groups.map((group) => ({
+              key: group.id,
+              label: group.label,
+              color: GROUP_COLORS[group.id],
+              values: geo.groups[group.id].map((value, i) => value / geo.valueAdded[i] * 100),
+            }))}
+            year={year}
+            onYear={onYear}
+          />
+        ) : (
+          <LineChart
+            title="Estructura económica"
+            note={`Valor agregado por gran actividad. ${scale.label}.`}
+            years={economy.years}
+            series={economy.groups.map((group) => ({
+              key: group.id,
+              label: group.label,
+              color: GROUP_COLORS[group.id],
+              values: geo.groups[group.id].map((value) => value / scale.divisor),
+            }))}
+            year={year}
+            onYear={onYear}
+            format={(value) => pesos(value * scale.divisor)}
+            zero
+          />
+        )}
+      </div>
+      <LineChart
+        title="Crecimiento del PIB"
+        note={`PIB real, ${economy.years[0]} = 100. Una línea en 200 indica que la economía duplicó su tamaño.`}
+        years={economy.years}
+        series={[
+          { key: "gdp", label: isNational ? "Nacional" : "Estado", color: COLORS.state, values: indexed(geo.gdp) },
+          ...(isNational ? [] : [{ key: "national-gdp", label: "Nacional", color: COLORS.national, values: indexed(national.gdp), reference: true }]),
+        ]}
+        year={year}
+        onYear={onYear}
+        format={(value) => decimal(value, 0)}
+      />
+    </>
+  );
+}
+
+function StateRanking({
+  economy, code, year, stateNames, onSelect,
+}: {
+  economy: Economy;
+  code: string;
+  year: number;
+  stateNames: Map<string, string>;
+  onSelect: (code: string) => void;
+}) {
+  const [activity, setActivity] = useState<string>("gdp");
+  const [hovered, setHovered] = useState<string | null>(null);
+  const group = economy.groups.find((item) => item.id === activity);
+  const sector = economy.sectors.find((item) => item.id === activity);
+  // Sectors start later than the aggregates; rank the first sector year instead.
+  const rankYear = sector ? Math.max(year, economy.sectorYears[0]) : year;
+  const valueOf = (key: string) => {
+    const geo = economy.geographies[key];
+    if (sector) return geo.sectors[sector.id][economy.sectorYears.indexOf(rankYear)];
+    const index = economy.years.indexOf(rankYear);
+    return group ? geo.groups[group.id][index] : geo.gdp[index];
+  };
+  const total = valueOf(NATIONAL);
+  const rows = Object.keys(economy.geographies)
+    .filter((key) => key !== NATIONAL)
+    .map((key) => ({ code: key, value: valueOf(key) }))
+    .sort((a, b) => b.value - a.value);
+  const max = rows[0]?.value || 1;
+  const label = sector ? sector.label : group ? `Actividades ${group.label.toLowerCase()}` : "PIB total";
+  const focus = hovered ?? (code === NATIONAL ? null : code);
+  const focusRow = rows.findIndex((row) => row.code === focus);
+
+  return (
+    <section className="estado-chart estado-rank">
+      <h3>Lugar entre los estados</h3>
+      <p>
+        {label}, {rankYear}.{sector && year < economy.sectorYears[0] ? ` Los sectores empiezan en ${economy.sectorYears[0]}.` : ""}
+        {" "}Haz clic en un estado para abrir su perfil.
+      </p>
+      <div className="estado-chips flush" role="group" aria-label="Actividad del ranking">
+        <button type="button" className={activity === "gdp" ? "active" : ""} onClick={() => setActivity("gdp")}>PIB total</button>
+        {economy.groups.map((item) => (
+          <button key={item.id} type="button" className={activity === item.id ? "active" : ""} onClick={() => setActivity(item.id)}>{item.label}</button>
+        ))}
+        <select
+          className={sector ? "active" : ""}
+          value={sector ? sector.id : ""}
+          aria-label="Sector del ranking"
+          onChange={(event) => setActivity(event.target.value || "gdp")}
+        >
+          <option value="">Un sector…</option>
+          {economy.groups.map((item) => (
+            <optgroup key={item.id} label={item.label}>
+              {economy.sectors.filter((s) => s.group === item.id).map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+      <p className="estado-rank-readout" aria-live="polite">
+        {focusRow >= 0 ? (
+          <>
+            <strong>{stateNames.get(rows[focusRow].code)}</strong>
+            <span>{focusRow + 1}.º de 32</span>
+            <span>{pesos(rows[focusRow].value)} de pesos</span>
+            <span>{decimal(rows[focusRow].value / total * 100, 1)}% del total nacional</span>
+          </>
+        ) : (
+          <span className="muted">Pasa el cursor sobre un estado para ver su lugar y su valor.</span>
+        )}
+      </p>
+      <ol className="estado-rank-list" onMouseLeave={() => setHovered(null)}>
+        {rows.map((row, index) => (
+          <li key={row.code}>
+            <button
+              type="button"
+              className={`${row.code === code ? "selected" : ""}${row.code === hovered ? " hovered" : ""}`}
+              aria-label={`${index + 1}. ${stateNames.get(row.code)}: ${pesos(row.value)} de pesos`}
+              onClick={() => onSelect(row.code)}
+              onMouseEnter={() => setHovered(row.code)}
+              onFocus={() => setHovered(row.code)}
+              onBlur={() => setHovered(null)}
+            >
+              <span>{index + 1}</span>
+              <span>{stateNames.get(row.code)}</span>
+              <span className="track">
+                <i style={{ width: `${row.value / max * 100}%`, background: row.code === code ? COLORS.state : RANK_BAR }} />
+              </span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function SectorBreakdown({
+  economy, code, year, onYear,
+}: {
+  economy: Economy;
+  code: string;
+  year: number;
+  onYear: (year: number) => void;
+}) {
+  const [group, setGroup] = useState<GroupId | "all">("all");
+  const [picked, setPicked] = useState<string | null>(null);
+  const [mode, setMode] = useState<"index" | "value">("index");
+  const sectorYears = economy.sectorYears;
+  const shownYear = Math.max(year, sectorYears[0]);
+  const si = sectorYears.indexOf(shownYear);
+  const yi = economy.years.indexOf(shownYear);
+  const geo = economy.geographies[code];
+  const national = economy.geographies[NATIONAL];
+  const isNational = code === NATIONAL;
+  const rows = economy.sectors
+    .filter((sector) => group === "all" || sector.group === group)
+    .map((sector) => ({
+      ...sector,
+      share: geo.sectors[sector.id][si] / geo.valueAdded[yi] * 100,
+      nationalShare: national.sectors[sector.id][si] / national.valueAdded[yi] * 100,
+    }))
+    .sort((a, b) => b.share - a.share);
+  const max = Math.max(...rows.flatMap((row) => isNational ? [row.share] : [row.share, row.nationalShare]), 1);
+  const active = rows.find((row) => row.id === picked) ?? rows[0];
+  const values = geo.sectors[active.id];
+  // An index needs a nonzero base year; a sector absent in 2003 falls back to value.
+  const canIndex = values[0] > 0 && national.sectors[active.id][0] > 0;
+  const showIndex = mode === "index" && canIndex;
+  const scale = pesoScale(values);
+
+  return (
+    <section className="estado-chart estado-sectors">
+      <h3>Detalle por sector</h3>
+      <p>
+        Parte del valor agregado del estado en {shownYear}{year < sectorYears[0] ? ` (los sectores empiezan en ${sectorYears[0]})` : ""}.
+        {isNational ? "" : " La marca indica el promedio nacional."} Elige un sector para ver su trayectoria.
+      </p>
+      <div className="estado-chips flush" role="group" aria-label="Gran actividad">
+        <button type="button" className={group === "all" ? "active" : ""} onClick={() => setGroup("all")}>Todos</button>
+        {economy.groups.map((item) => (
+          <button key={item.id} type="button" className={group === item.id ? "active" : ""} onClick={() => setGroup(item.id)}>{item.label}</button>
+        ))}
+      </div>
+      <ol className="estado-sector-list">
+        {rows.map((row) => (
+          <li key={row.id}>
+            <button
+              type="button"
+              className={row.id === active.id ? "selected" : ""}
+              title={row.name}
+              aria-pressed={row.id === active.id}
+              aria-label={`${row.label}: ${decimal(row.share, 1)}% del valor agregado${isNational ? "" : `; nacional ${decimal(row.nationalShare, 1)}%`}`}
+              onClick={() => setPicked(row.id)}
+            >
+              <span>{row.label}</span>
+              <span className="track">
+                <i style={{ width: `${row.share / max * 100}%`, background: GROUP_COLORS[row.group] }} />
+                {!isNational && <b style={{ left: `${row.nationalShare / max * 100}%` }} />}
+              </span>
+              <span>{decimal(row.share, 1)}%</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+      <div className="estado-sector-chart">
+        <div className="estado-chips flush" role="group" aria-label="Escala del sector">
+          <button type="button" className={showIndex ? "active" : ""} disabled={!canIndex} onClick={() => setMode("index")}>Índice</button>
+          <button type="button" className={!showIndex ? "active" : ""} onClick={() => setMode("value")}>Valor real</button>
+        </div>
+        <LineChart
+          title={active.label}
+          note={showIndex
+            ? `Valor agregado real, ${sectorYears[0]} = 100${isNational ? "" : ", comparado con el mismo sector en todo el país"}.`
+            : `${scale.label}.${canIndex ? "" : ` Sin actividad registrada en ${sectorYears[0]}, así que no hay índice.`}`}
+          years={sectorYears}
+          series={showIndex
+            ? [
+              { key: active.id, label: isNational ? "Nacional" : "Estado", color: GROUP_COLORS[active.group], values: indexed(values) },
+              ...(isNational ? [] : [{ key: `national-${active.id}`, label: "Nacional", color: COLORS.national, values: indexed(national.sectors[active.id]), reference: true }]),
+            ]
+            : [{ key: active.id, label: isNational ? "Nacional" : "Estado", color: GROUP_COLORS[active.group], values: values.map((value) => value / scale.divisor) }]}
+          year={shownYear}
+          onYear={onYear}
+          format={(value) => showIndex ? decimal(value, 0) : pesos(value * scale.divisor)}
+          zero={!showIndex}
+          height={200}
+        />
+      </div>
+    </section>
+  );
+}
+
+function EconomyTable({ economy, code }: { economy: Economy; code: string }) {
+  const geo = economy.geographies[code];
+  return (
+    <details className="estado-table">
+      <summary>Ver los datos del PIB en tabla</summary>
+      <div>
+        <table>
+          <thead>
+            <tr>
+              <th>Año</th>
+              <th>PIB (millones de pesos de 2018)</th>
+              <th>Variación anual</th>
+              {economy.groups.map((group) => <th key={group.id}>{group.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {economy.years.map((year, i) => (
+              <tr key={year}>
+                <th>{year}</th>
+                <td>{integer.format(geo.gdp[i])}</td>
+                <td>{i === 0 ? "—" : signed((geo.gdp[i] / geo.gdp[i - 1] - 1) * 100)}</td>
+                {economy.groups.map((group) => (
+                  <td key={group.id}>{decimal(geo.groups[group.id][i] / geo.valueAdded[i] * 100, 1)}%</td>
+                ))}
+              </tr>
+            )).reverse()}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
+
+function eicValue(indicator: EicIndicator, value: number) {
+  const text = decimal(value, indicator.decimals);
+  if (indicator.unit === "%") return `${text}%`;
+  if (indicator.unit === "pesos") return `$${integer.format(value)}`;
+  return indicator.unit ? `${text} ${indicator.unit}` : text;
+}
+
+/** All 32 states on one axis: the selected one large and green, the nation as a tick. */
+function StateStrip({
+  eic, indicator, code, stateNames,
+}: {
+  eic: Eic;
+  indicator: EicIndicator;
+  code: string;
+  stateNames: Map<string, string>;
+}) {
+  const width = 168;
+  const height = 24;
+  const rows = Object.entries(eic.geographies)
+    .filter(([key]) => key !== NATIONAL)
+    .map(([key, values]) => ({ code: key, value: values[indicator.id][0] }));
+  const min = Math.min(...rows.map((row) => row.value));
+  const max = Math.max(...rows.map((row) => row.value));
+  const x = (value: number) => 6 + ((value - min) / (max - min || 1)) * (width - 12);
+  const national = eic.geographies[NATIONAL][indicator.id][0];
+  // Selected state last, so it paints over its neighbours.
+  rows.sort((a, b) => Number(a.code === code) - Number(b.code === code));
+  return (
+    <svg className="estado-strip" width={width} height={height + 12} viewBox={`0 0 ${width} ${height + 12}`} role="img"
+      aria-label={`De ${eicValue(indicator, min)} a ${eicValue(indicator, max)} entre los 32 estados`}>
+      <line className="estado-grid" x1={6} x2={width - 6} y1={height / 2} y2={height / 2} />
+      <line className="estado-strip-national" x1={x(national)} x2={x(national)} y1={3} y2={height - 3}>
+        <title>Nacional: {eicValue(indicator, national)}</title>
+      </line>
+      {rows.map((row) => (
+        <circle
+          key={row.code}
+          cx={x(row.value)}
+          cy={height / 2}
+          r={row.code === code ? 5 : 3}
+          fill={row.code === code ? COLORS.state : RANK_BAR}
+          stroke={row.code === code ? "var(--white)" : "none"}
+          strokeWidth={2}
+        >
+          <title>{stateNames.get(row.code)}: {eicValue(indicator, row.value)}</title>
+        </circle>
+      ))}
+      <text className="estado-tick" x={2} y={height + 10}>{eicValue(indicator, min)}</text>
+      <text className="estado-tick" x={width - 2} y={height + 10} textAnchor="end">{eicValue(indicator, max)}</text>
+    </svg>
+  );
+}
+
+function EicSection({
+  eic, code, name, stateNames,
+}: {
+  eic: Eic;
+  code: string;
+  name: string;
+  stateNames: Map<string, string>;
+}) {
+  const [category, setCategory] = useState<string>("all");
+  const isNational = code === NATIONAL;
+  const values = eic.geographies[code];
+  const national = eic.geographies[NATIONAL];
+  const shown = eic.categories.filter((item) => category === "all" || item.id === category);
+  const lowPrecision = eic.categories.some((item) => item.indicators.some((indicator) => values[indicator.id][3] > eic.lowPrecisionCv));
+  const hasOwn = shown.some((item) => item.indicators.some((indicator) => indicator.source === "propio"));
+
+  return (
+    <section className="estado-section">
+      <header className="estado-section-heading">
+        <div><p className="eyebrow">{name} · Encuesta Intercensal 2025</p><h2>Radiografía 2025</h2></div>
+        <p>
+          {isNational
+            ? "Cómo vive el país hoy, con el rango que va del estado más bajo al más alto."
+            : "Cómo se compara con los otros 31 estados. El lugar 1 es el valor más alto, sea bueno o malo; entre paréntesis, los lugares que podría ocupar dado el margen de error."}
+        </p>
+      </header>
+      <div className="estado-chips eic-chips" role="group" aria-label="Categoría">
+        <button type="button" className={category === "all" ? "active" : ""} onClick={() => setCategory("all")}>Todas</button>
+        {eic.categories.map((item) => (
+          <button key={item.id} type="button" className={category === item.id ? "active" : ""} onClick={() => setCategory(item.id)}>{item.label}</button>
+        ))}
+      </div>
+      <div className="estado-eic-wrap">
+        <table className="estado-eic">
+          <thead>
+            <tr>
+              <th scope="col">Indicador</th>
+              {!isNational && <th scope="col">{name}</th>}
+              <th scope="col">Nacional</th>
+              {!isNational && <th scope="col">Lugar <small>de 32</small></th>}
+              <th scope="col" className="estado-eic-strip">Los 32 estados</th>
+            </tr>
+          </thead>
+          {shown.map((item) => (
+            <tbody key={item.id}>
+              <tr className="estado-eic-category"><th scope="rowgroup" colSpan={isNational ? 3 : 5}>{item.label}</th></tr>
+              {item.indicators.map((indicator) => {
+                const [value, li, ls, cv, rank, best, worst] = values[indicator.id];
+                const imprecise = cv > eic.lowPrecisionCv;
+                return (
+                  <tr key={indicator.id}>
+                    <th scope="row">
+                      {indicator.label}
+                      {indicator.detail && <small>{indicator.detail}</small>}
+                    </th>
+                    {!isNational && (
+                      <td className="estado-eic-value" title={`Intervalo al 90%: ${eicValue(indicator, li)} a ${eicValue(indicator, ls)}`}>
+                        {eicValue(indicator, value)}
+                        {imprecise && <sup title={`Estimación poco precisa (coeficiente de variación ${decimal(cv, 0)})`}>†</sup>}
+                      </td>
+                    )}
+                    <td className={isNational ? "estado-eic-value" : "estado-eic-national"} title={`Intervalo al 90%: ${eicValue(indicator, national[indicator.id][1])} a ${eicValue(indicator, national[indicator.id][2])}`}>
+                      {eicValue(indicator, national[indicator.id][0])}
+                    </td>
+                    {!isNational && (
+                      <td className="estado-eic-rank">
+                        {rank}.º
+                        {best !== worst && <small>({best}–{worst})</small>}
+                      </td>
+                    )}
+                    <td className="estado-eic-strip"><StateStrip eic={eic} indicator={indicator} code={code} stateNames={stateNames} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          ))}
+        </table>
+      </div>
+      <p className="estado-eic-note">
+        Pasa el cursor sobre una cifra para ver su intervalo de confianza al 90%, o sobre un punto para ver el estado.
+        {lowPrecision && " † Estimación poco precisa: coeficiente de variación mayor a 30."}
+        {hasOwn && " El ingreso por trabajo es un cálculo propio con los microdatos, con el método de INEGI; INEGI no lo publica."}
+      </p>
+    </section>
+  );
+}
+
+function EconomySection({
+  economy, code, name, stateNames, onSelect,
+}: {
+  economy: Economy;
+  code: string;
+  name: string;
+  stateNames: Map<string, string>;
+  onSelect: (code: string) => void;
+}) {
+  // Its own year: GDP runs 1980–2024, the population slider only to 2019.
+  const lastYear = economy.years.at(-1)!;
+  const [year, setYear] = useState(lastYear);
+  return (
+    <section className="estado-section">
+      <header className="estado-section-heading">
+        <div><p className="eyebrow">{name} · PIB {economy.years[0]}–{lastYear}</p><h2>La economía</h2></div>
+        <div className="estado-section-aside">
+          <p>Cuánto produce la entidad y en qué, a precios de 2018 para quitar el efecto de la inflación. Haz clic en cualquier gráfica para fijar el año.</p>
+          <label className="estado-inline-select">
+            <span>Año del PIB</span>
+            <select value={year} onChange={(event) => setYear(Number(event.target.value))}>
+              {[...economy.years].reverse().map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+        </div>
+      </header>
+      <EconomyTiles economy={economy} code={code} year={year} />
+      <div className="estado-chart-grid">
+        <EconomyStructure economy={economy} code={code} year={year} onYear={setYear} />
+      </div>
+      <div className="estado-chart-grid estado-economy-grid">
+        <StateRanking economy={economy} code={code} year={year} stateNames={stateNames} onSelect={onSelect} />
+        <SectorBreakdown economy={economy} code={code} year={year} onYear={setYear} />
+      </div>
+      <EconomyTable economy={economy} code={code} />
+    </section>
+  );
+}
+
 export default function StateExplorer() {
   const [seed] = useState(seededParams);
   const [index, setIndex] = useState<StateIndex | null>(null);
@@ -709,6 +1417,8 @@ export default function StateExplorer() {
   const [playing, setPlaying] = useState(false);
   const [metric, setMetric] = useState<MetricKey>("medianAge");
   const [compareMode, setCompareMode] = useState<"auto" | "first" | "none">("auto");
+  const [economy, setEconomy] = useState<Economy | null>(null);
+  const [eic, setEic] = useState<Eic | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -723,6 +1433,20 @@ export default function StateExplorer() {
       })
       .catch(() => setError(true));
   }, []);
+
+  // The economy file holds every state (the ranking needs them all), so it
+  // loads once, after the population data has painted.
+  useEffect(() => {
+    if (!index) return;
+    fetch("/data/estados/economia.json")
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data: Economy) => setEconomy(data))
+      .catch(() => setError(true));
+    fetch("/data/estados/eic2025.json")
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data: Eic) => setEic(data))
+      .catch(() => setError(true));
+  }, [index]);
 
   useEffect(() => {
     if (code === NATIONAL || geographies[code]) return;
@@ -789,16 +1513,16 @@ export default function StateExplorer() {
 
   return (
     <main>
-      <SiteHeader active="estados" status="Población por entidad" />
+      <SiteHeader active="estados" status="Población y economía por entidad" />
       <section className="electoral-hero estado-hero">
         <div>
-          <p className="eyebrow">Conoce tu estado · Población</p>
+          <p className="eyebrow">Conoce tu estado · Población y economía</p>
           <h1>Conoce tu estado.</h1>
         </div>
         <p className="hero-copy">
-          Cómo ha cambiado la población de cada entidad desde 1970: su pirámide de edades, cuántos
-          nacen y mueren, cuánto se vive y cuántas remesas recibe. Elige un estado en el mapa o en la
-          lista y recorre los años.
+          Cómo ha cambiado cada entidad desde 1970: su pirámide de edades, cuántos nacen y mueren,
+          cuánto se vive, qué produce su economía, cómo vive hoy y cuántas remesas recibe. Elige un
+          estado en el mapa o en la lista y recorre los años.
         </p>
       </section>
 
@@ -941,6 +1665,18 @@ export default function StateExplorer() {
           <DataTable geography={shown} />
         </section>
 
+        {economy ? (
+          <EconomySection economy={economy} code={shown.code} name={shown.name} stateNames={stateNames} onSelect={selectCode} />
+        ) : (
+          <section className="estado-section estado-section-loading"><p className="eyebrow">Cargando el PIB…</p></section>
+        )}
+
+        {eic ? (
+          <EicSection eic={eic} code={shown.code} name={shown.name} stateNames={stateNames} />
+        ) : (
+          <section className="estado-section estado-section-loading"><p className="eyebrow">Cargando la Encuesta Intercensal…</p></section>
+        )}
+
         <section className="estado-section">
           <header className="estado-section-heading">
             <div><p className="eyebrow">{shown.name} · Remesas</p><h2>El dinero que llega de fuera</h2></div>
@@ -957,6 +1693,24 @@ export default function StateExplorer() {
             aquí no se usan. La pirámide agrupa la población a mitad de año en grupos quinquenales y la
             pirámide nacional es la suma de las 32 entidades.
           </p>
+          {economy && (
+            <p>
+              Producción: {economy.source}. Valores en millones de pesos a precios de 2018, que suman
+              exactamente entre niveles: sectores, grandes actividades, valor agregado y PIB, y los 32 estados
+              al total nacional. El PIB incluye los impuestos netos sobre los productos; la estructura por
+              actividad usa el valor agregado, que no los incluye. Los 20 sectores existen desde 2003; antes
+              solo hay grandes actividades. INEGI marca 2023 y 2024 como cifras revisadas.
+            </p>
+          )}
+          {eic && (
+            <p>
+              Radiografía 2025: {eic.source}. Son estimaciones por muestreo: cada cifra tiene un intervalo de
+              confianza al 90%, y el lugar entre paréntesis cuenta solo los estados cuyo intervalo queda por
+              completo arriba o abajo. Los porcentajes se calculan sobre la población o los hogares indicados
+              bajo cada nombre. El ingreso mensual por trabajo no lo publica INEGI: es el promedio de la
+              población ocupada que declaró ingreso, calculado con los microdatos y el método de INEGI.
+            </p>
+          )}
           <p>
             Remesas: {index.source.remittances}. Son dólares corrientes, sin ajustar por inflación. Las
             remesas que no se pueden asignar a un municipio cuentan para el total del estado pero no aparecen
