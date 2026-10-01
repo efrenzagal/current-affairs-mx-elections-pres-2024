@@ -19,6 +19,16 @@ data/*
 !data/audited_seat_overrides.csv
 !data/audited_person_aliases.csv
 
+# Raw and generated state-scorecard artifacts are rebuilt by the ingestion pipeline.
+# Only code and documentation are tracked; source downloads stay local.
+/state_scorecards/data/
+/state_scorecards/**/*.csv
+/state_scorecards/**/*.xlsx
+/state_scorecards/**/*.parquet
+/state_scorecards/**/*.pdf
+/state_scorecards/**/*.rds
+/state_scorecards/**/.Rproj.user/
+
 .RData
 .Rhistory
 
