@@ -41,7 +41,7 @@ VOTES_OUT_PATH = ROOT / "web" / "public" / "data" / "votes-66.json"
 # votes-66.json, and this only has to arrive before a reader hovers a square.
 BALLOTS_OUT_PATH = ROOT / "web" / "public" / "data" / "vote-ballots-66.json"
 # Just the manifests, so the /visualizaciones index can print live counts
-# without pulling the 6 MB of seats and histories behind them.
+# without pulling the seats and histories behind them.
 SUMMARY_PATH = ROOT / "web" / "public" / "data" / "visualizaciones.json"
 def rows(conn: sqlite3.Connection, query: str, params: tuple = ()) -> list[dict]:
     conn.row_factory = sqlite3.Row
@@ -470,12 +470,49 @@ def load_seat_vote_conflicts(conn: sqlite3.Connection, chamber: str) -> list[dic
     ]
 
 
+# One character per choice. Histories were [voteId, choice] pairs: 148k of them
+# in the Cámara, 5 MB of repeated vote ids and choice words that every phone
+# had to parse. A string aligned to `votes` carries the same facts at ~3% of
+# the size; the client unpacks it back into pairs on load.
+HISTORY_CODES = {
+    "F": "Favor",
+    "C": "Contra",
+    "B": "Abstención",
+    "A": "Ausente",
+    "S": "Sin registro",
+}
+NO_RECORD = "-"
+
+
+def pack_histories(
+    histories: dict[str, list[list[str]]], votes: list[dict]
+) -> dict[str, str]:
+    """Encode each person's history as one code per vote, in `votes` order.
+
+    `-` means the person has no record for that vote (not yet seated, or
+    already gone), which is different from an explicit "Sin registro".
+    """
+    index = {vote["id"]: i for i, vote in enumerate(votes)}
+    code_of = {choice: code for code, choice in HISTORY_CODES.items()}
+    packed = {}
+    for person_id, history in histories.items():
+        cells = [NO_RECORD] * len(votes)
+        for vote_id, choice in history:
+            if vote_id not in index:
+                raise ValueError(f"{person_id} voted in {vote_id}, which is not exported")
+            if choice not in code_of:
+                raise ValueError(f"Unknown choice {choice!r}; add it to HISTORY_CODES")
+            cells[index[vote_id]] = code_of[choice]
+        packed[person_id] = "".join(cells)
+    return packed
+
+
 def build_chamber_payload(
     conn: sqlite3.Connection,
     chamber: str,
     votes: list[dict],
     party_votes: dict,
-    schema_version: int = 6,
+    schema_version: int = 7,
 ) -> dict:
     """Assemble one chamber's hemicycle payload from the resolved warehouse.
 
@@ -504,7 +541,8 @@ def build_chamber_payload(
         "formerMembers": load_former_members(conn, chamber),
         "personAliases": load_person_alias_map(conn, chamber),
         "votes": votes,
-        "histories": camara_person_histories(conn),
+        "historyCodes": HISTORY_CODES,
+        "histories": pack_histories(camara_person_histories(conn), votes),
         "seatMembers": load_seat_members(conn, chamber, seats),
         "seatVoteConflicts": load_seat_vote_conflicts(conn, chamber),
         "partyVotes": party_votes,
@@ -515,7 +553,7 @@ def build_senate_payload(
     conn: sqlite3.Connection,
     votes: list[dict],
     party_votes: dict,
-    schema_version: int = 6,
+    schema_version: int = 7,
 ) -> dict:
     """Resolve and serialize Senado directly, without derived warehouse tables."""
     resolved = resolve_senado_seats(conn)
@@ -538,7 +576,8 @@ def build_senate_payload(
         "formerMembers": resolved["formerMembers"],
         "personAliases": resolved["aliases"],
         "votes": votes,
-        "histories": senado_person_histories(conn, resolved),
+        "historyCodes": HISTORY_CODES,
+        "histories": pack_histories(senado_person_histories(conn, resolved), votes),
         "seatMembers": resolved["seatMembers"],
         "seatVoteConflicts": resolved["conflicts"],
         "partyVotes": party_votes,

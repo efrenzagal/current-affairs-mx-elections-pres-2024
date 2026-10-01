@@ -145,6 +145,30 @@ export type SiteData = {
   partyVotes: Record<string, Record<string, Record<string, number>>>;
 };
 
+/**
+ * `SiteData` as it arrives over the wire. Each history is one code per vote,
+ * aligned to `votes` (`-` = no record for that vote); `unpackSiteData` turns
+ * it back into [voteId, choice] pairs so nothing downstream sees the encoding.
+ */
+export type PackedSiteData = Omit<SiteData, "histories"> & {
+  historyCodes: Record<string, string>;
+  histories: Record<string, string>;
+};
+
+export function unpackSiteData(payload: PackedSiteData): SiteData {
+  const { historyCodes, histories, ...rest } = payload;
+  const unpacked: SiteData["histories"] = {};
+  for (const [personId, codes] of Object.entries(histories)) {
+    const history: [string, string][] = [];
+    for (let i = 0; i < codes.length; i++) {
+      const choice = historyCodes[codes[i]];
+      if (choice) history.push([payload.votes[i].id, choice]);
+    }
+    unpacked[personId] = history;
+  }
+  return { ...rest, histories: unpacked };
+}
+
 /** Which identity the hemicycle names in each seat. */
 type View = "actual" | "electoral";
 type HistoryMode = "all" | "titular" | "suplente";
@@ -455,8 +479,9 @@ export default function Explorer({
         if (!response.ok) throw new Error(String(response.status));
         return response.json();
       })
-      .then((payload: SiteData) => {
+      .then((packed: PackedSiteData) => {
         if (cancelled) return;
+        const payload = unpackSiteData(packed);
         setData(payload);
         // `?seat=` deep-links a specific seat open on load (e.g. for an
         // article embed), same spirit as `?vote=` and `?q=` below — falls

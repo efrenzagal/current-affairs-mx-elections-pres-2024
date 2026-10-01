@@ -151,11 +151,11 @@ Cloudflare deploy is verified.
 | `scripts/export_gaceta_web.py` | Materializes the static web snapshots from SQLite + INE CSV |
 | `scripts/build_article_pages.py` | Publishes rendered Quarto articles with site chrome |
 | `public/articulos/*.html` | Published articles, served as static files |
-| `public/data/legislature-66.json` | Cámara seats, votes, histories and party totals |
-| `public/data/senate-66.json` | Senate seats, votes, histories and party totals |
+| `public/data/legislature-66.json` | Cámara seats, votes, packed histories and party totals. 1.1 MB, ~120 KB gzipped |
+| `public/data/senate-66.json` | Senate seats, votes, packed histories and party totals. 0.6 MB, ~60 KB gzipped |
 | `public/data/votes-66.json` | Both chambers' roll calls and party breakdowns, no seats. 0.8 MB, ~62 KB gzipped |
 | `public/data/vote-ballots-66.json` | Names for the individual squares, mirroring `partyVotes`. 0.8 MB, ~64 KB gzipped |
-| `public/data/visualizaciones.json` | Manifest-only digest so the index need not load 6.5 MB |
+| `public/data/visualizaciones.json` | Manifest-only digest so the index need not load both chamber files |
 | `public/data/dictionary.json` | Table dictionaries, coverage matrices and column samples |
 | `tests/rendered-html.test.mjs` | Build smoke test and core data invariants |
 | `worker/index.ts` | Cloudflare Worker entry; routes image optimization, else delegates to the app router |
@@ -163,8 +163,15 @@ Cloudflare deploy is verified.
 
 Each hemicycle explorer loads **only its own chamber's** JSON. The profile route
 loads both because its primary interaction is a name search across chambers.
-The old single hemicycle page pulled both (6.3 MB) to power a chamber tab;
-splitting those routes still means the Senado hemicycle page costs 1.0 MB.
+The old single hemicycle page pulled both to power a chamber tab.
+
+Histories ship **packed**: each person's record is one string with a code per
+vote, aligned to `votes` (`F` Favor, `C` Contra, `B` Abstención, `A` Ausente,
+`S` Sin registro, `-` no record for that vote; the legend travels in
+`historyCodes`). As `[voteId, choice]` pairs the Cámara file was 6.3 MB, 5.3 MB
+of it repeated vote ids. `unpackSiteData` in `explorer.tsx` restores the pairs
+on load, so no component sees the encoding. A new choice value makes the
+exporter fail until it is added to `HISTORY_CODES`.
 
 This is a static snapshot application. There is no live database, D1 or R2 at
 runtime. The browser loads both JSON files and switches chamber datasets in

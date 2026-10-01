@@ -2,6 +2,19 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+// Mirrors unpackSiteData in app/visualizaciones/explorer.tsx: histories ship as
+// one code per vote and are asserted on in their unpacked [voteId, choice] form.
+function parseChamber(text) {
+  const payload = JSON.parse(text);
+  const histories = {};
+  for (const [personId, codes] of Object.entries(payload.histories)) {
+    histories[personId] = [...codes].flatMap((code, i) =>
+      payload.historyCodes[code] ? [[payload.votes[i].id, payload.historyCodes[code]]] : [],
+    );
+  }
+  return { ...payload, histories };
+}
+
 async function render(path = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
@@ -77,7 +90,7 @@ test("every person with a roll-call record is reachable from a chamber explorer"
   // `histories` outside those three sets would be a profile the site dropped
   // when `/visualizaciones/perfiles` went away.
   for (const file of ["legislature-66.json", "senate-66.json"]) {
-    const data = JSON.parse(
+    const data = parseChamber(
       await readFile(new URL(`../public/data/${file}`, import.meta.url), "utf8"),
     );
     const reachable = new Set();
@@ -141,8 +154,8 @@ test("ships real LXVI data for both chambers and no starter dependency", async (
     readFile(new URL("../public/data/legislature-66.json", import.meta.url), "utf8"),
     readFile(new URL("../public/data/senate-66.json", import.meta.url), "utf8"),
   ]);
-  const payload = JSON.parse(data);
-  const senate = JSON.parse(senateData);
+  const payload = parseChamber(data);
+  const senate = parseChamber(senateData);
   assert.equal(payload.manifest.seatCount, 500);
   assert.equal(payload.manifest.linkedSeats, 500);
   assert.equal(payload.manifest.voteCount, 297);
@@ -161,6 +174,8 @@ test("ships real LXVI data for both chambers and no starter dependency", async (
   assert.equal(senate.seats.filter((seat) => seat.seatType === "RP").length, 32);
   assert.equal(senate.seats.filter((seat) => seat.winningPct > 0).length, 96);
   assert.ok(Object.values(senate.histories).every((history) => history.length > 0));
+  // Histories ship packed; the Cámara file was 6 MB of repeated vote ids before.
+  assert.ok(data.length < 2_000_000, `legislature-66.json is ${data.length} bytes`);
   assert.ok(
     new Set(senate.votes.map((vote) => vote.topic)).size > 1,
     "Senate profiles ship classified topics rather than one generic chamber label",
@@ -177,11 +192,11 @@ test("carries the current occupancy overlay, not only the 2024 winners", async (
   const summary = JSON.parse(summaryData);
 
   for (const [slug, payload] of [
-    ["diputados", JSON.parse(data)],
-    ["senado", JSON.parse(senateData)],
+    ["diputados", parseChamber(data)],
+    ["senado", parseChamber(senateData)],
   ]) {
     const { manifest, seats, formerMembers, histories, seatMembers } = payload;
-    assert.equal(manifest.schemaVersion, 6, `${slug} exports attributed seat histories`);
+    assert.equal(manifest.schemaVersion, 7, `${slug} exports packed, attributed seat histories`);
     assert.equal(manifest.chamber, slug);
     assert.ok(manifest.roster.observedAt, `${slug} records its roster cutoff`);
     assert.ok(manifest.roster.sourceUrl.startsWith("https://"));
@@ -313,10 +328,10 @@ test("carries the current occupancy overlay, not only the 2024 winners", async (
 });
 
 test("merges source-name aliases but keeps substitute votes attributed", async () => {
-  const deputies = JSON.parse(
+  const deputies = parseChamber(
     await readFile(new URL("../public/data/legislature-66.json", import.meta.url), "utf8"),
   );
-  const senate = JSON.parse(
+  const senate = parseChamber(
     await readFile(new URL("../public/data/senate-66.json", import.meta.url), "utf8"),
   );
 

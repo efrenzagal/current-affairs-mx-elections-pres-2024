@@ -8,7 +8,9 @@ import {
   type Chamber,
   type Seat,
   type SeatMember,
+  type PackedSiteData,
   type SiteData,
+  unpackSiteData,
 } from "./explorer";
 import { PARTY_COLORS } from "./parties";
 import { CHOICE_COLORS, shortDate, shortTitle, voteLabel } from "./votes";
@@ -49,8 +51,8 @@ export function LegislatorCard({ chamber, seatId }: { chamber: Chamber; seatId: 
         if (!response.ok) throw new Error(String(response.status));
         return response.json();
       })
-      .then((payload: SiteData) => {
-        if (!cancelled) setData(payload);
+      .then((packed: PackedSiteData) => {
+        if (!cancelled) setData(unpackSiteData(packed));
       })
       .catch(() => {
         if (!cancelled) setError(true);
