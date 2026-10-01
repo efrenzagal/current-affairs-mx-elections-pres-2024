@@ -810,10 +810,7 @@ in-memory resolver and writes `senate-66.json` directly from the source
 warehouse tables, current roster CSV, INE integration and audited overrides.
 No intermediate Senate seat/member tables are created. The Cámara currently
 retains its older persisted `fact_legislature_66_*` resolution path.
-`web/scripts/export_iniciativas_web.py` separately reads
-`dim_gaceta_iniciativa`/`dim_senado_iniciativa` and writes
-`web/public/data/iniciativas.json` — who proposed each initiative, kept apart
-from the roll-call vote data. The browser loads these directly — there is no
+The browser loads these directly — there is no
 live database at runtime.
 
 ```bash
@@ -822,7 +819,6 @@ python3 camara_de_diputados/escanos/seat_margins.py  # winning margins per seat
 python3 camara_de_diputados/votos/materialize.py --force   # vote thresholds (and Streamlit parquet)
 python3 camara_de_senadores/composicion/crawl_senadores_roster.py --refresh
 python3 web/scripts/export_gaceta_web.py          # resolves Senado in memory + writes snapshots
-python3 web/scripts/export_iniciativas_web.py     # refresh initiative-proposer snapshot
 cd web && npm test                              # production build + data invariants
 ```
 
