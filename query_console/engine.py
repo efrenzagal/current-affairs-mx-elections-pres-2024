@@ -4,6 +4,10 @@ Each submitted query runs on its own thread with its own read-only connection,
 so the console stays responsive, several queries can be in flight at once, and
 a slow one can be cancelled. SQLite's progress handler gives us both the live
 "still working" signal and the cancellation hook.
+
+A ``.duckdb`` file is opened with DuckDB instead (imported only then, so the
+SQLite path stays stdlib-only). DuckDB has no progress handler: a watchdog
+thread polls its percent-complete and calls ``interrupt()`` to cancel.
 """
 
 from __future__ import annotations
@@ -40,6 +44,24 @@ NO_ROW_LIMIT = 10 ** 12
 # Half an hour is longer than any sane exploratory query on this warehouse.
 DEFAULT_TIMEOUT_S = 30 * 60
 
+DUCKDB_SUFFIXES = (".duckdb", ".ddb")
+
+# How often the DuckDB watchdog checks for cancel/timeout and reads progress.
+WATCHDOG_INTERVAL_S = 0.2
+
+
+def is_duckdb(path: Path) -> bool:
+    return Path(path).suffix.lower() in DUCKDB_SUFFIXES
+
+
+def database_errors(path: Path) -> tuple:
+    """Exception types a bad query raises against this database."""
+    if is_duckdb(path):
+        import duckdb
+
+        return (sqlite3.Error, duckdb.Error)
+    return (sqlite3.Error,)
+
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -75,6 +97,8 @@ class QueryJob:
         self.started_monotonic = time.monotonic()
         self.duration_ms = 0
         self.steps = 0
+        # DuckDB reports percent complete instead of SQLite's VM step count.
+        self.progress_pct: Optional[float] = None
         self.rows_fetched = 0
         self.columns: List[str] = []
         self.preview: List[List[Any]] = []
@@ -96,6 +120,7 @@ class QueryJob:
             "started_at": self.started_at,
             "duration_ms": elapsed,
             "steps": self.steps,
+            "progress_pct": self.progress_pct,
             "rows_fetched": self.rows_fetched,
             "row_count": self.rows_fetched,
             "row_limit": self.row_limit,
@@ -108,6 +133,7 @@ class QueryJob:
 class QueryRunner:
     def __init__(self, db_path: Path, store: HistoryStore):
         self.db_path = Path(db_path)
+        self.is_duckdb = is_duckdb(self.db_path)
         self.store = store
         self._jobs: Dict[str, QueryJob] = {}
         self._lock = threading.Lock()
@@ -135,7 +161,16 @@ class QueryRunner:
         job.cancel_requested = True
         return True
 
-    def connect(self) -> sqlite3.Connection:
+    def connect(self) -> Any:
+        if self.is_duckdb:
+            import duckdb
+
+            conn = duckdb.connect(str(self.db_path), read_only=True)
+            # query_progress() stays at -1 unless progress tracking is on;
+            # printing is off so nothing is written to the server's terminal.
+            conn.execute("SET enable_progress_bar = true")
+            conn.execute("SET enable_progress_bar_print = false")
+            return conn
         conn = sqlite3.connect(
             "file:{}?mode=ro".format(self.db_path), uri=True, timeout=30.0
         )
@@ -146,7 +181,8 @@ class QueryRunner:
         """Run EXPLAIN QUERY PLAN synchronously — it is always cheap."""
         conn = self.connect()
         try:
-            cur = conn.execute("EXPLAIN QUERY PLAN " + sql_text)
+            prefix = "EXPLAIN " if self.is_duckdb else "EXPLAIN QUERY PLAN "
+            cur = conn.execute(prefix + sql_text)
             columns = [d[0] for d in cur.description]
             rows = [[_cell(v) for v in row] for row in cur.fetchall()]
             return {"columns": columns, "rows": rows}
@@ -172,9 +208,26 @@ class QueryRunner:
                     return 1
             return 0
 
+        watchdog_done = threading.Event()
+
+        def watchdog() -> None:
+            while not watchdog_done.wait(WATCHDOG_INTERVAL_S):
+                try:
+                    pct = conn.query_progress()
+                    if pct is not None and pct >= 0:
+                        job.progress_pct = round(pct, 1)
+                except Exception:  # noqa: BLE001 - progress is best-effort
+                    pass
+                if progress():
+                    conn.interrupt()
+                    return
+
         try:
             conn = self.connect()
-            conn.set_progress_handler(progress, PROGRESS_INTERVAL)
+            if self.is_duckdb:
+                threading.Thread(target=watchdog, daemon=True).start()
+            else:
+                conn.set_progress_handler(progress, PROGRESS_INTERVAL)
             cursor = conn.execute(job.sql_text)
 
             if cursor.description is None:
@@ -202,24 +255,26 @@ class QueryRunner:
                     if job.truncated or job.rows_fetched >= job.row_limit:
                         job.truncated = job.truncated or job.rows_fetched >= job.row_limit
                         break
-        except sqlite3.OperationalError as exc:
+        except Exception as exc:  # noqa: BLE001 - surfaced verbatim in the UI
             if job.cancel_requested:
                 status, job.error = "cancelled", "Cancelled from the console."
             elif job.timed_out:
                 status = "cancelled"
                 job.error = "Stopped after the {} time limit.".format(_duration(job.timeout_s or 0))
-            else:
+            elif isinstance(exc, sqlite3.OperationalError) or self.is_duckdb:
                 status, job.error = "error", str(exc)
-        except Exception as exc:  # noqa: BLE001 - surfaced verbatim in the UI
-            status, job.error = "error", "{}: {}".format(type(exc).__name__, exc)
+            else:
+                status, job.error = "error", "{}: {}".format(type(exc).__name__, exc)
         finally:
+            watchdog_done.set()
             if handle is not None:
                 handle.close()
             if conn is not None:
                 try:
-                    conn.set_progress_handler(None, 0)
+                    if not self.is_duckdb:
+                        conn.set_progress_handler(None, 0)
                     conn.close()
-                except sqlite3.Error:
+                except Exception:  # noqa: BLE001 - closing is best-effort
                     pass
 
         job.status = status

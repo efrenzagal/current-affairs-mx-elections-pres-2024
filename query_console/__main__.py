@@ -20,7 +20,8 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--db",
         default=str(REPO_ROOT / "election_data.db"),
-        help="Warehouse to query (opened read-only). Default: election_data.db",
+        help="Database to query (opened read-only): a SQLite file, or a .duckdb file"
+        " such as state_scorecards/data/eic2025.duckdb. Default: election_data.db",
     )
     parser.add_argument("--port", type=int, default=8787, help="Port to listen on (default 8787).")
     parser.add_argument("--host", default="127.0.0.1", help="Interface to bind (default localhost).")

@@ -371,7 +371,9 @@ async function pollAll() {
       return;
     }
     const secs = (job.duration_ms / 1000).toFixed(1);
-    sheet.counters = `${secs}s · ${fmt(job.rows_fetched || job.row_count || 0)} rows · ${fmt(job.steps)} steps`;
+    // DuckDB reports percent complete; SQLite, VM steps.
+    const work = job.progress_pct != null ? `${job.progress_pct}% done` : `${fmt(job.steps)} steps`;
+    sheet.counters = `${secs}s · ${fmt(job.rows_fetched || job.row_count || 0)} rows · ${work}`;
 
     if (job.status === "running") {
       sheet.statusText = "Scanning the warehouse… press Esc to cancel.";

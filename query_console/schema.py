@@ -3,6 +3,9 @@
 Column descriptions come from web/public/data/dictionary.json and table
 purposes from documentation/table_dictionaries/overview.csv, so the sidebar
 stays in sync with the dictionary instead of duplicating it.
+
+A DuckDB database documents itself instead: table and column descriptions are
+read from its own COMMENTs (see state_scorecards/ingestion/eic_2025/build_duckdb.py).
 """
 
 from __future__ import annotations
@@ -68,7 +71,23 @@ class Catalog:
 
     # ── live schema ───────────────────────────────────────────────────────
 
-    def objects(self, conn: sqlite3.Connection) -> List[Dict[str, Any]]:
+    @staticmethod
+    def _is_sqlite(conn: Any) -> bool:
+        return isinstance(conn, sqlite3.Connection)
+
+    def objects(self, conn: Any) -> List[Dict[str, Any]]:
+        if not self._is_sqlite(conn):
+            rows = conn.execute(
+                "SELECT 'table', table_name, comment FROM duckdb_tables()"
+                " WHERE schema_name = 'main' AND NOT internal"
+                " UNION ALL SELECT 'view', view_name, comment FROM duckdb_views()"
+                " WHERE schema_name = 'main' AND NOT internal ORDER BY 2"
+            ).fetchall()
+            return [
+                {"name": name, "type": kind, "purpose": comment or "", "grain": "",
+                 "approx_rows": "", "primary_key": ""}
+                for kind, name, comment in rows
+            ]
         overview = self._load_overview()
         rows = conn.execute(
             "SELECT type, name FROM sqlite_master"
@@ -90,9 +109,22 @@ class Catalog:
             )
         return out
 
-    def columns(self, conn: sqlite3.Connection, table: str) -> List[Dict[str, Any]]:
+    def columns(self, conn: Any, table: str) -> List[Dict[str, Any]]:
         if not SAFE_NAME.match(table):
             raise ValueError("unsupported table name")
+        if not self._is_sqlite(conn):
+            rows = conn.execute(
+                "SELECT column_name, data_type, NOT is_nullable, comment FROM duckdb_columns()"
+                " WHERE schema_name = 'main' AND NOT internal AND table_name = ? ORDER BY column_index",
+                [table],
+            ).fetchall()
+            if not rows:
+                raise ValueError("unknown table")
+            return [
+                {"name": name, "type": dtype, "notnull": bool(notnull), "pk": False,
+                 "description": comment or ""}
+                for name, dtype, notnull, comment in rows
+            ]
         known = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
         if table not in known:
             raise ValueError("unknown table")
@@ -111,9 +143,16 @@ class Catalog:
             )
         return out
 
-    def full_schema(self, conn: sqlite3.Connection) -> Dict[str, List[str]]:
+    def full_schema(self, conn: Any) -> Dict[str, List[str]]:
         """Every table with its column names — the editor's completion source."""
         out: Dict[str, List[str]] = {}
+        if not self._is_sqlite(conn):
+            for table, column in conn.execute(
+                "SELECT table_name, column_name FROM duckdb_columns()"
+                " WHERE schema_name = 'main' AND NOT internal ORDER BY table_name, column_index"
+            ).fetchall():
+                out.setdefault(table, []).append(column)
+            return out
         for row in conn.execute(
             "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
             " AND name NOT LIKE 'sqlite_%' ORDER BY name"

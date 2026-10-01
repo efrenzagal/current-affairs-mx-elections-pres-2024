@@ -6,7 +6,6 @@ import json
 import mimetypes
 import os
 import posixpath
-import sqlite3
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,6 +18,7 @@ from .engine import (
     NO_ROW_LIMIT,
     PREVIEW_ROWS,
     QueryRunner,
+    database_errors,
 )
 from .schema import Catalog
 from .store import HistoryStore
@@ -169,7 +169,7 @@ class ConsoleHandler(BaseHTTPRequestHandler):
                 self._send_json({"cancelled": ctx.runner.cancel(query_id)})
             else:
                 self._error("not found", 404)
-        except sqlite3.Error as exc:
+        except database_errors(ctx.db_path) as exc:
             self._error(str(exc), 400)
         except ValueError as exc:
             self._error(str(exc), 400)

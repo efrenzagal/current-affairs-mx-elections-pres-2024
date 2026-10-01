@@ -13,7 +13,8 @@ it binds to `127.0.0.1` only. Nothing here ships to the site.
 ```
 
 That starts the console on <http://127.0.0.1:8787/> and opens a browser tab.
-Stdlib only — no packages beyond what the repo already installs.
+Stdlib only — no packages beyond what the repo already installs. (Opening a
+DuckDB file additionally needs `duckdb`; see below.)
 
 ## What it does
 
@@ -100,10 +101,28 @@ behind a published number stays reproducible.
 - A query cancelled mid-fetch keeps the rows it had already written, labelled as
   partial.
 
+## DuckDB files
+
+Pass a `.duckdb` file to query it instead of the warehouse — for example the
+Encuesta Intercensal microdata, whose 25 million rows live in Parquet and would
+not fit comfortably in SQLite:
+
+```bash
+/usr/bin/python3 -m pip install --user duckdb      # once
+/usr/bin/python3 state_scorecards/ingestion/eic_2025/build_duckdb.py
+/usr/bin/python3 -m query_console --db state_scorecards/data/eic2025.duckdb
+```
+
+Everything above works the same, with three differences. The schema sidebar
+reads descriptions from the database's own `COMMENT`s rather than the data
+dictionary. The status bar shows DuckDB's percent complete instead of VM steps.
+And SQL is DuckDB's dialect (`GROUP BY ALL`, `read_parquet(...)`, and so on).
+History is shared with the warehouse console.
+
 ## Options
 
 ```
---db PATH             warehouse to open (default: election_data.db)
+--db PATH             SQLite warehouse or .duckdb file to open (default: election_data.db)
 --port N              default 8787
 --host HOST           default 127.0.0.1
 --keep-results N      cached result sets to retain (default 50)
