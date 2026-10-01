@@ -331,11 +331,6 @@ export function LegislatorCard({ chamber, seatId }: { chamber: Chamber; seatId: 
             <span>
               <i style={{ background: CHOICE_COLORS.Ausente }} /> Ausente
             </span>
-            {meta.isSenate && (
-              <span>
-                <i style={{ background: CHOICE_COLORS["Sin registro"] }} /> Sin registro
-              </span>
-            )}
           </div>
         )}
       </div>

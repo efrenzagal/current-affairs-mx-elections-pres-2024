@@ -843,7 +843,13 @@ export default function Explorer({
   const choiceTotals = useMemo(() => {
     const totals = new Map<string, number>();
     for (const choice of choiceBySeat.values()) {
-      const normalizedChoice = choice === "Abstencion" ? "Abstención" : choice;
+      // "Sin registro" (Senado only) folds into "Ausente" here on purpose --
+      // same reasoning as the calendar and the party breakdown below: the
+      // source's own explicit absence and our own inferred gap both mean
+      // "did not cast a ballot," and readers need one consistent number for
+      // that, not two that have to be added by hand.
+      const normalizedChoice =
+        choice === "Abstencion" ? "Abstención" : choice === "Sin registro" ? "Ausente" : choice;
       totals.set(normalizedChoice, (totals.get(normalizedChoice) ?? 0) + 1);
     }
     return totals;
@@ -1025,12 +1031,53 @@ export default function Explorer({
   const previewFavorRate = previewActive.length
     ? previewActive.filter(([, choice]) => choice === "Favor").length / previewActive.length
     : 0;
-  const partyVotePercentages = Object.entries((selectedVote && data.partyVotes[selectedVote.id]) ?? {})
-    .map(([party, counts]) => {
+  // partyVotes (from senado_party_votes) only tallies senators who have an
+  // actual row for this vote, so it never sees "Sin registro" -- that choice
+  // only exists in each person's own filled history, never in the fact
+  // table it's built from. Without folding it in here, a party's Favor/
+  // Contra/Ausente percentages would be computed over "whoever happened to
+  // have a row," not the whole bench -- the same silent-denominator problem
+  // this whole pass exists to fix, just one level up from a single person.
+  // Merged into Ausente rather than a separate bucket, matching the
+  // calendar and the hemicycle legend above.
+  const sinRegistroCountByParty = new Map<string, number>();
+  if (selectedVoteId) {
+    for (const members of Object.values(data.seatMembers)) {
+      for (const member of members) {
+        const entry = (data.histories[member.personId] ?? []).find(
+          ([voteId]) => voteId === selectedVoteId,
+        );
+        if (entry && entry[1] === "Sin registro") {
+          sinRegistroCountByParty.set(
+            member.party,
+            (sinRegistroCountByParty.get(member.party) ?? 0) + 1,
+          );
+        }
+      }
+    }
+  }
+  // Same number, chamber-wide rather than by party -- feeds the overall
+  // "Resultado del pleno" panel below the same way sinRegistroCountByParty
+  // feeds the by-party breakdown.
+  const voteSinRegistroTotal = [...sinRegistroCountByParty.values()].reduce(
+    (sum, count) => sum + count,
+    0,
+  );
+  const voteAbsentWithNoRegistro = (selectedVote?.absent ?? 0) + voteSinRegistroTotal;
+  const voteTotalWithNoRegistro = (selectedVote?.total ?? 0) + voteSinRegistroTotal;
+  const partyVoteCounts = (selectedVote && data.partyVotes[selectedVote.id]) ?? {};
+  // The union, not just partyVoteCounts' own keys: a party with zero real
+  // rows for this vote (every member Sin registro) would otherwise never
+  // appear at all, rather than appearing with 0% favor/contra as it should.
+  const partyVotePercentages = [
+    ...new Set([...Object.keys(partyVoteCounts), ...sinRegistroCountByParty.keys()]),
+  ]
+    .map((party) => {
+      const counts = partyVoteCounts[party] ?? {};
       const favor = counts.Favor ?? 0;
       const contra = counts.Contra ?? 0;
       const abstention = counts["Abstención"] ?? counts.Abstencion ?? 0;
-      const absent = counts.Ausente ?? 0;
+      const absent = (counts.Ausente ?? 0) + (sinRegistroCountByParty.get(party) ?? 0);
       const total = favor + contra + abstention + absent;
       return { party, favor, contra, abstention, absent, total };
     })
@@ -1733,7 +1780,6 @@ export default function Explorer({
                   <span><i style={{ background: CHOICE_COLORS.Contra }} /> Contra</span>
                   <span><i style={{ background: CHOICE_COLORS["Abstención"] }} /> Abst.</span>
                   <span><i style={{ background: CHOICE_COLORS.Ausente }} /> Ausente</span>
-                  {isSenate && <span><i style={{ background: CHOICE_COLORS["Sin registro"] }} /> Sin registro</span>}
                   {!isSenate && <span><i style={{ background: CHOICE_COLORS["Quórum *"] }} /> Presente, sin voto</span>}
                   <span className="calendar-hint">Cada rectángulo, una votación.</span>
                 </div>
@@ -1772,16 +1818,16 @@ export default function Explorer({
               <span>votos a favor</span>
             </div>
             <div className="overall-bar" aria-label="Distribución total del voto">
-              <span style={{ width: `${(selectedVote.favor / selectedVote.total) * 100}%`, background: CHOICE_COLORS.Favor }} />
-              <span style={{ width: `${(selectedVote.contra / selectedVote.total) * 100}%`, background: CHOICE_COLORS.Contra }} />
-              <span style={{ width: `${(selectedVote.abstention / selectedVote.total) * 100}%`, background: CHOICE_COLORS["Abstención"] }} />
-              <span style={{ width: `${(selectedVote.absent / selectedVote.total) * 100}%`, background: CHOICE_COLORS.Ausente }} />
+              <span style={{ width: `${(selectedVote.favor / voteTotalWithNoRegistro) * 100}%`, background: CHOICE_COLORS.Favor }} />
+              <span style={{ width: `${(selectedVote.contra / voteTotalWithNoRegistro) * 100}%`, background: CHOICE_COLORS.Contra }} />
+              <span style={{ width: `${(selectedVote.abstention / voteTotalWithNoRegistro) * 100}%`, background: CHOICE_COLORS["Abstención"] }} />
+              <span style={{ width: `${(voteAbsentWithNoRegistro / voteTotalWithNoRegistro) * 100}%`, background: CHOICE_COLORS.Ausente }} />
             </div>
             <dl>
               <div><dt>En contra</dt><dd>{selectedVote.contra}</dd></div>
               <div><dt>Abstenciones</dt><dd>{selectedVote.abstention}</dd></div>
-              <div><dt>Ausencias</dt><dd>{selectedVote.absent}</dd></div>
-              <div><dt>Padrón</dt><dd>{selectedVote.total}</dd></div>
+              <div><dt>Ausencias/Sin registro</dt><dd>{voteAbsentWithNoRegistro}</dd></div>
+              <div><dt>Padrón</dt><dd>{voteTotalWithNoRegistro}</dd></div>
             </dl>
           </div>
 

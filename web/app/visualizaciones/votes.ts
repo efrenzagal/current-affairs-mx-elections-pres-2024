@@ -19,12 +19,14 @@ export const CHOICE_COLORS: Record<string, string> = {
   "Abstención": "#d4a72c",
   Abstencion: "#d4a72c",
   Ausente: "#9b9a94",
-  // Not a Senado roll-call choice -- inserted by camara_de_senadores/votos/
-  // ingest.py for a vote the source silently omitted the senator from
-  // (see votes.ts callers gated on isSenate). Kept visually distinct from
-  // Ausente: unlike an explicit AUSENTE, this is our own inference, not
-  // something the roll call reported.
-  "Sin registro": "#8a6d3b",
+  // Not a Senado roll-call choice -- synthesized by fill_no_registro_gaps in
+  // camara_de_senadores/escanos/seat_members.py for a vote the source
+  // silently omitted the senator from, as opposed to an explicit AUSENTE row.
+  // The distinction is real and stays in the data (voteLabel() still shows
+  // "Sin registro" specifically on hover) but isn't worth a second color or
+  // legend entry on the calendar -- same color as Ausente on purpose, so the
+  // default view reads as one "no participó" family instead of two.
+  "Sin registro": "#9b9a94",
   "Quórum *": "#537a8f",
 };
 
@@ -32,8 +34,13 @@ export const CHOICE_COLORS: Record<string, string> = {
  * Reading order for a vote breakdown: the two directional choices first, then
  * the ways of not taking a side. The square grid, the stacked bars and every
  * legend iterate this, so they can never disagree on ordering.
+ *
+ * "Sin registro" is deliberately absent: it never appears in a per-vote
+ * tally (see senado_party_votes in export_gaceta_web.py), only in a person's
+ * own history, which the calendar reads directly off each entry rather than
+ * through this list.
  */
-export const CHOICE_ORDER = ["Favor", "Contra", "Abstención", "Ausente", "Sin registro", "Quórum *"];
+export const CHOICE_ORDER = ["Favor", "Contra", "Abstención", "Ausente", "Quórum *"];
 
 export function choiceColor(choice: string) {
   return CHOICE_COLORS[choice] ?? "#8b8b86";

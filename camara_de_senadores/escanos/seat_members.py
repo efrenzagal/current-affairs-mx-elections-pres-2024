@@ -59,17 +59,15 @@ AUDITED_FORMER_SEAT_OVERRIDES = load_seat_overrides()
 AUDITED_PERSON_ALIASES = load_person_aliases()
 
 # The Senado roll call stores its own vocabulary. Normalize to the Camara's so
-# a merged history reads the same either side of the building. SIN_REGISTRO is
-# not a Senado choice -- it is inserted by camara_de_senadores/votos/ingest.py
-# to fill the gaps the source leaves silent, so histories built from this
-# table reflect a senator's full known span rather than only their logged
-# rows.
+# a merged history reads the same either side of the building. "Sin registro"
+# is not a Senado choice and never appears in fact_senador_vote -- it is
+# synthesized in-memory by fill_no_registro_gaps, below, for a vote the source
+# silently omitted the senator from.
 SENATE_CHOICE = {
     "PRO": "Favor",
     "CONTRA": "Contra",
     "ABSTENCIÓN": "Abstención",
     "AUSENTE": "Ausente",
-    "SIN_REGISTRO": "Sin registro",
 }
 
 SEATS_SQL = """
@@ -525,9 +523,6 @@ def build_seat_vote_data(
         )
         if existing:
             return
-        # SIN_REGISTRO entries pad a person's own history to their full known
-        # span (see SENATE_CHOICE); they are not a vote this person cast, so
-        # they must not inflate the count shown for them here.
         seat_members[seat_id].append(
             {
                 "personId": person,
@@ -535,9 +530,7 @@ def build_seat_vote_data(
                 "party": party,
                 "role": role,
                 "sourceUrl": source_url,
-                "voteCount": sum(
-                    1 for _, choice in histories.get(person, []) if choice != "Sin registro"
-                ),
+                "voteCount": len(histories.get(person, [])),
             }
         )
 
@@ -628,10 +621,69 @@ def load_chamber_vote_rows(conn: sqlite3.Connection) -> list[dict]:
     return translated
 
 
+def fill_no_registro_gaps(
+    histories: dict[str, list[list[str]]],
+    votes: list[dict],
+    person_to_seat: dict[str, str],
+) -> dict[str, list[list[str]]]:
+    """Backfill "Sin registro" for gaps inside a person's own attested span.
+
+    Only the Senado has this problem: its per-vote page omits a senator
+    entirely when they are absent without a registered reason, instead of
+    publishing an explicit AUSENTE row the way it does for a documented one
+    (e.g. "comisión oficial"). That silently shrinks the denominator of any
+    attendance figure built straight from these rows, and does so unevenly --
+    a senator whose absences happen to get logged is penalized, one whose
+    absences are simply omitted is not.
+
+    Only gaps strictly inside a person's own attested span -- between their
+    own first and last recorded vote -- are filled, and never past either
+    edge: a person's own surrounding real votes are the only evidence we have
+    that they held the seat at that point, so a genuine substitution
+    boundary (a handful of votes right at the handover) is deliberately left
+    alone rather than guessed at.
+
+    Seat-aware on purpose: a fill must never overwrite a vote that another
+    member of the *same seat* genuinely cast. Without this, a titular whose
+    own first and last votes bracket an entire interim licencia would get
+    filled straight through the suplente who actually covered it, and the
+    seat-merged calendar -- which always prefers the titular when both have
+    an entry -- would silently bury the suplente's real votes under the
+    titular's placeholder.
+    """
+    order = {str(vote["id"]): index for index, vote in enumerate(votes)}
+    claimed_by_seat: dict[str, set[str]] = {}
+    for person_id, entries in histories.items():
+        seat_id = person_to_seat.get(person_id)
+        if not seat_id:
+            continue
+        claimed_by_seat.setdefault(seat_id, set()).update(vote_id for vote_id, _ in entries)
+
+    filled: dict[str, list[list[str]]] = {}
+    for person_id, entries in histories.items():
+        have = {vote_id: choice for vote_id, choice in entries}
+        positions = sorted(order[vote_id] for vote_id in have if vote_id in order)
+        if len(positions) >= 2:
+            seat_id = person_to_seat.get(person_id)
+            others_claim = (
+                claimed_by_seat.get(seat_id, set()) - have.keys() if seat_id else set()
+            )
+            for index in range(positions[0], positions[-1] + 1):
+                vote_id = votes[index]["id"]
+                if vote_id not in have and vote_id not in others_claim:
+                    have[vote_id] = "Sin registro"
+        filled[person_id] = sorted(
+            ([vote_id, choice] for vote_id, choice in have.items()),
+            key=lambda item: order.get(item[0], len(order)),
+        )
+    return filled
+
+
 def person_histories(
     conn: sqlite3.Connection, resolved: dict | None = None
 ) -> dict[str, list[list[str]]]:
-    """Per-person LXVI vote history, with audited aliases already applied.
+    """Per-person LXVI vote history, with audited aliases already applied and
+    Senado gaps backfilled (see `fill_no_registro_gaps`).
 
     Rebuilt from the fact table on demand rather than stored. The rows are
     already in `fact_gaceta_deputy_vote` / `fact_senador_vote`; the only thing
@@ -654,9 +706,15 @@ def person_histories(
         for row in rows(conn, VOTERS_SQL)
     }
     votes = rows(conn, VOTE_ORDER_SQL)
-    return canonical_histories(
+    histories = canonical_histories(
         seated | voters, load_chamber_vote_rows(conn), aliases, votes
     )
+    person_to_seat = {
+        member["personId"]: seat_id
+        for seat_id, members in resolved["seatMembers"].items()
+        for member in members
+    }
+    return fill_no_registro_gaps(histories, votes, person_to_seat)
 
 
 def senator_display_name(raw: str | None) -> str:

@@ -213,11 +213,7 @@ def senado_votes(conn: sqlite3.Connection) -> list[dict]:
                 SUM(voto = 'CONTRA') AS contra,
                 SUM(voto = 'ABSTENCIÓN') AS abstention,
                 SUM(voto = 'AUSENTE') AS absent,
-                -- Explicit sum, not COUNT(*): fact_senador_vote also carries
-                -- SIN_REGISTRO rows backfilled by camara_de_senadores/votos/
-                -- ingest.py, and this total must stay what the Senado's own
-                -- roll call recorded, not that plus our own inference.
-                SUM(voto IN ('PRO', 'CONTRA', 'ABSTENCIÓN', 'AUSENTE')) AS total
+                COUNT(*) AS total
             FROM fact_senador_vote
             GROUP BY votacion_id
         )
@@ -283,12 +279,6 @@ def camara_party_votes(conn: sqlite3.Connection) -> dict[str, dict[str, dict[str
 
 
 def senado_party_votes(conn: sqlite3.Connection) -> dict[str, dict[str, dict[str, int]]]:
-    """Per-vote, per-party tallies as the Senado's own roll call recorded them.
-
-    Excludes SIN_REGISTRO on purpose: those rows are our own inference about
-    gaps the source left silent (see camara_de_senadores/votos/ingest.py),
-    not something the roll call reported for that party on that day.
-    """
     party_votes: dict[str, dict[str, dict[str, int]]] = {}
     for row in rows(
         conn,
@@ -300,7 +290,7 @@ def senado_party_votes(conn: sqlite3.Connection) -> dict[str, dict[str, dict[str
             COUNT(*) AS count
         FROM fact_senador_vote f
         JOIN dim_senado_vote v USING (votacion_id)
-        WHERE v.legislature = 66 AND f.voto IS NOT NULL AND f.voto != 'SIN_REGISTRO'
+        WHERE v.legislature = 66 AND f.voto IS NOT NULL
         GROUP BY f.votacion_id, party, f.voto
         ORDER BY f.votacion_id, party, f.voto
         """,
@@ -648,7 +638,7 @@ def export_ballots(party_votes: dict[str, dict[str, dict[str, int]]]) -> None:
                    f.voto AS choice
             FROM fact_senador_vote f
             JOIN dim_senado_vote v USING (votacion_id)
-            WHERE v.legislature = 66 AND f.voto IS NOT NULL AND f.voto != 'SIN_REGISTRO'
+            WHERE v.legislature = 66 AND f.voto IS NOT NULL
             """,
         ):
             choice = SENATE_CHOICE.get(row["choice"])
