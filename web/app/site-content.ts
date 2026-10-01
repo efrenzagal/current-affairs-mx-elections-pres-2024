@@ -33,6 +33,14 @@ export const LANDING_SECTIONS = [
       "individual sin salir de la página.",
   },
   {
+    href: "/estados",
+    kicker: "Entidades",
+    title: "Conoce tu estado",
+    copy:
+      "Un perfil por entidad, con la nacional como referencia: cómo ha cambiado su población, " +
+      "año por año, a partir de fuentes oficiales.",
+  },
+  {
     href: "/articulos",
     kicker: "Análisis",
     title: "Artículos",

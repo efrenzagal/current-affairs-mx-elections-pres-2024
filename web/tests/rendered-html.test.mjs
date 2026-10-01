@@ -652,3 +652,54 @@ test("ships a dictionary snapshot consistent with the CSV sources", async () => 
     "every table that exists in the warehouse ships real column examples",
   );
 });
+
+test("server-renders Conoce tu estado and links it from the front door", async () => {
+  const [estados, landing] = await Promise.all([render("/estados"), render("/")]);
+  assert.equal(estados.status, 200);
+  const html = await estados.text();
+  // The profile loads its data client-side, so the server stops at the shell.
+  assert.match(html, /Preparando los estados/);
+  const landingHtml = await landing.text();
+  assert.ok(landingHtml.includes('href="/estados"'), "header and landing link to /estados");
+  assert.match(landingHtml, /Conoce tu estado/);
+});
+
+test("ships CONAPO state profiles without projections, each pyramid summing to its population", async () => {
+  const dataDir = new URL("../public/data/estados/", import.meta.url);
+  const index = JSON.parse(await readFile(new URL("index.json", dataDir), "utf8"));
+  assert.equal(index.states.length, 33);
+  assert.equal(index.states[0].code, "00");
+  // CONAPO's projections start in 2020 and must never reach the site.
+  assert.equal(index.years[0], 1970);
+  assert.equal(index.years.at(-1), 2019);
+  for (const metric of Object.keys(index.metrics)) {
+    assert.equal(Object.keys(index.map[metric]).length, 32, `${metric} covers every state`);
+  }
+
+  const files = await Promise.all(
+    index.states.map(async (state) => JSON.parse(await readFile(new URL(`${state.code}.json`, dataDir), "utf8"))),
+  );
+  const nationalPyramid = files[0].pyramid;
+  const nationalQuarterly = files[0].remittances.quarterly;
+  for (const geography of files) {
+    assert.deepEqual(geography.years, index.years, `${geography.code} years`);
+    assert.equal(geography.pyramid.bands.length, 18);
+    geography.years.forEach((year, i) => {
+      const total = [...geography.pyramid.men[i], ...geography.pyramid.women[i]].reduce((a, b) => a + b, 0);
+      assert.equal(total, geography.series.population[i], `${geography.code} ${year} pyramid sums to population`);
+    });
+    assert.equal(geography.remittances.quarterly.length, geography.remittances.periods.length);
+    assert.ok(geography.remittances.topMunicipios.every((item) => !item.code.endsWith("999")));
+  }
+  // The national pyramid is the sum of the states, band by band.
+  const states = files.slice(1);
+  for (const sex of ["men", "women"]) {
+    nationalPyramid[sex].forEach((bands, i) => bands.forEach((value, band) => {
+      assert.equal(value, states.reduce((sum, state) => sum + state.pyramid[sex][i][band], 0));
+    }));
+  }
+  nationalQuarterly.forEach((value, i) => {
+    const summed = states.reduce((sum, state) => sum + state.remittances.quarterly[i], 0);
+    assert.ok(Math.abs(value - summed) < 0.5, `national remittances quarter ${i} equals the state sum`);
+  });
+});

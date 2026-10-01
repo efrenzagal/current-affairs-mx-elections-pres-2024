@@ -495,6 +495,7 @@ def chrome_header(active: str = "articulos") -> str:
     # markup is what makes a published Quarto file read as a page of the site.
     sections = (
         ("visualizaciones", "/visualizaciones", "Visualizaciones"),
+        ("estados", "/estados", "Estados"),
         ("articulos", "/articulos", "Artículos"),
         ("datos", "/datos", "Datos"),
     )

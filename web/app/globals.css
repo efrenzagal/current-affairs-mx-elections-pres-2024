@@ -419,7 +419,7 @@ footer > span { justify-self: end; }
 .landing-areas-label { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .landing-area-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .landing-area-list span { border: 1px solid var(--line); border-radius: 20px; font-size: 11px; font-weight: 650; padding: 5px 12px; }
-.landing-grid { display: grid; gap: 20px; grid-template-columns: repeat(3, 1fr); margin: auto; max-width: 1120px; padding: 40px 4vw 12px; }
+.landing-grid { display: grid; gap: 20px; grid-template-columns: repeat(4, 1fr); margin: auto; max-width: 1280px; padding: 40px 4vw 12px; }
 .landing-card { background: var(--white); border: 1px solid var(--line); border-radius: 4px; display: flex; flex-direction: column; gap: 10px; padding: 30px 28px 32px; }
 .landing-card h2 { font-family: var(--serif); font-size: 27px; font-weight: 400; letter-spacing: -.035em; line-height: 1.1; margin: 0; }
 .landing-card h2 a { text-decoration: none; }
@@ -954,4 +954,159 @@ footer > span { justify-self: end; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
   .loading-mark { animation: none; }
+}
+
+/* Conoce tu estado (/estados). Reuses the electoral hero and panel shells; the
+   chart colours live in COLORS in app/estados/state-explorer.tsx. */
+.estado-explorer { margin: auto; max-width: 1680px; padding: 44px 3vw 76px; transition: opacity .2s; }
+.estado-explorer.pending { opacity: .55; }
+.estado-controls { align-items: center; background: var(--navy); border-radius: 4px; color: var(--white); display: grid; gap: 28px; grid-template-columns: minmax(220px, 320px) 1fr; margin-bottom: 18px; padding: 14px 18px; position: sticky; top: 84px; z-index: 20; }
+.estado-controls span { color: #8dbca5; font-size: 9px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
+.estado-select { align-items: center; display: grid; gap: 14px; grid-template-columns: auto 1fr; }
+.estado-select select { appearance: none; background: var(--white) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23152321'/%3E%3C/svg%3E") no-repeat right 12px center; border: 0; border-radius: 20px; color: var(--ink); cursor: pointer; font-size: 12px; font-weight: 700; padding: 8px 32px 8px 14px; width: 100%; }
+.estado-year { align-items: center; display: grid; gap: 14px; grid-template-columns: auto auto 1fr auto; }
+.estado-year strong { font-family: var(--serif); font-size: 26px; font-weight: 400; min-width: 2.4em; text-align: right; }
+.estado-year input { accent-color: #79b897; cursor: pointer; width: 100%; }
+.estado-play { align-items: center; background: var(--white); border: 0; border-radius: 50%; color: var(--navy); cursor: pointer; display: flex; font-size: 11px; height: 32px; justify-content: center; width: 32px; }
+.estado-play:hover { background: #79b897; }
+.estado-master-detail { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; }
+.estado-map-panel > header, .estado-pyramid-panel > header { align-items: start; gap: 16px; }
+.estado-national { background: transparent; border: 1px solid var(--line); border-radius: 2px; color: var(--ink); cursor: pointer; flex: 0 0 auto; font-size: 11px; font-weight: 700; padding: 8px 14px; }
+.estado-national:hover:not(:disabled) { background: var(--navy); border-color: var(--navy); color: var(--white); }
+.estado-national:disabled { cursor: default; opacity: .32; }
+.estado-chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 14px 24px 0; }
+.estado-chips.compact { align-items: center; justify-content: flex-end; padding: 0; }
+.estado-chips > span { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .11em; margin-right: 4px; text-transform: uppercase; }
+.estado-chips button { background: transparent; border: 1px solid var(--line); border-radius: 20px; color: var(--muted); cursor: pointer; font-size: 10px; font-weight: 700; padding: 6px 11px; }
+.estado-chips button:hover, .estado-chips button.active { background: var(--navy); border-color: var(--navy); color: var(--white); }
+.estado-map-wrap { padding: 10px 18px 18px; }
+.estado-map-readout { align-items: baseline; display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 6px 6px; min-height: 22px; }
+.estado-map-readout strong { font-family: var(--serif); font-size: 17px; font-weight: 400; }
+.estado-map-readout span { color: var(--muted); font-size: 11px; }
+.estado-map { display: block; height: auto; max-height: 470px; width: 100%; }
+.estado-map-state { cursor: pointer; outline: none; stroke: var(--white); stroke-width: .8; transition: fill .3s ease; vector-effect: non-scaling-stroke; }
+.estado-map-state:hover, .estado-map-state.hovered, .estado-map-state:focus-visible { stroke: var(--ink); stroke-width: 1.8; }
+.estado-map-state.selected { stroke: var(--ink); stroke-width: 3; }
+.estado-map-scale { align-items: center; border-top: 1px solid var(--line); display: flex; gap: 10px; justify-content: center; padding-top: 12px; }
+.estado-map-scale span { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.estado-map-scale div { display: flex; gap: 2px; }
+.estado-map-scale i { border-radius: 2px; display: block; height: 10px; width: 26px; }
+.estado-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.estado-legend span { align-items: center; color: var(--muted); display: inline-flex; font-size: 10px; font-weight: 650; }
+.estado-legend i { border-radius: 2px; display: inline-block; height: 9px; margin-right: 6px; width: 9px; }
+.estado-legend i.outline { background: transparent; border: 1.5px solid; }
+.estado-pyramid { padding: 16px 24px 20px; }
+.estado-pyramid-head, .estado-pyramid-row, .estado-pyramid-axis { display: grid; grid-template-columns: 1fr 52px 1fr; }
+.estado-pyramid-head { color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .08em; margin: 16px 0 6px; text-transform: uppercase; }
+.estado-pyramid-head span:first-child { text-align: right; }
+.estado-pyramid-head span:nth-child(2) { text-align: center; }
+.estado-pyramid-rows { display: grid; gap: 2px; }
+.estado-pyramid-row { border-radius: 2px; cursor: default; outline: none; }
+.estado-pyramid-row.active, .estado-pyramid-row:focus-visible { background: #f0ede5; }
+.estado-pyramid-side { height: 17px; position: relative; }
+.estado-pyramid-side i { bottom: 0; position: absolute; top: 0; transition: width .28s ease; }
+.estado-pyramid-side.men i { right: 0; }
+.estado-pyramid-side.women i { left: 0; }
+.estado-pyramid-side.men .bar { border-radius: 4px 0 0 4px; }
+.estado-pyramid-side.women .bar { border-radius: 0 4px 4px 0; }
+.estado-pyramid-side .ghost { border: 1.5px solid var(--ink); }
+.estado-pyramid-side.men .ghost { border-radius: 4px 0 0 4px; border-right: 0; }
+.estado-pyramid-side.women .ghost { border-left: 0; border-radius: 0 4px 4px 0; }
+.estado-pyramid-band { align-self: center; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; text-align: center; }
+.estado-pyramid-axis { border-top: 1px solid var(--line); color: var(--muted); font-size: 9px; font-variant-numeric: tabular-nums; margin-top: 6px; padding-top: 5px; }
+.estado-pyramid-axis > div { height: 12px; position: relative; }
+.estado-pyramid-axis > div span { position: absolute; }
+.estado-pyramid-axis span:nth-child(2) { transform: translateX(-50%); }
+.estado-pyramid-axis .men span:nth-child(1) { left: 0; }
+.estado-pyramid-axis .men span:nth-child(2) { left: 50%; }
+.estado-pyramid-axis .men span:nth-child(3) { right: 0; }
+.estado-pyramid-axis .women span:nth-child(1) { left: 0; }
+.estado-pyramid-axis .women span:nth-child(2) { left: 50%; }
+.estado-pyramid-axis .women span:nth-child(3) { right: 0; }
+.estado-pyramid-readout { border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; font-size: 12px; gap: 4px 14px; margin: 14px 0 0; min-height: 46px; padding-top: 12px; }
+.estado-pyramid-readout strong { font-family: var(--serif); font-size: 15px; font-weight: 400; }
+.estado-pyramid-readout .muted { color: var(--muted); }
+.estado-tiles { background: var(--white); border: 1px solid var(--line); border-radius: 4px; display: grid; grid-template-columns: repeat(5, 1fr); margin: 18px 0 0; }
+.estado-tiles > div { display: grid; gap: 3px; grid-template-rows: auto auto auto 1fr; padding: 18px 22px 14px; }
+.estado-tiles > div + div { border-left: 1px solid var(--line); }
+.estado-tiles dt { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.estado-tiles dd { font-family: var(--serif); font-size: 31px; letter-spacing: -.02em; margin: 2px 0 0; }
+.estado-tiles small { color: var(--muted); font-size: 10px; }
+.estado-sparkline { align-self: end; display: block; height: 34px; margin-top: 8px; width: 100%; }
+.estado-section { background: var(--white); border: 1px solid var(--line); border-radius: 4px; margin-top: 18px; overflow: hidden; }
+.estado-section-heading { align-items: end; border-bottom: 1px solid var(--line); display: flex; gap: 24px; justify-content: space-between; padding: 30px 30px 24px; }
+.estado-section-heading .eyebrow { color: #517967; font-size: 9px; margin-bottom: 6px; }
+.estado-section-heading h2 { font-family: var(--serif); font-size: 40px; font-weight: 400; letter-spacing: -.04em; line-height: .95; margin: 0; }
+.estado-section-heading > p { color: var(--muted); font-family: var(--serif); font-size: 15px; line-height: 1.45; margin: 0; max-width: 430px; }
+.estado-chart-grid { background: var(--line); display: grid; gap: 1px; grid-template-columns: 1fr 1fr; }
+.estado-chart { background: var(--white); margin: 0; min-width: 0; padding: 22px 24px 16px; }
+.estado-chart figcaption h3 { font-family: var(--serif); font-size: 19px; font-weight: 400; margin: 0 0 3px; }
+.estado-chart figcaption p { color: var(--muted); font-size: 11px; line-height: 1.45; margin: 0 0 10px; }
+.estado-chart .estado-legend { margin-bottom: 6px; }
+.estado-chart-plot { min-height: 40px; position: relative; }
+.estado-chart-plot svg { display: block; outline: none; overflow: visible; }
+.estado-chart-plot svg:focus-visible { box-shadow: 0 0 0 2px var(--ink); }
+.estado-grid { stroke: rgba(21,35,33,.09); stroke-width: 1; }
+.estado-tick { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.estado-year-rule { stroke: var(--ink); stroke-opacity: .35; stroke-width: 1; }
+.estado-hover-rule { stroke: var(--ink); stroke-opacity: .18; stroke-width: 1; }
+.estado-point { stroke: var(--white); stroke-width: 2; }
+.estado-end-label { fill: var(--ink); font-size: 10px; font-weight: 650; }
+.estado-hit { cursor: crosshair; fill: transparent; }
+.estado-tooltip { background: var(--white); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 10px 28px rgba(4,17,17,.14); display: grid; gap: 4px; min-width: 170px; padding: 10px 12px; pointer-events: none; position: absolute; top: 4px; z-index: 5; }
+.estado-tooltip strong { font-family: var(--serif); font-size: 15px; font-weight: 400; }
+.estado-tooltip span { align-items: center; color: var(--muted); display: flex; font-size: 11px; gap: 6px; }
+.estado-tooltip span i { border-radius: 2px; display: inline-block; height: 8px; width: 8px; }
+.estado-tooltip b { color: var(--ink); font-variant-numeric: tabular-nums; margin-left: auto; padding-left: 12px; }
+.estado-tooltip small { color: var(--muted); font-size: 9px; margin-top: 2px; }
+.estado-table { border-top: 1px solid var(--line); }
+.estado-table summary { color: var(--ink); cursor: pointer; font-size: 11px; font-weight: 700; letter-spacing: .06em; padding: 16px 30px; text-transform: uppercase; }
+.estado-table > div { max-height: 420px; overflow: auto; padding: 0 30px 20px; }
+.estado-table table { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; width: 100%; }
+.estado-table th, .estado-table td { border-bottom: 1px solid var(--line); padding: 7px 10px; text-align: right; white-space: nowrap; }
+.estado-table thead th { background: var(--white); color: var(--muted); font-size: 9px; letter-spacing: .08em; position: sticky; text-transform: uppercase; top: 0; }
+.estado-table th:first-child { text-align: left; }
+.estado-remittance-stats { border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; }
+.estado-remittance-stats > div { padding: 19px 24px; }
+.estado-remittance-stats > div + div { border-left: 1px solid var(--line); }
+.estado-remittance-stats dt { color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.estado-remittance-stats dd { font-family: var(--serif); font-size: 29px; margin: 5px 0 3px; }
+.estado-remittance-stats small { color: var(--muted); font-size: 10px; }
+.estado-remittance-grid { background: var(--line); display: grid; gap: 1px; grid-template-columns: 1.6fr 1fr; }
+.estado-top-list { background: var(--white); padding: 22px 24px 20px; }
+.estado-top-list h3 { font-family: var(--serif); font-size: 19px; font-weight: 400; margin: 0 0 3px; }
+.estado-top-list p { color: var(--muted); font-size: 11px; margin: 0 0 14px; }
+.estado-top-list ol { display: grid; gap: 9px; list-style: none; margin: 0; padding: 0; }
+.estado-top-list li > div { display: flex; font-size: 12px; justify-content: space-between; margin-bottom: 4px; }
+.estado-top-list li span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.estado-top-list li > i { background: var(--state, #0a7d54); border-radius: 0 4px 4px 0; display: block; height: 6px; }
+
+@media (max-width: 1100px) {
+  .landing-grid { grid-template-columns: 1fr 1fr; }
+  .estado-master-detail, .estado-chart-grid, .estado-remittance-grid { grid-template-columns: 1fr; }
+  .estado-tiles { grid-template-columns: repeat(3, 1fr); }
+  .estado-tiles > div:nth-child(4) { border-left: 0; }
+  .estado-tiles > div:nth-child(n+4) { border-top: 1px solid var(--line); }
+}
+@media (max-width: 700px) {
+  .landing-grid { grid-template-columns: 1fr; }
+  .estado-explorer { padding: 18px 12px 52px; }
+  .estado-controls { gap: 12px; grid-template-columns: 1fr; position: static; }
+  .estado-map-panel > header, .estado-pyramid-panel > header, .estado-section-heading { align-items: start; flex-direction: column; gap: 12px; }
+  .estado-chips.compact { justify-content: flex-start; }
+  .estado-pyramid { padding: 12px 12px 16px; }
+  .estado-tiles { grid-template-columns: 1fr 1fr; }
+  .estado-tiles > div { padding: 16px 16px 12px; }
+  .estado-tiles dd { font-size: 23px; white-space: nowrap; }
+  .estado-remittance-stats dd { font-size: 24px; }
+  .estado-tiles > div:nth-child(n) { border-left: 0; border-top: 1px solid var(--line); }
+  .estado-tiles > div:nth-child(even) { border-left: 1px solid var(--line); }
+  .estado-tiles > div:nth-child(-n+2) { border-top: 0; }
+  .estado-section-heading { padding: 22px 18px 18px; }
+  .estado-section-heading h2 { font-size: 32px; }
+  .estado-chart { padding: 18px 14px 12px; }
+  .estado-remittance-stats { grid-template-columns: 1fr; }
+  .estado-remittance-stats > div + div { border-left: 0; border-top: 1px solid var(--line); }
+  .estado-table summary { padding: 16px 18px; }
+  .estado-table > div { padding: 0 18px 18px; }
 }

@@ -138,11 +138,13 @@ The app deploys to **Cloudflare Workers on your own account** via Wrangler.
 | `app/visualizaciones/explorer.tsx` | The chamber explorer: hemicycle, name search over sitting/elected/former members, and the person panel. One component, `chamber` prop |
 | `app/visualizaciones/{diputados,senado}/page.tsx` | Thin routes over `explorer.tsx` |
 | `app/visualizaciones/votaciones/` | Vote search across both chambers, with the party square grid |
+| `app/estados/state-explorer.tsx` | **Conoce tu estado** (`/estados`): choropleth, animated population pyramid, stat tiles, demographic-transition charts and remittances for one state or the nation |
 | `app/articulos/page.tsx` | Artículos index, driven by `public/data/articles.json` |
 | `app/datos/page.tsx` | Datos: warehouse dictionary, master-detail over every table |
 | `app/globals.css` | Complete visual system and responsive layout |
 | `app/layout.tsx` | Metadata and social preview configuration |
 | `scripts/export_gaceta_web.py` | Materializes the static web snapshots from SQLite + INE CSV |
+| `scripts/export_conapo_states.py` | Writes `public/data/estados/` from the CONAPO warehouse tables |
 | `scripts/build_article_pages.py` | Publishes rendered Quarto articles with site chrome |
 | `public/articulos/*.html` | Published articles, served as static files |
 | `public/data/legislature-66.json` | Cámara seats, votes, packed histories and party totals. 1.1 MB, ~120 KB gzipped |
@@ -151,6 +153,7 @@ The app deploys to **Cloudflare Workers on your own account** via Wrangler.
 | `public/data/vote-ballots-66.json` | Names for the individual squares, mirroring `partyVotes`. 0.8 MB, ~64 KB gzipped |
 | `public/data/visualizaciones.json` | Manifest-only digest so the index need not load both chamber files |
 | `public/data/dictionary.json` | Table dictionaries, coverage matrices and column samples |
+| `public/data/estados/` | `index.json` (state list + map values, 48 KB) and one file per geography, `00.json`–`32.json` (≤22 KB each) |
 | `tests/rendered-html.test.mjs` | Build smoke test and core data invariants |
 | `worker/index.ts` | Cloudflare Worker entry; routes image optimization, else delegates to the app router |
 | `vite.config.ts` | vinext + Cloudflare plugin; declares the (empty) Worker binding config |
@@ -198,6 +201,28 @@ A table can be documented before it exists in `election_data.db`. Those are
 flagged `inWarehouse: false`, labelled "pendiente" in the sidebar and explained
 on the table page, because an empty Examples column with no explanation reads
 as a bug. The build prints which tables are in that state.
+
+## Conoce tu estado
+
+`/estados` is a top-level section (nav label "Estados"), not a dashboard card:
+it is a profile of one entity at a time, with the nation as the reference. It
+loads `estados/index.json` and `00.json` up front and each state's file only when
+the reader picks it.
+
+- **No projections.** Population data is CONAPO's reconstruction, 1970–2019;
+  its projections start in 2020 and are never exported. The test asserts the
+  last year is 2019. Remittances are observed flows and keep 2013–2024.
+- **The national pyramid is the sum of the 32 states** (CONAPO's single-age table
+  has no national rows); the warehouse view `view_conapo_population_pyramid`
+  does that sum, and the test asserts it band by band.
+- **Fixed scales over time.** The pyramid's axis and the map's colour domain
+  span every year (and, for the map, every state), so playing the years shows
+  change instead of re-fitting each frame.
+- **Colour follows the entity.** Men/women keep one pair everywhere; green is
+  the young end (births, under-15s) and violet the old end (deaths, 65+); the
+  national reference is a light gray that is always labelled directly. The hex
+  values are in `COLORS` and were checked with the dataviz palette validator.
+- The state and year live in `?estado=16&anio=1990` (`replaceState`).
 
 ## Articles
 
@@ -404,6 +429,7 @@ From the repository root:
 
 ```bash
 python3 web/scripts/export_gaceta_web.py
+python3 web/scripts/export_conapo_states.py
 python3 documentation/table_dictionaries/build_viewer.py
 python3 web/scripts/build_article_pages.py
 cd web

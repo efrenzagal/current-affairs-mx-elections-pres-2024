@@ -8,10 +8,11 @@
 import articles from "../public/data/articles.json";
 import { DASHBOARDS } from "./visualizaciones/dashboards";
 
-export type Section = "inicio" | "visualizaciones" | "articulos" | "datos";
+export type Section = "inicio" | "visualizaciones" | "estados" | "articulos" | "datos";
 
 export const SECTIONS: { key: Section; href: string; label: string }[] = [
   { key: "visualizaciones", href: "/visualizaciones", label: "Visualizaciones" },
+  { key: "estados", href: "/estados", label: "Estados" },
   { key: "articulos", href: "/articulos", label: "Artículos" },
   { key: "datos", href: "/datos", label: "Datos" },
 ];
