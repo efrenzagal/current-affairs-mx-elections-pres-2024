@@ -153,6 +153,20 @@ fabricated vote.
   there is no `senado_materialize.py`. `fact_senador_vote` has the same shape needed to
   build the equivalent of `gaceta_deputy_alignment.parquet` /
   `gaceta_party_cohesion.parquet` when that's wanted.
+- **`data/raw_senado_votes/*_detail.html` is no longer reproducible from the
+  live site — treat it as irreplaceable, not as a disposable cache.** As of
+  2026-09, `viewTableVot.php` no longer returns `AUSENTE` rows for *any*
+  vote: re-fetching all 179 cached votes that had at least one `AUSENTE` row
+  (533 rows total) now returns zero for every single one, with the rest of
+  each response (row count, order, names) otherwise unchanged. This wasn't a
+  handful of corrections — it reads as a server-side change dropping
+  `AUSENTE` from the response wholesale, applied retroactively across the
+  whole legislature. The crawler's caching was written assuming a fetched
+  vote page is immutable and safe to keep forever (see its module docstring)
+  — that assumption turned out to be wrong for this one field, and the only
+  surviving copy of those 533 absences is now whatever is already on disk.
+  Never delete or force-refresh `data/raw_senado_votes/` expecting it to
+  come back the same.
 
 ## Optional semantic classification
 
