@@ -538,33 +538,11 @@ The Worker name comes from `package.json`'s `name`, so the default hostname is
 from the Cloudflare dashboard.
 
 The app declares **no bindings** — no D1, R2, KV or queues. `dist/client/`
-ships as static assets and the Worker only server-renders the shell. The two
-JSON snapshots total roughly 6.5 MB, so let Cloudflare's edge cache do the
+ships as static assets and the Worker only server-renders the shell. The chamber
+JSON snapshots total roughly 1.6 MB (~180 KB gzipped), so let Cloudflare's edge cache do the
 work and avoid cache-busting them on unrelated deploys.
 
-Preserve `public/og.png`; do not regenerate it for ordinary UI or data updates.
-
-## Migration from Sites
-
-This project was scaffolded from a Sites/vinext starter. Removed, because
-nothing imported them and they only existed to satisfy that platform:
-
-- `app/chatgpt-auth.ts` — ChatGPT identity-header helpers, never imported.
-- `db/`, `drizzle/`, `drizzle.config.ts`, `examples/` and the `drizzle-orm` /
-  `drizzle-kit` dependencies — an empty D1 scaffold for a database this app
-  does not have.
-- `build/sites-vite-plugin.ts` — packaged Sites metadata into `dist/.openai/`.
-- `vite.config.ts`'s import of `.openai/hosting.json`, which derived D1/R2
-  bindings that were both `null`.
-- The `DB: D1Database` field on the Worker `Env`.
-
-Removing these also cleared every outstanding `tsc` error; the project now
-typechecks clean.
-
-`.openai/hosting.json` is deliberately **kept but no longer imported**. It is
-inert for a Cloudflare deploy and is the only remaining record of the Sites
-project ID, which is worth having until the migration is confirmed. Delete it
-once you are sure you will not go back.
+Preserve `public/og.jpg` (1200×630, the size link previews render); do not regenerate it for ordinary UI or data updates.
 
 ## Known constraints
 

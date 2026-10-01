@@ -561,12 +561,16 @@ test("publishes the article without duplicated or failing payload", async () => 
   // Quarto inlines the 4.8 MB Plotly bundle once per figure and ships MathJax
   // even with no math; the publisher strips both. Regressions here quietly
   // triple the page weight, so assert on the shape rather than the byte count.
-  assert.equal(
-    (article.match(/plotly\.js v/g) ?? []).length,
-    1,
-    "exactly one Plotly bundle survives de-duplication",
+  // The one copy that survives is not even inline: the figures only use
+  // scatter traces, so the page links the cached, versioned basic bundle.
+  assert.equal((article.match(/plotly\.js v/g) ?? []).length, 0, "no inline Plotly bundle");
+  const bundle = article.match(/<script src="\/(vendor\/plotly-basic-[\d.]+\.min\.js)"><\/script>/g) ?? [];
+  assert.equal(bundle.length, 1, "exactly one link to the vendored basic Plotly bundle");
+  const vendored = await readFile(
+    new URL(`../public/${bundle[0].match(/\/(vendor\/[^"]+)"/)[1]}`, import.meta.url),
+    "utf8",
   );
-  assert.ok(article.includes("window.Plotly = Plotly"), "the surviving bundle defines Plotly");
+  assert.ok(vendored.includes("window.Plotly = Plotly"), "the vendored bundle defines Plotly");
   assert.ok(article.includes('class="plotly-graph-div"'), "figures are present");
   assert.doesNotMatch(article, /cdn\.plot\.ly\/plotly-[\d.]+\.min"/, "no failing CDN import");
   assert.doesNotMatch(article, /\/MathJax\.js/, "no MathJax in an article without math");

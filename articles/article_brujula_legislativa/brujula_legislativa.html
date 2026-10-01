@@ -7,6 +7,25 @@
     <p class="ca-byline-name">Efrén Zagal</p>
   </header>
 
+  <p class="ca-explore-label">Explora la Brújula Legislativa</p>
+  <div class="ca-explore">
+    <a class="ca-explore-card" href="/visualizaciones/diputados">
+      <span class="ca-explore-card-eyebrow">Congreso</span>
+      <span class="ca-explore-card-title">Cámara de Diputados</span>
+      <span class="ca-explore-card-arrow" aria-hidden="true">→</span>
+    </a>
+    <a class="ca-explore-card" href="/visualizaciones/senado">
+      <span class="ca-explore-card-eyebrow">Congreso</span>
+      <span class="ca-explore-card-title">Senado de la República</span>
+      <span class="ca-explore-card-arrow" aria-hidden="true">→</span>
+    </a>
+    <a class="ca-explore-card" href="/visualizaciones/votaciones">
+      <span class="ca-explore-card-eyebrow">Congreso</span>
+      <span class="ca-explore-card-title">Buscador de votaciones</span>
+      <span class="ca-explore-card-arrow" aria-hidden="true">→</span>
+    </a>
+  </div>
+
   <p>
     Cuando se habla de política nacional, usualmente el poder ejecutivo —particularmente
     presidentes y gobernadores— es el centro de atención, como exploramos en
@@ -53,18 +72,24 @@
   </p>
 
   <div class="ca-embed-row">
-    <iframe
-      src="/visualizaciones/embed/hemiciclo?chamber=diputados&amp;bare=1"
-      height="730"
-      loading="lazy"
-      title="Hemiciclo interactivo: Cámara de Diputados"
-    ></iframe>
-    <iframe
-      src="/visualizaciones/embed/hemiciclo?chamber=senado&amp;bare=1"
-      height="745"
-      loading="lazy"
-      title="Hemiciclo interactivo: Senado de la República"
-    ></iframe>
+    <div class="ca-embed-row-item">
+      <p class="ca-embed-caption">Cámara de Diputados</p>
+      <iframe
+        src="/visualizaciones/embed/hemiciclo?chamber=diputados&amp;bare=1"
+        height="730"
+        loading="lazy"
+        title="Hemiciclo interactivo: Cámara de Diputados"
+      ></iframe>
+    </div>
+    <div class="ca-embed-row-item">
+      <p class="ca-embed-caption">Senado de la República</p>
+      <iframe
+        src="/visualizaciones/embed/hemiciclo?chamber=senado&amp;bare=1"
+        height="745"
+        loading="lazy"
+        title="Hemiciclo interactivo: Senado de la República"
+      ></iframe>
+    </div>
   </div>
 
   <h2>El perfil de un legislador</h2>
@@ -77,12 +102,14 @@
   </p>
   <p>
     Ricardo Anaya, uno de los senadores más mediáticos tras su postulación presidencial en 2018,
-    llegó a su posición por representación proporcional. Su perfil muestra asistencia perfecta,
-    pero uno de los porcentajes de votos a favor más bajos de ambas cámaras. Adán Augusto López,
+    llegó a su posición por representación proporcional. Su perfil muestra una participación del
+    96%, de las más altas del Senado —muy por encima de la mediana de la cámara, de 84%—, pero uno
+    de los porcentajes de votos a favor más bajos de ambas cámaras. Adán Augusto López,
     antiguo secretario de Gobernación en el gobierno de AMLO, presenta en cambio un historial de
     voto a favor en prácticamente todas las iniciativas de la presente legislatura.
   </p>
   <div class="ca-embed ca-embed-wide">
+    <p class="ca-embed-caption">Perfiles legislativos de Ricardo Anaya y Adán Augusto López</p>
     <iframe
       src="/visualizaciones/embed/legislador?chamber=senado&amp;seats=SEN_08A5F1A9E996,SEN_2C8F3C495265"
       height="850"
@@ -102,6 +129,7 @@
   </p>
 
   <div class="ca-embed ca-embed-wide">
+    <p class="ca-embed-caption">Perfiles legislativos de Omar Harfuch y Francisco Chíguil</p>
     <iframe
       src="/visualizaciones/embed/legislador?chamber=senado&amp;seats=SEN_3ADFEDCF3EB3"
       height="750"
@@ -126,6 +154,7 @@
   </p>
 
   <div class="ca-embed">
+    <p class="ca-embed-caption">Perfil de votación: reforma al Poder Judicial, 10 de septiembre de 2024</p>
     <iframe
       src="/visualizaciones/embed/votacion?chamber=senado&amp;vote=4716&amp;seat=SEN_213507BA1C52"
       height="1080"
@@ -160,6 +189,7 @@
   </p>
 
   <div class="ca-embed">
+    <p class="ca-embed-caption">Distrito 10, Ciudad de México — diputada Margarita Zavala</p>
     <iframe
       src="/visualizaciones/embed/hemiciclo?chamber=diputados&amp;seat=DIP_8EDE38266502&amp;estado=CIUDAD%20DE%20MEXICO&amp;municipio=Miguel%20Hidalgo&amp;singleView=1"
       height="1810"
@@ -186,6 +216,7 @@
   </p>
 
   <div class="ca-embed ca-embed-wide">
+    <p class="ca-embed-caption">Buscador de votaciones</p>
     <iframe
       src="/visualizaciones/embed/votaciones?camara=diputados&amp;orden=divididas"
       height="1230"
@@ -202,6 +233,7 @@
   </p>
 
   <div class="ca-embed ca-embed-wide">
+    <p class="ca-embed-caption">Perfil de votación: prohibición de vapeadores, 9 de diciembre de 2025</p>
     <iframe
       src="/visualizaciones/embed/votaciones?v=diputados%3AGACETA_L66_TABLA2OR1_76&amp;bare=1"
       height="1250"

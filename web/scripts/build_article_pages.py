@@ -27,6 +27,19 @@ ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "web"
 OUT_DIR = WEB / "public" / "articulos"
 INDEX_PATH = WEB / "public" / "data" / "articles.json"
+# Plotly's "basic" bundle (scatter, bar, pie) is a quarter of the full one.
+# It is served as its own versioned file so the browser caches it once across
+# articles instead of re-downloading it inline with every page.
+VENDOR_DIR = WEB / "public" / "vendor"
+PLOTLY_VERSION_RE = re.compile(r"plotly\.js v(\d+\.\d+\.\d+)")
+PLOTLY_BASIC_TRACES = {"scatter", "bar", "pie"}
+# Other `"type"` values Plotly JSON carries that are not traces: shapes, axes
+# and update menus. Anything outside both sets keeps the full inline bundle.
+PLOTLY_NON_TRACE_TYPES = {
+    "line", "rect", "circle", "path",
+    "linear", "log", "date", "category", "multicategory", "-",
+    "buttons", "dropdown",
+}
 
 
 @dataclass(frozen=True)
@@ -257,6 +270,8 @@ body{background:var(--paper)!important}
    empty. Pinning the iframe's own width keeps one height number honest
    either way — and keeps it above the app's 700px breakpoint either way. */
 .ca-embed-row iframe{background:transparent;border:0;display:block;margin:0 auto;max-width:760px;width:100%}
+.ca-embed-row-item{display:flex;flex-direction:column;gap:10px}
+.ca-embed-caption{color:var(--muted);font-family:var(--sans);font-size:11px;font-weight:650;letter-spacing:.08em;margin:0 0 10px;text-align:center;text-transform:uppercase}
 
 /* Closing "explore the rest of the tool" row — three square link cards
    instead of inline text links, so the article ends on something more
@@ -556,16 +571,48 @@ SCRIPT_RE = re.compile(r"<script\b[^>]*>.*?</script>", re.S | re.I)
 MATH_RE = re.compile(r'class="math (?:inline|display)"|<mjx-container', re.I)
 
 
+def basic_plotly_src(html: str) -> str | None:
+    """URL of the vendored basic Plotly bundle, if this article can use it.
+
+    None when the figures use a trace type outside the basic bundle, or when
+    the matching version has not been vendored yet.
+    """
+    version = PLOTLY_VERSION_RE.search(html)
+    if not version:
+        return None
+    # Scan the figures only: the library's own source mentions other types.
+    figures = SCRIPT_RE.sub(
+        lambda m: "" if "plotly.js v" in m.group(0)[:400] else m.group(0), html
+    )
+    types = set(re.findall(r'"type":\s*"([\w-]+)"', figures))
+    unsupported = types - PLOTLY_BASIC_TRACES - PLOTLY_NON_TRACE_TYPES
+    if unsupported:
+        print(f"  keeping the full Plotly bundle inline: uses {sorted(unsupported)}")
+        return None
+    name = f"plotly-basic-{version.group(1)}.min.js"
+    if not (VENDOR_DIR / name).exists():
+        print(
+            f"  keeping the full Plotly bundle inline: {VENDOR_DIR / name} is missing. "
+            f"Download https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@"
+            f"{version.group(1)}/plotly-basic.min.js to that path."
+        )
+        return None
+    return f"/vendor/{name}"
+
+
 def slim(html: str) -> tuple[str, dict[str, int]]:
     """Drop payload that `embed-resources` duplicates or includes for nothing.
 
     Quarto inlines the whole Plotly bundle once per figure — four identical
     4.8 MB copies in this article — and ships MathJax whether or not a single
     formula was written. Only the first Plotly copy defines `window.Plotly`;
-    the rest are dead weight the reader still has to download.
+    the rest are dead weight the reader still has to download. The copy that
+    stays becomes a link to the vendored basic bundle when the figures allow it.
     """
     has_math = bool(MATH_RE.search(html))
+    plotly_src = basic_plotly_src(html)
     stats = {
+        "plotly_basic": int(plotly_src is not None),
         "plotly_removed": 0,
         "mathjax_removed": 0,
         "cdn_removed": 0,
@@ -587,7 +634,7 @@ def slim(html: str) -> tuple[str, dict[str, int]]:
                 stats["plotly_removed"] += 1
                 return ""
             seen_plotly = True
-            return block
+            return f'<script src="{plotly_src}"></script>' if plotly_src else block
         if not has_math and "/MathJax.js" in block[:400]:
             stats["mathjax_removed"] += 1
             return ""
@@ -642,7 +689,8 @@ def publish_quarto(article: Article) -> tuple[Path, dict[str, int]]:
     destination = OUT_DIR / f"{article.slug}.html"
     destination.write_text(wrapped, encoding="utf-8")
 
-    if wrapped.count('class="plotly-graph-div"') and "window.Plotly = Plotly" not in wrapped:
+    has_bundle = "window.Plotly = Plotly" in wrapped or 'src="/vendor/plotly-' in wrapped
+    if wrapped.count('class="plotly-graph-div"') and not has_bundle:
         raise RuntimeError(
             f"{destination} has Plotly figures but no Plotly bundle left; "
             "the de-duplication in slim() removed too much."
@@ -693,7 +741,8 @@ def main() -> None:
         before = stats["bytes_before"] / 1_048_576
         after = destination.stat().st_size / 1_048_576
         print(
-            f"Wrote {destination} ({after:.1f} MB, was {before:.1f} MB) — dropped "
+            f"Wrote {destination} ({after:.1f} MB, was {before:.1f} MB) — "
+            f"{'linked the vendored basic Plotly bundle, ' if stats.get('plotly_basic') else ''}dropped "
             f"{stats['plotly_removed']} duplicate Plotly bundle(s), "
             f"{stats['mathjax_removed']} unused MathJax copy(ies) and "
             f"{stats['cdn_removed']} failing CDN import(s)"
