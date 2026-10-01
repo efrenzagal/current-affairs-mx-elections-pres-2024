@@ -531,8 +531,8 @@ def chrome_header(active: str = "articulos") -> str:
         )
     return (
         '<header class="ca-header">'
-        '<a class="ca-brand" href="/"><span class="ca-mark">ca</span>'
-        "<span>current affairs<br>mx</span></a>"
+        '<a class="ca-brand" href="/"><span class="ca-mark">lp</span>'
+        "<span>Latitud<br>Pública</span></a>"
         f"<nav>{''.join(links)}</nav>"
         '<div class="ca-status"><i></i>Artículo</div>'
         "</header>"
@@ -543,7 +543,7 @@ def chrome_header(active: str = "articulos") -> str:
 def chrome_footer() -> str:
     return (
         '<footer class="ca-footer">'
-        '<div class="ca-brand"><span class="ca-mark">ca</span><span>current affairs mx</span></div>'
+        '<div class="ca-brand"><span class="ca-mark">lp</span><span>Latitud Pública</span></div>'
         "<p>Una lectura pública de la política mexicana.</p>"
         "<span>Artículos</span>"
         "</footer>"
@@ -663,7 +663,7 @@ def publish_prose(article: Article) -> tuple[Path, dict[str, int]]:
     document = (
         "<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">"
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{article.title} · current affairs mx</title></head>"
+        f"<title>{article.title} · Latitud Pública</title></head>"
         f"<body>{fragment}</body></html>"
     )
     wrapped = wrap(document, extra_css=PROSE_CSS)

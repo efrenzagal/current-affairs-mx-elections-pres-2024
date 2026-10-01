@@ -261,7 +261,7 @@ export default function DictionaryPage() {
               <p className="eyebrow">Panorama</p>
               <h1 className="dict-title dict-title-serif">El almacén de datos</h1>
               <p className="dict-purpose">
-                Toda cifra publicada en current affairs mx sale de un almacén SQLite documentado tabla
+                Toda cifra publicada en Latitud Pública sale de un almacén SQLite documentado tabla
                 por tabla. Esta es esa documentación: qué contiene cada tabla, cómo se une con las demás
                 y qué valores reales guarda cada columna.
               </p>

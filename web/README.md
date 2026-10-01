@@ -1,12 +1,13 @@
-# current affairs mx — web handoff
+# Latitud Pública — web handoff
 
 Public site for Mexican politics, in three sections: **Visualizaciones**
 (interactive dashboards, currently one LXVI Legislature explorer per chamber),
 **Artículos** (long-form data pieces published from Quarto) and **Datos** (the
 warehouse dictionary). `/` is a static landing page into the three.
 
-`current affairs mx` is a placeholder name pending a final choice; it appears
-only in the UI and `app/site-chrome.tsx`, not in the Worker or package name.
+The site name, **Latitud Pública**, appears only in the UI (`app/site-chrome.tsx`,
+`app/layout.tsx`) and in the article chrome from `scripts/build_article_pages.py`,
+not in the Worker or package name.
 
 The explorers connect the official 2024 seat integration *and* the current
 official directory to nominal roll-call histories, letting readers move from

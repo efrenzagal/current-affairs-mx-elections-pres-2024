@@ -7,7 +7,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "current affairs mx — asuntos públicos de México, con datos";
+  const title = "Latitud Pública — asuntos públicos de México, con datos";
   const description =
     "Visualizaciones interactivas, artículos de análisis y el diccionario del almacén de datos que los sostiene. Todo a partir de fuentes oficiales, con la fecha de corte a la vista.";
 
@@ -19,13 +19,13 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description,
       type: "website",
-      images: [{ url: `${origin}/og.png`, width: 1732, height: 909, alt: title }],
+      images: [{ url: `${origin}/og.jpg`, width: 1200, height: 630, alt: title }],
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: [`${origin}/og.png`],
+      images: [`${origin}/og.jpg`],
     },
   };
 }

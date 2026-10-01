@@ -16,7 +16,7 @@ export const SECTIONS: { key: Section; href: string; label: string }[] = [
   { key: "datos", href: "/datos", label: "Datos" },
 ];
 
-export const SITE_NAME = "current affairs mx";
+export const SITE_NAME = "Latitud Pública";
 
 const NAV_MENUS = {
   visualizaciones: {
@@ -44,11 +44,11 @@ export function SiteHeader({ active, status }: { active: Section; status: string
   return (
     <header className="site-header">
       <a className="brand" href="/" aria-label={`${SITE_NAME}, inicio`}>
-        <span className="brand-mark">ca</span>
+        <span className="brand-mark">lp</span>
         <span>
-          current affairs
+          Latitud
           <br />
-          mx
+          Pública
         </span>
       </a>
       <nav aria-label="Navegación principal">
@@ -103,7 +103,7 @@ export function SiteFooter({ note }: { note: string }) {
   return (
     <footer>
       <div className="brand footer-brand">
-        <span className="brand-mark">ca</span>
+        <span className="brand-mark">lp</span>
         <span>{SITE_NAME}</span>
       </div>
       <p>Una lectura pública de los asuntos públicos de México.</p>

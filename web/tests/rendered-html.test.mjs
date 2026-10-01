@@ -31,7 +31,7 @@ test("server-renders the landing page", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /<title>current affairs mx — asuntos públicos de México, con datos<\/title>/i);
+  assert.match(html, /<title>Latitud Pública — asuntos públicos de México, con datos<\/title>/i);
   assert.match(html, /decisiones públicas/);
   // The three sections must always be reachable from the front door.
   for (const section of ["Visualizaciones interactivas", "Artículos", "Datos"]) {
@@ -50,7 +50,7 @@ test("server-renders the landing page", async () => {
     html.includes('<details class="nav-item has-menu" name="site-navigation">'),
     "dashboard and article menus support touch disclosure",
   );
-  assert.match(html, /og\.png/);
+  assert.match(html, /og\.jpg/);
   // The front door carries no dataset, so it must never ship a loading state.
   assert.doesNotMatch(html, /Preparando el pleno/);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|Your site is taking shape/i);
