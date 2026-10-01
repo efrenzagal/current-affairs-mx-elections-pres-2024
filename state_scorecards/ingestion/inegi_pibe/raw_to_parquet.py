@@ -11,7 +11,7 @@ Only the activity-oriented files are read.  INEGI's entity-oriented files are
 the same data cube in a different orientation and would duplicate the data.
 
 Usage:
-    python3 state_scorecards/ingestion/raw_to_parquet.py
+    python3 state_scorecards/ingestion/inegi_pibe/raw_to_parquet.py
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 STATE_SCORECARDS_DIR = REPO_ROOT / "state_scorecards"
 RAW_ROOT = STATE_SCORECARDS_DIR / "data" / "raw_inegi"
 OUTPUT_PATH = STATE_SCORECARDS_DIR / "data" / "clean" / "pibe_state_annual.parquet"

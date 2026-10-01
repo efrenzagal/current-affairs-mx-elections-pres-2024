@@ -5,8 +5,8 @@ one denormalized table, ``fact_pibe_state_annual``, optimized for state-scorecar
 queries while retaining INEGI provenance and hierarchy fields.
 
 Usage:
-    python3 state_scorecards/ingestion/ingest.py
-    python3 state_scorecards/ingestion/ingest.py --force
+    python3 state_scorecards/ingestion/inegi_pibe/ingest.py
+    python3 state_scorecards/ingestion/inegi_pibe/ingest.py --force
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 DB_PATH = REPO_ROOT / "election_data.db"
 CLEAN_PATH = (
     REPO_ROOT / "state_scorecards" / "data" / "clean" / "pibe_state_annual.parquet"

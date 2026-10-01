@@ -1,8 +1,8 @@
 """Load validated CONAPO Parquet files into the existing SQLite warehouse.
 
 Usage:
-    python3 state_scorecards/ingestion/conapo_ingest.py
-    python3 state_scorecards/ingestion/conapo_ingest.py --force
+    python3 state_scorecards/ingestion/conapo/ingest.py
+    python3 state_scorecards/ingestion/conapo/ingest.py --force
 
 Tables are loaded under temporary names, checked, and published together.
 Existing CONAPO tables remain available if an earlier load or check fails.
@@ -22,10 +22,41 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 DB_PATH = ROOT / "election_data.db"
 CLEAN_DIR = ROOT / "state_scorecards" / "data" / "clean"
 VIEW_NAME = "view_conapo_pibe_per_capita"
+PYRAMID_VIEW = "view_conapo_population_pyramid"
+
+# Five-year bands with an open 85+ band, the same cut as CONAPO's municipal
+# tables. Reconstruction years only: CONAPO's projections start in 2020. The
+# national rows ('00') are the sum of the 32 states, because the single-age
+# table carries no national geography; those sums equal the national
+# population_total in fact_conapo_state_annual for every year.
+PYRAMID_VIEW_SQL = f"""CREATE VIEW {PYRAMID_VIEW} AS
+WITH banded AS (
+    SELECT state_code, year, sex,
+           CASE WHEN age >= 85 THEN 85 ELSE (age / 5) * 5 END AS age_start,
+           population
+    FROM fact_conapo_state_population_age_annual
+    WHERE estimate_phase = 'reconstruction'
+),
+geographies AS (
+    SELECT state_code, year, sex, age_start, SUM(population) AS population
+    FROM banded GROUP BY state_code, year, sex, age_start
+    UNION ALL
+    SELECT '00', year, sex, age_start, SUM(population)
+    FROM banded GROUP BY year, sex, age_start
+)
+SELECT g.state_code, s.state_name, g.year, g.sex, g.age_start,
+       CASE WHEN g.age_start = 85 THEN NULL ELSE g.age_start + 4 END AS age_end,
+       CASE WHEN g.age_start = 85 THEN '85+'
+            ELSE g.age_start || '-' || (g.age_start + 4) END AS age_band,
+       g.population,
+       100.0 * g.population / SUM(g.population) OVER (PARTITION BY g.state_code, g.year)
+           AS pct_of_population
+FROM geographies g
+JOIN dim_conapo_state s ON s.state_code = g.state_code"""
 
 TABLES = {
     "fact_conapo_state_annual": (
@@ -216,6 +247,7 @@ def publish(conn: sqlite3.Connection, force: bool) -> None:
     conn.execute("BEGIN")
     try:
         conn.execute(f"DROP VIEW IF EXISTS {VIEW_NAME}")
+        conn.execute(f"DROP VIEW IF EXISTS {PYRAMID_VIEW}")
         for name in names:
             if exists(conn, "table", name):
                 conn.execute(f'DROP TABLE "{name}"')
@@ -251,6 +283,7 @@ def publish(conn: sqlite3.Connection, force: bool) -> None:
             WHERE p.unit = 'Millones de pesos a precios de 2018'
               AND p.value IS NOT NULL AND c.population_total > 0"""
         )
+        conn.execute(PYRAMID_VIEW_SQL)
         conn.commit()
     except Exception:
         conn.rollback()

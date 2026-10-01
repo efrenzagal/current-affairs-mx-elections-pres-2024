@@ -1,9 +1,10 @@
 """Normalize the CONAPO population scorecard sources into local Parquet files.
 
 Run from the repository root:
-    python3 state_scorecards/ingestion/conapo_raw_to_parquet.py
+    python3 state_scorecards/ingestion/conapo/raw_to_parquet.py
 
-The original CSV/XLSX files remain in data/raw_conapo. This script does not
+The original CSV/XLSX files remain in data/raw_conapo, one subfolder per
+CONAPO release. This script does not
 change the PIBE artifact or the SQLite warehouse. The two archived XLSX files
 are read with Python's standard-library ZIP/XML modules so no Excel dependency
 is needed for repeatable conversion.
@@ -23,17 +24,17 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 RAW_DIR = ROOT / "state_scorecards" / "data" / "raw_conapo"
 CLEAN_DIR = ROOT / "state_scorecards" / "data" / "clean"
 
 FILES = {
-    "state_annual": "05_indicadores_demograficos_proyecciones.csv",
-    "state_age": "00_Pob_Mitad_1950_2070.csv",
-    "municipality_annual": "3_Indicadores_Dem_00_RM.xlsx",
-    "municipality_age": "pobproy_quinq1.csv",
-    "municipality_life_stage": "pobproy_ggrupos.csv",
-    "fertility": "4_Tasas_Especificas_Fecundidad_proyecciones.xlsx",
+    "state_annual": "proyecciones_estatales/05_indicadores_demograficos_proyecciones.csv",
+    "state_age": "proyecciones_estatales/00_Pob_Mitad_1950_2070.csv",
+    "municipality_annual": "proyecciones_municipales/3_Indicadores_Dem_00_RM.xlsx",
+    "municipality_age": "proyecciones_municipales/pobproy_quinq1.csv",
+    "municipality_life_stage": "proyecciones_municipales/pobproy_ggrupos.csv",
+    "fertility": "proyecciones_estatales/4_Tasas_Especificas_Fecundidad_proyecciones.xlsx",
 }
 
 OUTPUTS = {
@@ -199,7 +200,7 @@ def state_annual(raw_dir: Path, output: Path) -> pd.DataFrame:
         raise ValueError("State male and female counts do not sum to total")
     unique(data, ["state_code", "year"], "state annual")
     data["estimate_phase"] = data.year.map(lambda year: "projection" if year >= 2020 else "reconstruction")
-    data["source_file"] = FILES["state_annual"]
+    data["source_file"] = Path(FILES["state_annual"]).name
     write_parquet(data, output)
     return data
 
@@ -223,7 +224,7 @@ def state_age(raw_dir: Path, output: Path, annual: pd.DataFrame) -> None:
     if len(checked) != len(summed) or not (checked._merge == "both").all() or not (checked.population == checked.expected).all():
         raise ValueError("State age/sex population does not reconcile to annual indicators")
     data["estimate_phase"] = data.year.map(lambda year: "projection" if year >= 2020 else "reconstruction")
-    data["source_file"] = FILES["state_age"]
+    data["source_file"] = Path(FILES["state_age"]).name
     write_parquet(data, output)
 
 
@@ -247,7 +248,7 @@ def municipality_annual(raw_dir: Path, output: Path) -> pd.DataFrame:
         raise ValueError("Municipal code prefix differs from state code")
     unique(data, ["municipality_code", "year"], "municipality annual")
     data["estimate_phase"] = data.year.map(lambda year: "projection" if year >= 2021 else "reconstruction")
-    data["source_file"] = FILES["municipality_annual"]
+    data["source_file"] = Path(FILES["municipality_annual"]).name
     write_parquet(data, output)
     return data
 
@@ -293,7 +294,7 @@ def municipality_age(raw_dir: Path, output: Path, annual: pd.DataFrame) -> None:
             long = long.drop(columns="source_age_column")
             long["population"] = integer(long.population, "population")
             long["estimate_phase"] = long.year.map(lambda year: "projection" if year >= 2021 else "reconstruction")
-            long["source_file"] = FILES["municipality_age"]
+            long["source_file"] = Path(FILES["municipality_age"]).name
             table = pa.Table.from_pandas(long, preserve_index=False)
             if writer is None:
                 writer = pq.ParquetWriter(output, table.schema, compression="zstd")
@@ -335,7 +336,7 @@ def municipality_life_stage(raw_dir: Path, output: Path, annual: pd.DataFrame) -
     if len(checked) != len(annual) or not (checked.population_total_stage == checked.population_total_annual).all():
         raise ValueError("Municipal life-stage totals differ from annual indicators")
     data["estimate_phase"] = data.year.map(lambda year: "projection" if year >= 2021 else "reconstruction")
-    data["source_file"] = FILES["municipality_life_stage"]
+    data["source_file"] = Path(FILES["municipality_life_stage"]).name
     write_parquet(data, output)
 
 
@@ -360,7 +361,7 @@ def fertility(raw_dir: Path, output: Path, annual: pd.DataFrame) -> None:
     if len(checked) != len(annual) or not (checked._merge == "both").all() or not (checked.births_age == checked.births_annual).all():
         raise ValueError("Fertility births do not reconcile to annual indicators")
     data["estimate_phase"] = data.year.map(lambda year: "projection" if year >= 2020 else "reconstruction")
-    data["source_file"] = FILES["fertility"]
+    data["source_file"] = Path(FILES["fertility"]).name
     write_parquet(data, output)
 
 
