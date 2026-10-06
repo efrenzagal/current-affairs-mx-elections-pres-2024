@@ -64,6 +64,7 @@ a single image reconstructed everything. **That stopped.** Recent windows:
 | 2026-06 | Jan → Jun 2026 | 6 |
 | 2026-07 | Apr → Jul 2026 | 4 |
 | 2026-08 | Aug 2025 → Aug 2026 | 13 |
+| 2026-09 | Sep 2025 → Sep 2026 | 13 |
 
 The 2026-08 wave **widened the window back out** to 13 months. The shrinkage
 was therefore not a one-way trend, and the window has to be read off each wave
@@ -102,6 +103,10 @@ Read the panel titles rather than trusting the index:
 | | `__02` | Relación con Trump |
 | | `__03` | Revisiones al T-MEC |
 | | `__04` | *Visas / Listas* — one-off, do not transcribe |
+| 2026-09 | `__01` | Apoyos sociales, Economía, Seguridad pública, Corrupción, Crimen organizado — **positive share only** (see below) |
+| | `__02` | *Desempeño anual* (mejorado/empeorado) — do not transcribe |
+| | `__03` | Revisiones al T-MEC |
+| | `__04`–`__06` | Gabinete, SCJN ministers, Legislativo/Judicial approval — do not transcribe |
 
 The 2026-08 wave carries **no panel at all** for Economía, Corrupción,
 Seguridad pública, Crimen organizado or Apoyos sociales, so those five temas
@@ -110,6 +115,19 @@ are simply absent for that month.
 Economía, Corrupción and Seguridad pública are simply **absent** from the
 2026-06 article. A missing topic is normal and needs no note; the next wave's
 overlap usually fills it.
+
+### Single-series topic panels
+
+The 2026-09 `__01` panel draws the five recurring temas from Sep 2025 to Sep
+2026 but prints **only "% Muy bien o bien"** — no negative line. Months already
+on file were left alone (their positive values all matched; adding a row with a
+blank `mal` would collide with the stored reading). Months not on file —
+2025-09/10/11, 2026-08, 2026-09 — were added with `negativo` blank, which loads
+as a missing `mal` and `resto`.
+
+The lines bunch tightly in Aug–Sep 2026. Each printed label was assigned to a
+series by its marker, not estimated from position; re-check against the image
+if a later wave restates those months with both series.
 
 ## Charts that must not be transcribed
 
@@ -162,7 +180,9 @@ con Estados Unidos y Canadá?". It is a genuine `desempeno` question.
   "Muy bien/Bien" point with no printed label, so it was left out at the time;
   the 2026-08 chart restates it as **51**, and it is now loaded. This is the
   overlap rule paying for itself.
-- **Five temas for 2026-08** — Economía, Corrupción, Seguridad pública,
+- **Five temas for 2026-08** — *recovered (positive share only)* by the
+  2026-09 chart: Seguridad 13, Crimen organizado 11, Corrupción 14 — the main
+  article's ordering. Original note: Economía, Corrupción, Seguridad pública,
   Crimen organizado and Apoyos sociales have no chart in the 2026-08 article.
   Both articles quote figures for them in prose, and **the two disagree**
   (see below), so nothing was transcribed. Recoverable if the 2026-09 wave
@@ -185,6 +205,8 @@ way to notice. Both were left out.
 
 | Date | Change |
 |---|---|
+| 2026-09 | Back under `/nacional/`; `__00` window 13 months again |
+| 2026-09 | Five-tema panel drops the negative series; *Principal problema* chart absent |
 | 2026-08 | Back under `/nacional/`; the path is confirmed unstable in both directions |
 | 2026-08 | `__00` window widens back out to 13 months |
 | 2026-08 | Five recurring topic panels absent; a chartless companion article contradicts the main one in prose |
@@ -195,12 +217,12 @@ way to notice. Both were left out.
 | 2026-06 | Publication drifts to the 6th of the month |
 | 2026-04 | New tema `Revisiones al T-MEC` |
 
-## State as of 2026-09-05
+## State as of 2026-10-05
 
-- Last wave loaded: **2026-08** (68 / 32), from the article published
-  2026-09-01
+- Last wave loaded: **2026-09** (70 / 30), from the article published
+  2026-10-01 (fieldwork 10–15 and 17–20 Sep 2026)
 - Headline series continuous from 2024-10
-- 2026-01 → 2026-07 are `grafica+grafica`; 2026-08 is `grafica` until the next
-  wave restates it
-- The 2026-08 chart re-read all 12 prior months and every one matched what was
-  already on file
+- 2026-09 is `grafica` until the next wave restates it; the 2026-09 chart
+  re-read all 12 prior months and every one matched what was on file
+- Topic cells for the five recurring temas in 2025-09/10/11, 2026-08 and
+  2026-09 carry `bien` only

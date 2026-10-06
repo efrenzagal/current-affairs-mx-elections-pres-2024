@@ -482,7 +482,7 @@ export default function ApprovalExplorer() {
         <div className="method-body">
           <p>
             Encuestas de aprobación presidencial de {data.presidents.length} sexenios, corte al{" "}
-            <strong>{data.sourceThrough}</strong>. El eje horizontal es el número de meses desde la
+            <strong>{formatDate(data.sourceThrough)}</strong>. El eje horizontal es el número de meses desde la
             toma de posesión de cada presidente, no la fecha calendario, para poder comparar
             sexenios en el mismo punto de su mandato. Cada sexenio se traza con la mediana mensual
             de las encuestas disponibles; el filtro de encuestadora recalcula esa mediana solo con

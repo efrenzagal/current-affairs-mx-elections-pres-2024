@@ -50,6 +50,7 @@ last month's, even within the same nominal series.
 | `Encuesta Nacional` (e.g. Jun 2026) | "¿Qué opinión tiene usted de la Presidenta...?" (muy buena/buena — muy mala/mala) | **Different question**, not aprueba/desaprueba |
 | `Evaluación de Gobierno Federal` (e.g. Abr 2026) | Same "opinión" wording, sometimes as a trend chart | **Different question** |
 | `Encuesta Nacional Audiencias y Redes sociales` (Ago 2026) | "¿Usted aprueba o desaprueba el trabajo de la Presidenta...?" | Matches the Oraculus wording |
+| `Encuesta Nacional Sentimiento Post-Mundial` (Jul 2026) | Same aprueba/desaprueba wording, slide 8 (single wave) and slide 9 (trend) | Matches the Oraculus wording |
 
 Checked one wave of each template as of 2026-09. The literal
 aprueba/desaprueba wording has now been found in two templates: the
@@ -84,6 +85,31 @@ chart a wave actually has:
 - Never load both wordings for the same `poll_month` — they collide on the
   `(poll_month, pollster, occurrence)` key and the loader will reject the
   disagreement as a conflict.
+
+### The 2026 "opinión" months were replaced
+
+The July 2026 post-Mundial deck's slide 9 trend shows that Demotecnia *did*
+ask aprueba/desaprueba in Jan, May and Jun 2026 — readings the monthly decks
+never published. On 2026-10-05 the three "opinión" rows were swapped for
+them, so the 2026 series is now one question throughout:
+
+| Month | Was (opinión) | Now (aprueba/desaprueba, slide 9) |
+|---|---|---|
+| 2026-01 | 63 / 19 | 66 / 24 |
+| 2026-05 | 72 / 17 | 64 / 24 |
+| 2026-06 | 71 / 18 | 66 / 24 |
+
+The discontinuity described above therefore no longer exists in the stored
+series; the working rule still applies to any future wave that only carries
+the opinión chart.
+
+**That trend chart's month labels are not fully reliable.** It prints the
+September 2025 wave (74 / 8 / 15 / 3 — the deck's own methodology says
+"Septiembre de 2025") under "Agosto 2025", and shows a "Septiembre 2025"
+69 / 14 and a "Julio 2025" 67 / 19 found nowhere else. None of its 2025
+points were transcribed. Its Jan 2025 point (80 / 10) does match the seed.
+The 2026 points were accepted on the strength of the question wording; if a
+later deck dates them differently, believe the deck with a methodology page.
 
 ### Trend charts carry multiple months in one image
 
@@ -145,20 +171,21 @@ Recurring Demotecnia charts that look evaluative but are not `aprobacion` or
 
 | Date | Change |
 |---|---|
+| 2026-07 | aprueba/desaprueba on a World Cup deck, with a trend back to Jan 2025 (labels partly shifted — see above) |
 | 2026-08 | aprueba/desaprueba wording **returns**, on an `Audiencias y Redes sociales` deck (68 / 25) |
 | 2026-08 | First reconciled: Sept 2025 wave's aprueba/desaprueba chart matches Oraculus's seed exactly (74/15) |
 | ~2025-09 → 2026 | Monthly decks stop carrying the aprueba/desaprueba chart; "opinión buena/mala" is the only headline question found since |
 
-## State as of 2026-09-05
+## State as of 2026-10-05
 
-- Rows loaded: `2025-09` (aprueba/desaprueba, corroborates Oraculus),
-  `2026-01`, `2026-05`, `2026-06` (all "opinión" wording — accepted
-  discontinuity, see above), `2026-08` (aprueba/desaprueba, 68 / 25)
+- Rows loaded: `2025-09` (corroborates Oraculus), `2026-01`, `2026-05`,
+  `2026-06` (from the July trend chart), `2026-07` (69 / 21, fieldwork 11–15
+  July 2026), `2026-08` (68 / 25) — all aprueba/desaprueba wording
 - `desempeno`: 12 temas, `2026-05` only, from one `Evaluación de Gobierno
   Federal` wave
-- The 2026-08 wave is the first since 2025-09 in the wording that is directly
-  comparable to the pre-2026 series. Two comparable points either side of the
-  "opinión" stretch is not yet enough to characterise the discontinuity, but
-  it is the first chance to; watch whether later waves keep the wording.
-- The 2026-08 deck carried no methodology slide, and its cover slide is not
-  referenced in the page HTML — both normal for this house.
+- Nothing national published between 2026-08-13 and 2026-10-05; the only new
+  report is a Nuevo León state poll (out of scope)
+- The `México–EEUU` deck (2026-07-12, phone, 3–4 July) carries no approval
+  question
+- Discovery tip: `wp-json/wp/v2/posts?per_page=15&_fields=date,slug` lists
+  reports with dates, which the `/encuestas/` page does not

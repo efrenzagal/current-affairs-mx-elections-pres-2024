@@ -126,6 +126,18 @@ RESTO_LIMIT = {
 }
 RESTO_LIMIT_DEFAULT = 25
 
+# Seed rows the Oraculus archive carries twice, keyed (poll_month, pollster,
+# occurrence) on the copy to drop. A repeat wave is not proof of a duplicate --
+# Parametría's 2012 campaign tracking legitimately repeats 72/27 within a month
+# and stays in. Listed here only when the spreadsheet row is identical in every
+# column and the house is not known to field twice a month. Oraculus is gone,
+# so none of these can be re-checked against the original; with five polls in
+# a month, one spare copy moved that month's median by ~7 points.
+SEED_DUPLICATES = {
+    # Spreadsheet rows 56 and 59: AMLO, Jul 2023, 79/16, (A)/(D) 4.9.
+    ("2023-07", "Covarrubias y Asoc", 2),
+}
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS dim_approval_pollster (
     pollster_id   INTEGER PRIMARY KEY,
@@ -303,7 +315,17 @@ def read_oraculus_rows() -> list[dict]:
         key = (row["poll_month"], row["pollster"])
         seen[key] = seen.get(key, 0) + 1
         row["occurrence"] = seen[key]
-    return rows
+
+    # Dropped after numbering, so the occurrence each surviving row gets is the
+    # same as before and the row-count assertion in load() still holds.
+    kept = [
+        row for row in rows
+        if (row["poll_month"], row["pollster"], row["occurrence"])
+        not in SEED_DUPLICATES
+    ]
+    if len(kept) != len(rows):
+        print(f"  skipped {len(rows) - len(kept)} known duplicate seed row(s)")
+    return kept
 
 
 def read_transcriptions() -> tuple[list[dict], list[dict]]:

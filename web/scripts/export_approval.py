@@ -88,6 +88,19 @@ def export() -> None:
     # (a term's approval series starts the month a president takes office).
     df = df.dropna(subset=["monthsInOffice"])
     df = df[df["monthsInOffice"] >= 0].copy()
+    # And polls from after a term ended: GEA-ISA rated the outgoing Peña Nieto in
+    # December 2018, after AMLO's inauguration, and as the only EPN poll that
+    # month it alone set the end of his line.
+    term_end = {
+        president: PRESIDENT_START[successor]
+        for president, successor in zip(PRESIDENT_ORDER, PRESIDENT_ORDER[1:])
+    }
+    after_term = df.apply(
+        lambda row: row["president"] in term_end
+        and row["poll_month"] >= term_end[row["president"]],
+        axis=1,
+    )
+    df = df[~after_term].copy()
     df["monthsInOffice"] = df["monthsInOffice"].astype(int)
 
     points = [

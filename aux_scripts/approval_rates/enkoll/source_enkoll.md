@@ -91,3 +91,9 @@ questions. None is the recurring national approval question.
   next deck restates it.
 - The El País write-up quotes 69 / 26 for this wave, matching the chart.
 - No per-topic `desempeno` series has been identified for Enkoll.
+
+## Checked 2026-10-05
+
+No deck after the 2026-09-02 Segundo Informe one. In 2025 Enkoll also posted a
+"Primer año de gobierno" deck on 2025-10-01; no second-year equivalent was
+found at the matching upload paths (`2026/09`–`2026/10`, dates 30 Sep–5 Oct).

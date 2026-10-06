@@ -49,3 +49,10 @@ national approval split.
 - Headline approval loaded through **2025-09** (72 / 16).
 - The September 2025 row is `grafica`: no second source or seed overlap yet.
 - No eligible per-topic `desempeno` series has been identified.
+
+## Checked 2026-10-05
+
+No second-year (Sep/Oct 2026) report located. Covarrubias publishes around
+anniversaries (100 days, first year) and mainly through X, which is not
+reachable from here; guessed Pulso paths for a second-year deck all 404, as
+does the first-year deck's own URL. Ask for the link if one surfaces.

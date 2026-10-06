@@ -274,20 +274,28 @@ could be replaced with a real fetch. Worth checking for periodically.
 **Numbers stop being printed.** Stop. Do not estimate from pixel positions.
 Find another publication of the same wave, or record the month as missing.
 
-## State as of 2026-09-05
+## State as of 2026-10-05
 
-- `fact_approval_poll`: 998 rows, 1995-02 → 2026-08, 21 houses
-- `fact_approval_topic`: 77 rows, 19 temas, 2025-01 → 2026-08 (El Financiero and Demotecnia)
-- Last El Financiero wave loaded: **2026-08** (68 / 32)
+- `fact_approval_poll`: 999 rows, 1995-02 → 2026-09, 21 houses
+- `fact_approval_topic`: 103 rows, 19 temas, 2025-01 → 2026-09 (El Financiero and Demotecnia)
+- Last El Financiero wave loaded: **2026-09** (70 / 30)
 - Last Enkoll wave loaded: **2026-08** (69 / 26)
-- Last Demotecnia wave loaded: **2026-08** (68 / 25)
+- Last Demotecnia wave loaded: **2026-08** (68 / 25); 2026-07 (69 / 21) added
+  this refresh from a deck never checked before
 - Last Buendía y Márquez wave loaded: **2025-08** (70 / 18)
 - Last Covarrubias wave loaded: **2025-09** (72 / 16)
-- 26 months `oraculus+grafica`, 13 months `grafica+grafica`, 7 months `grafica`
-- All listed sources are wired up.
+- Loader summary: 26 months reconciled against the seed, 23 cross-read from
+  two articles, 8 resting on one chart.
 
-Buendía y Márquez and Covarrubias published nothing new for August 2026; both
-were checked against their own sites on 2026-09-05 and remain where they were.
+Checked on 2026-10-05 and found nothing new for September 2026: Enkoll (no
+deck after the 2026-09-02 Segundo Informe one), Demotecnia (only a Nuevo León
+state poll since 2026-08-13), Buendía y Márquez (its three 2026 national
+`ELECTORAL` decks carry no approval question), Covarrubias (no second-year
+report located; it mainly publishes on X).
+
+One Oraculus seed row is excluded as a duplicate — see `SEED_DUPLICATES` in the
+ingest. Adding to that list changes history the seed can no longer confirm, so
+record the reasoning next to each entry.
 
 The warehouse is fully derived: `--force` drops the four tables and rebuilds
 them from the two spreadsheets and `chart_transcriptions.csv`. Those three

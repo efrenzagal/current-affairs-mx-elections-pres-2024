@@ -50,3 +50,19 @@ open-ended questions. They are not the recurring national approval split.
   zero discrepancies.
 - No post-September-2025 Buendía y Márquez approval report has been loaded.
 - No eligible per-topic `desempeno` series has been identified.
+
+## Checked 2026-10-05
+
+No `APROBACION` deck since 2508. The national `ELECTORAL` decks — 2602
+(fieldwork 12–17 Feb), 2605 (15–21 May) and 2608 "Rumbo a 2027" (20–26 Aug,
+published 2026-09-07) — carry **no** presidential approval question; they
+cover party ID, vote intention, party opinion, issue ownership and mandate
+revocation. Mandate revocation is out of scope (a referendum question, not
+approval). All other 2026 uploads are state or city polls.
+
+The decks are vector PDFs with no text layer: `pypdf` extracts nothing, and
+pulling embedded images misses the charts. Split pages with `pypdf` and render
+each with `sips -s format png` to read them.
+
+`wp-json/wp/v2/media?mime_type=application/pdf&_fields=date,source_url` lists
+every uploaded deck with its date — faster than searching.
