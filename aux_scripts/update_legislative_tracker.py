@@ -44,10 +44,19 @@ def current_gaceta_legislature() -> int:
     return int(catalog["legislature"].max())
 
 
-def refresh_rosters() -> None:
-    print("\n=== Rosters (Diputados + Senado composition) ===")
+def crawl_rosters() -> None:
+    print("\n=== Rosters (Diputados + Senado composition): crawl ===")
     run(PYTHON, "camara_de_diputados/composicion/crawl_diputados_roster.py", "--refresh")
     run(PYTHON, "camara_de_senadores/composicion/crawl_senadores_roster.py", "--refresh")
+
+
+def ingest_rosters() -> None:
+    # Must run after both vote ingests: each chamber's composition ingest
+    # rebuilds fact_congress_party_membership's vote_reported episodes from
+    # fact_gaceta_deputy_vote / fact_senador_vote, and the hemicycle cache
+    # reads that table. Ingesting rosters before votes left party episodes
+    # one refresh behind the roll calls.
+    print("\n=== Rosters (Diputados + Senado composition): ingest ===")
     run(PYTHON, "-m", "camara_de_diputados.composicion.ingest")
     run(PYTHON, "-m", "camara_de_senadores.composicion.ingest")
     run(PYTHON, "aux_scripts/build_hemicycle_cache.py")
@@ -122,9 +131,10 @@ def write_status(current_legislature: int) -> None:
 
 
 def main() -> None:
-    refresh_rosters()
+    crawl_rosters()
     refresh_senado_votes()
     current_legislature = refresh_gaceta_votes()
+    ingest_rosters()
     write_status(current_legislature)
     print("\nDone.")
 

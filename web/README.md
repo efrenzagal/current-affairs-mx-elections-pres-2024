@@ -467,7 +467,7 @@ npm test
 ```
 
 `npm test` performs a production build and checks the important invariants.
-Expected current counts are 500/297 for Cámara and 128/389 for Senado. All 628
+Expected current counts are 500/299 for Cámara and 128/405 for Senado. All 628
 official seats must remain linked. The 300 Cámara MR seats and 96 Senate MR/FM
 seats must have electoral results; RP results must remain null. Every identity a
 seat can resolve to, under either view, must have an entry in `histories`, and

@@ -12,6 +12,12 @@ Examples::
     python3 camara_de_senadores/votos/classify_senado_votes.py apply \
         data/senado_vote_classification/classifications_reviewed.csv
 
+Add ``--only-missing`` before the command to classify only votes that have no
+row yet (e.g. after a refresh). Files then go to an ``incremental/`` subfolder,
+and ``apply`` refuses to overwrite any existing classification::
+
+    python3 camara_de_senadores/votos/classify_senado_votes.py --only-missing prepare
+
 Review ``requiere_revision = true`` rows and a hand-labelled sample before
 using model-produced labels as ground truth.
 """
@@ -331,8 +337,34 @@ def request_body(row: dict[str, Any], model: str) -> dict[str, Any]:
     }
 
 
+def classified_ids(db_path: Path) -> set[int]:
+    with sqlite3.connect(db_path) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'fact_senado_vote_classification'"
+        ).fetchone()
+        if not exists:
+            return set()
+        return {int(row[0]) for row in conn.execute(
+            "SELECT votacion_id FROM fact_senado_vote_classification"
+        )}
+
+
+def scope_ids(args: argparse.Namespace, all_ids: set[int]) -> set[int]:
+    """Every vote, or only those without a classification row (--only-missing)."""
+    if not getattr(args, "only_missing", False):
+        return all_ids
+    return all_ids - classified_ids(args.db)
+
+
 def prepare(args: argparse.Namespace) -> None:
+    # related_roll_calls still draws on every vote, so incremental requests
+    # get the same sibling context as a full run.
     rows = load_votes(args.db)
+    wanted = scope_ids(args, {int(row["votacion_id"]) for row in rows})
+    rows = [row for row in rows if int(row["votacion_id"]) in wanted]
+    if not rows:
+        raise SystemExit("Nothing to classify: every vote in scope already has a row.")
     args.out_dir.mkdir(parents=True, exist_ok=True)
     requests_path = args.out_dir / "requests.jsonl"
     with requests_path.open("w", encoding="utf-8") as handle:
@@ -351,6 +383,8 @@ def prepare(args: argparse.Namespace) -> None:
         "request_count": len(rows),
         "requests_path": str(requests_path),
         "prompt_version": PROMPT_VERSION,
+        "only_missing": getattr(args, "only_missing", False),
+        "vote_ids": sorted(int(row["votacion_id"]) for row in rows),
     }
     (args.out_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
@@ -373,6 +407,15 @@ def submit(args: argparse.Namespace) -> None:
     requests_path = args.out_dir / "requests.jsonl"
     if not requests_path.exists():
         raise SystemExit(f"Missing {requests_path}. Run prepare first.")
+    if getattr(args, "only_missing", False):
+        manifest = json.loads((args.out_dir / "manifest.json").read_text(encoding="utf-8"))
+        with sqlite3.connect(args.db) as conn:
+            all_ids = {int(row[0]) for row in conn.execute("SELECT votacion_id FROM dim_senado_vote")}
+        if set(manifest.get("vote_ids", [])) != scope_ids(args, all_ids):
+            raise SystemExit(
+                "Prepared requests no longer match the unclassified votes. "
+                "Run --only-missing prepare again. No request was sent."
+            )
     api = client()
     with requests_path.open("rb") as handle:
         uploaded = api.files.create(file=handle, purpose="batch")
@@ -380,7 +423,11 @@ def submit(args: argparse.Namespace) -> None:
         input_file_id=uploaded.id,
         endpoint="/v1/responses",
         completion_window="24h",
-        metadata={"job": "senado_vote_classification", "model": args.model},
+        metadata={
+            "job": "senado_vote_classification",
+            "model": args.model,
+            "only_missing": str(getattr(args, "only_missing", False)),
+        },
     )
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "batch.json").write_text(
@@ -393,10 +440,27 @@ def output_text(batch_line: dict[str, Any]) -> str:
     body = batch_line.get("response", {}).get("body", {})
     if isinstance(body.get("output_text"), str):
         return body["output_text"]
-    for item in body.get("output", []):
-        for content in item.get("content", []):
-            if content.get("type") == "output_text" and isinstance(content.get("text"), str):
-                return content["text"]
+    # Some models (seen with gpt-6-luna) occasionally emit an extra message
+    # before the real answer: phase "commentary" holding working notes or JSON
+    # with stray text appended. Prefer the final_answer message, then fall
+    # back to the first candidate that parses as JSON.
+    messages = [item for item in body.get("output", []) if item.get("type") == "message"]
+    messages.sort(key=lambda item: item.get("phase") != "final_answer")
+    candidates = [
+        content["text"]
+        for item in messages
+        if item.get("phase") != "commentary"
+        for content in item.get("content") or []
+        if content.get("type") == "output_text" and isinstance(content.get("text"), str)
+    ]
+    for text in candidates:
+        try:
+            json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        return text
+    if candidates:
+        return candidates[0]
     raise ValueError("No structured output text found in completed response")
 
 
@@ -445,7 +509,9 @@ def review(args: argparse.Namespace) -> None:
     if not rows:
         raise SystemExit("No classifications to review.")
     known_ids = {int(row["votacion_id"]) for row in rows}
-    missing = sorted(set(AUDITED_OVERRIDES) - known_ids)
+    # An incremental CSV holds only new votes; audited ones are already stored.
+    required = set(AUDITED_OVERRIDES) - (classified_ids(args.db) if getattr(args, "only_missing", False) else set())
+    missing = sorted(required - known_ids)
     if missing:
         raise SystemExit(f"Audited vote IDs missing from CSV: {missing}")
 
@@ -466,9 +532,8 @@ def review(args: argparse.Namespace) -> None:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
-    print(
-        f"Wrote {args.output_path} with {len(AUDITED_OVERRIDES)} audited corrections."
-    )
+    applied = len(set(AUDITED_OVERRIDES) & known_ids)
+    print(f"Wrote {args.output_path} with {applied} audited corrections.")
 
 
 def _validated_row(row: dict[str, str], known_vote_ids: set[int]) -> tuple[Any, ...]:
@@ -548,6 +613,15 @@ def apply(args: argparse.Namespace) -> None:
             )
         }
         known_vote_ids = set(source_rows)
+        if getattr(args, "only_missing", False):
+            already = sorted(
+                {int(row["votacion_id"]) for row in rows} & classified_ids(args.db)
+            )
+            if already:
+                raise SystemExit(
+                    f"Apply --only-missing never overwrites existing rows; "
+                    f"already classified: {already[:10]}"
+                )
         try:
             validated = [_validated_row(row, known_vote_ids) for row in rows]
             validate_semantics(rows, source_rows)
@@ -585,8 +659,18 @@ def apply(args: argparse.Namespace) -> None:
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--db", type=Path, default=DEFAULT_DB)
-    result.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR)
-    result.add_argument("--model", default=DEFAULT_MODEL)
+    result.add_argument(
+        "--out-dir", type=Path, default=None,
+        help=f"Default: {DEFAULT_OUT_DIR}, or its incremental/ subfolder with --only-missing.",
+    )
+    result.add_argument(
+        "--model", default=None,
+        help=f"Default: {DEFAULT_MODEL} for prepare; later commands use the prepared manifest's model.",
+    )
+    result.add_argument(
+        "--only-missing", action="store_true",
+        help="Limit every command to votes with no classification row yet.",
+    )
     commands = result.add_subparsers(dest="command", required=True)
     commands.add_parser("prepare", help="Create local JSONL requests; makes no API calls.")
     commands.add_parser("submit", help="Upload requests and create a Batch API job.")
@@ -596,12 +680,12 @@ def parser() -> argparse.ArgumentParser:
         "review", help="Write a reviewed CSV with documented audited corrections."
     )
     review_parser.add_argument(
-        "csv_path", type=Path, nargs="?",
-        default=DEFAULT_OUT_DIR / "classifications.csv",
+        "csv_path", type=Path, nargs="?", default=None,
+        help="Default: OUT_DIR/classifications.csv.",
     )
     review_parser.add_argument(
-        "--output", dest="output_path", type=Path,
-        default=DEFAULT_OUT_DIR / "classifications_reviewed.csv",
+        "--output", dest="output_path", type=Path, default=None,
+        help="Default: OUT_DIR/classifications_reviewed.csv.",
     )
     apply_parser = commands.add_parser("apply", help="Write reviewed CSV classifications to SQLite.")
     apply_parser.add_argument("csv_path", type=Path)
@@ -612,6 +696,18 @@ def main() -> None:
     args = parser().parse_args()
     if not args.db.exists():
         raise SystemExit(f"Database not found: {args.db}")
+    if args.out_dir is None:
+        args.out_dir = DEFAULT_OUT_DIR / "incremental" if args.only_missing else DEFAULT_OUT_DIR
+    if args.model is None:
+        # prepare starts from the default; later commands follow the model the
+        # requests were prepared with, so apply records the right provenance.
+        manifest_path = args.out_dir / "manifest.json"
+        if args.command != "prepare" and manifest_path.exists():
+            args.model = json.loads(manifest_path.read_text(encoding="utf-8")).get("model")
+        args.model = args.model or DEFAULT_MODEL
+    if args.command == "review":
+        args.csv_path = args.csv_path or args.out_dir / "classifications.csv"
+        args.output_path = args.output_path or args.out_dir / "classifications_reviewed.csv"
     if args.command == "prepare":
         prepare(args)
     elif args.command == "submit":

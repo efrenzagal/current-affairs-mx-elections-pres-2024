@@ -11,8 +11,8 @@ vote records.
 ```text
 gaceta.diputados.gob.mx (HTML pages)
   -> camara_de_diputados/votos/crawl_gaceta_metadata.py   (fetch + cache raw HTML)
-  -> camara_de_diputados/votos/parse_gaceta_vote_batch.py (parse cached HTML -> parquet)
-  -> camara_de_diputados/votos/ingest.py                          (parquet -> election_data.db)
+  -> camara_de_diputados/votos/parse_gaceta_vote_batch.py (parse cached HTML -> per-legislature CSV)
+  -> camara_de_diputados/votos/ingest.py                          (CSV -> election_data.db)
   -> camara_de_diputados/escanos/ingest.py                       (INE seats -> dim_diputados bridge)
   -> camara_de_diputados/votos/classify_gaceta_votes.py    (optional: LLM topic/stage labels)
   -> camara_de_diputados/votos/materialize.py                      (db -> Streamlit-ready parquet)
@@ -25,7 +25,7 @@ gaceta.diputados.gob.mx (HTML pages)
 | --- | --- |
 | `camara_de_diputados/votos/crawl_gaceta_metadata.py` | Polite fetch/cache/backoff crawler. Caches every page under `data/raw_gaceta_votes/`; cache hits never re-hit the server. Vote-summary page fetching is opt-in and capped. |
 | `camara_de_diputados/votos/parse_gaceta_vote.py` | Parses a single cached vote page into summary counts and deputy-level rows. Pure parsing helpers, reused by the batch script. |
-| `camara_de_diputados/votos/parse_gaceta_vote_batch.py` | Walks cached pages, applies `parse_gaceta_vote.py`, writes per-legislature parquet under `data/gaceta_votes/clean/by_legislature/`. |
+| `camara_de_diputados/votos/parse_gaceta_vote_batch.py` | Walks cached pages, applies `parse_gaceta_vote.py`, writes per-legislature CSVs under `data/gaceta_votes/clean/by_legislature/legislature_NN/` (pass `--legislature NN --all --out-dir …`; the default is a 10-vote sample written to `data/clean_gaceta_votes/`, which ingest does not read). |
 | `camara_de_diputados/votos/ingest.py` | Loads the per-legislature parquet into `election_data.db`, deduplicates deputies across legislatures, runs hard/soft QA (referential integrity, duplicate keys, unexpected vote-choice values, summary/detail reconciliation). |
 | `camara_de_diputados/escanos/ingest.py` | Builds `dim_diputados`: matches all 500 official 2024 INE seats to `dim_gaceta_deputy` identities. |
 | `camara_de_diputados/votos/classify_gaceta_votes.py` | Legislatura 66 classification via OpenAI Batch API: `prepare` (local, no network) → `submit` → `retrieve BATCH_ID` → `review` → `apply classifications_reviewed.csv`. Writes `fact_gaceta_vote_classification`. |
@@ -114,8 +114,9 @@ python3 -m camara_de_diputados.composicion.ingest
 
 Without this step, party episode boundaries may remain correct while their
 `observations`, latest affiliation, and reconciliation output lag behind the
-underlying roll-call facts. A future pipeline cleanup should make the Gaceta
-update workflow trigger this rebuild automatically.
+underlying roll-call facts. `aux_scripts/update_legislative_tracker.py`
+handles this: it crawls rosters first but runs both composition ingests (and
+the hemicycle cache) only after the vote ingests.
 
 `data/diputados_roster_reconciliation.csv` (and its
 `data/senadores_roster_reconciliation.csv` counterpart — one per chamber,
@@ -192,12 +193,26 @@ fabricated vote.
 
 ## Refresh
 
-```bash
-# 1. Crawl (polite cache/backoff; safe to interrupt and resume)
-python3 camara_de_diputados/votos/crawl_gaceta_metadata.py --fetch-vote-pages
+The usual path is the one-shot orchestrator, which refreshes rosters and both
+chambers' roll calls in dependency order (it does not run classification or
+the `web/` export):
 
-# 2. Parse cached pages into parquet
-python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py
+```bash
+/usr/bin/python3 aux_scripts/update_legislative_tracker.py
+```
+
+By hand:
+
+```bash
+# 1. Crawl (polite cache/backoff; safe to interrupt and resume). Without these
+#    flags the crawler only samples 3 period pages and 10 vote pages.
+python3 camara_de_diputados/votos/crawl_gaceta_metadata.py \
+  --all-periods --fetch-vote-pages --max-vote-pages 10000
+
+# 2. Parse the current legislature into the folder ingest reads
+python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py \
+  --legislature 66 --all \
+  --out-dir data/gaceta_votes/clean/by_legislature/legislature_66
 
 # 3. Load into the warehouse + rebuild the identity bridge
 python3 camara_de_diputados/votos/ingest.py
@@ -211,9 +226,14 @@ python3 camara_de_diputados/votos/classify_gaceta_votes.py review
 # Resolve needs_review rows, then:
 python3 camara_de_diputados/votos/classify_gaceta_votes.py apply \
   data/gaceta_vote_classification/classifications_reviewed.csv
+# After a refresh, classify only new roll calls instead: add --only-missing
+# before each command above (files go to data/gaceta_vote_classification/incremental/).
 
 # 5. Rebuild Streamlit-ready parquet
 python3 camara_de_diputados/votos/materialize.py --force
+
+# 6. Rebuild party-membership episodes from the new roll calls
+python3 -m camara_de_diputados.composicion.ingest
 ```
 
 ## Consumers

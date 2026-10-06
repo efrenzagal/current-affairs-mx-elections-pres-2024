@@ -331,7 +331,9 @@ current Diputados/Senado rosters plus Diputados/Senado roll-call votes.
 Chains the individually documented crawl/parse/ingest steps below in the
 right order, and reads the current (highest) LXVI legislature number for the
 Gaceta parse/ingest steps instead of hardcoding it, so it keeps working
-unchanged once a new legislature starts.
+unchanged once a new legislature starts. The roster *ingests* run last,
+after both vote ingests, because they rebuild party-membership episodes
+from the roll-call facts.
 
 ```bash
 /usr/bin/python3 aux_scripts/update_legislative_tracker.py
@@ -688,14 +690,21 @@ Usually open:
 - `camara_de_diputados/votos/crawl_gaceta_metadata.py`
 - `camara_de_diputados/votos/parse_gaceta_vote_batch.py`
 
-Then run:
+`aux_scripts/update_legislative_tracker.py` runs all of this for you. To run
+the steps by hand:
 
 ```bash
-# Crawl vote-page metadata (polite cache/backoff included)
-python3 camara_de_diputados/votos/crawl_gaceta_metadata.py --fetch-vote-pages
+# Crawl vote-page metadata (polite cache/backoff included). Without these
+# flags the crawler only samples 3 period pages and 10 vote pages.
+python3 camara_de_diputados/votos/crawl_gaceta_metadata.py \
+  --all-periods --fetch-vote-pages --max-vote-pages 10000
 
-# Parse cached pages into parquet
-python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py
+# Parse the current legislature's cached pages into the per-legislature CSV
+# folder that ingest reads. Without --out-dir the parser writes a 10-vote
+# sample to data/clean_gaceta_votes/, which ingest never reads.
+python3 camara_de_diputados/votos/parse_gaceta_vote_batch.py \
+  --legislature 66 --all \
+  --out-dir data/gaceta_votes/clean/by_legislature/legislature_66
 
 # Load parsed roll calls into the local SQLite warehouse, then refresh the app data
 python3 camara_de_diputados/votos/ingest.py

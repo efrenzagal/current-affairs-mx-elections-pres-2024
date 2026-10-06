@@ -89,6 +89,16 @@ KNOWN_SOURCE_DATE_TYPOS: dict[str, str] = {
     # the generic "last date" parser mistakes for the roll-call date. The
     # vote context itself says 6 October 2011.
     "GACETA_L61_TABLA3OR1_200": "2011-10-06",
+    # Source text reads "...el lunes 14 de septiembre de 2025", but Sep 14
+    # 2025 was a Sunday while Sep 14 2026 was a Monday — matches the weekday,
+    # gaceta_date (2026-09-14), the tercer año period page, and the title's
+    # "(1551-2026)". The year is a source typo.
+    "GACETA_L66_TABLA3OR1_2": "2026-09-14",
+    # Same stale year: "...el martes 22 de septiembre de 2025", but Sep 22
+    # 2025 was a Monday while Sep 22 2026 was a Tuesday, and gaceta_date is
+    # 2026-09-22. _4 is the "en lo particular" vote carrying _3's date.
+    "GACETA_L66_TABLA3OR1_3": "2026-09-22",
+    "GACETA_L66_TABLA3OR1_4": "2026-09-22",
 }
 
 STATUS_RE = re.compile(r"\b(Aprobad[oa]|Desechad[oa]|No aprobado|Rechazad[oa])\b", re.IGNORECASE)

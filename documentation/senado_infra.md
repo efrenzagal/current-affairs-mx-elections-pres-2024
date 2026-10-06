@@ -185,6 +185,12 @@ python3 camara_de_senadores/votos/classify_senado_votes.py apply \
   data/senado_vote_classification/classifications_reviewed.csv
 ```
 
+After a refresh, classify only the new roll calls with `--only-missing` before
+each command (`prepare`, `submit`, `retrieve BATCH_ID`, `review`, `apply
+data/senado_vote_classification/incremental/classifications_reviewed.csv`). Files go to
+`data/senado_vote_classification/incremental/` so the full run's files are untouched, and `apply`
+refuses to overwrite any vote that already has a classification.
+
 Applied rows are stored in `fact_senado_vote_classification`. The taxonomy is
 parallel to the Cámara classifier, except that legislative origin distinguishes
 `minuta_de_camara_de_diputados` from `dictamen_de_comisiones`. Missing
@@ -208,6 +214,10 @@ warehouse for the Senate website export.
 
 ## Refresh
 
+The usual path is `/usr/bin/python3 aux_scripts/update_legislative_tracker.py`,
+which runs steps 1–3 for both chambers in dependency order, then the roster
+ingests (it stops before step 4, the website export). By hand:
+
 ```bash
 # 1. Crawl (polite cache/backoff; --all-votes for the full legislature, default is last 10)
 python3 camara_de_senadores/votos/crawl_senado_votes.py --all-votes
@@ -215,8 +225,10 @@ python3 camara_de_senadores/votos/crawl_senado_votes.py --all-votes
 # 2. Load into the warehouse + rebuild the identity bridge
 python -m camara_de_senadores.votos.ingest --force
 
-# 3. Refresh the official current-directory CSV
+# 3. Refresh the official current-directory CSV, then rebuild party-membership
+#    episodes (they read fact_senador_vote, so this goes after step 2)
 python3 camara_de_senadores/composicion/crawl_senadores_roster.py --refresh
+python3 -m camara_de_senadores.composicion.ingest
 
 # 4. Resolve seats/people in memory and write the website JSON
 python3 web/scripts/export_gaceta_web.py
