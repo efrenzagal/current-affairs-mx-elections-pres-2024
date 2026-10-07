@@ -114,6 +114,34 @@ test("every person with a roll-call record is reachable from a chamber explorer"
   }
 });
 
+test("server-renders the poll dashboard and ships checkable polls", async () => {
+  const [page, index] = await Promise.all([render("/visualizaciones/encuestas"), render("/visualizaciones")]);
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /Preparando las encuestas/);
+  assert.ok((await index.text()).includes('href="/visualizaciones/encuestas"'), "index links to the poll dashboard");
+
+  const [pollsText, accuracyText] = await Promise.all([
+    readFile(new URL("../public/data/vote-intention.json", import.meta.url), "utf8"),
+    readFile(new URL("../public/data/pollster-accuracy.json", import.meta.url), "utf8"),
+  ]);
+  const polls = JSON.parse(pollsText);
+  const accuracy = JSON.parse(accuracyText);
+  const current = polls.polls.filter((poll) => poll.cycle === polls.current);
+  assert.ok(current.length > 0, "the current cycle has polls");
+  // The table promises a way to check every current poll by hand
+  for (const poll of current) {
+    assert.ok(poll.url || poll.wiki, `${poll.id}: no link to check it against`);
+    assert.ok(poll.options.length > 0, `${poll.id}: no options`);
+  }
+  // Every cycle the accuracy section draws must have a table to check it in
+  const tableCycles = new Set(polls.cycles.map((cycle) => cycle.id));
+  for (const cycle of accuracy.cycles) {
+    assert.ok(tableCycles.has(cycle.id), `${cycle.id}: in the accuracy views but not the table`);
+    assert.ok(accuracy.lastPolls[cycle.id]?.polls.length > 0, `${cycle.id}: no last polls`);
+  }
+  assert.ok(accuracy.scorecard.every((row) => row.nCycles >= accuracy.minCycles));
+});
+
 test("ships complete state and national trajectories for all federal contests", async () => {
   const [trajectoryData, stateGeoJson] = await Promise.all([
     readFile(new URL("../public/data/electoral-trajectory.json", import.meta.url), "utf8"),

@@ -39,6 +39,19 @@ export const DASHBOARDS: Dashboard[] = [
     topics: ["Presidencia", "Encuestas", "Aprobación"],
   },
   {
+    slug: "encuestas",
+    href: "/visualizaciones/encuestas",
+    area: "Elecciones",
+    title: "Encuestas electorales",
+    subtitle: "Diputados 2027 · precisión histórica 1994–2024",
+    summary:
+      "Sigue la intención de voto rumbo a la elección de diputados de 2027, encuesta por encuesta " +
+      "y con la fuente de cada una, y compara qué tan cerca quedó cada casa encuestadora del " +
+      "resultado en nueve elecciones federales.",
+    scope: "Encuestas de intención de voto federales desde 1994",
+    topics: ["Elecciones", "Encuestas", "Casas encuestadoras"],
+  },
+  {
     slug: "trayectoria",
     href: "/visualizaciones/trayectoria",
     area: "Elecciones",
@@ -132,6 +145,7 @@ type GroupSpec = { label: string; items: { slug: string; label?: string }[] };
 
 const GROUP_SPECS: GroupSpec[] = [
   { label: "Aprobación presidencial", items: [{ slug: "aprobacion" }] },
+  { label: "Encuestas electorales", items: [{ slug: "encuestas" }] },
   {
     label: "Brújula legislativa",
     items: [{ slug: "diputados" }, { slug: "senado" }, { slug: "votaciones" }],

@@ -28,6 +28,12 @@ fabricated vote.
 - **Buscador de votaciones** (`/visualizaciones/votaciones`): las 686 votaciones
   nominales de ambas cámaras, buscables por texto y filtrables por las cuatro
   ejes de clasificación, con el desglose por grupo parlamentario en cuadros.
+- **Encuestas electorales** (`/visualizaciones/encuestas`): rastreador de la
+  intención de voto para diputados 2027 (promedio móvil de 90 días), tabla de
+  cada encuesta de 1994 a hoy con su fuente original y la revisión de Wikipedia,
+  y la precisión histórica de las casas encuestadoras. Data from
+  `scripts/export_vote_intention.py`, which mirrors
+  `vote_intention/analysis/pollster_accuracy.R`; `?casa=` opens it on one firm.
 - Each explorer opens on **composición actual** and can switch to the **2024
   electoral result**. See "Elected versus sitting" below — this distinction is
   the reason the section exists in its current form.
