@@ -1,5 +1,11 @@
 # Refreshing presidential approval data
 
+PollsMX now has a separate automated API pipeline: see
+[`pollsmx/README.md`](pollsmx/README.md). Its versioned daily model estimates,
+uncertainty bounds and provider chart observations load into dedicated SQLite
+tables and a website-ready JSON export. The manual procedure below applies to
+original polling-house charts and the existing Oraculus seed.
+
 The original datasource came from Oraculus MX but they stopped updating after September 2025. I want to have the updated data and being able to easily refresh when possible. 
 Approval data is **not** scraped on a schedule. It is refreshed on request,
 because the only reliable numbers live inside chart images and reading those is

@@ -17,6 +17,9 @@ type Point = {
 
 type President = { key: string; label: string; color: string };
 
+type WeeklyPoint = { president: string; month: number; date: string; approve: number; weekStart: string; runId: number };
+type WeeklyApprovalData = { sourceThrough: string; sourceUrl: string; points: WeeklyPoint[] };
+
 type ApprovalData = {
   schemaVersion: number;
   sourceThrough: string;
@@ -118,21 +121,25 @@ function linePath(trend: { month: number; approve: number }[]) {
 }
 
 function formatDate(date: string) {
-  const [year, month] = date.split("-").map(Number);
-  return new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+  const [year, month, day] = date.split("-").map(Number);
+  return new Intl.DateTimeFormat("es-MX", { ...(day ? { day: "numeric" as const } : {}), month: "long", year: "numeric" }).format(new Date(year, month - 1, day || 1));
 }
 
-type Hover = { x: number; y: number; point: Point };
+type HoverPoint = Pick<Point, "date" | "approve" | "pollster">;
+type Hover = { x: number; y: number; point: HoverPoint };
 
 export default function ApprovalExplorer() {
   const [data, setData] = useState<ApprovalData | null>(null);
   const [error, setError] = useState(false);
+  const [weeklyData, setWeeklyData] = useState<WeeklyApprovalData | null>(null);
+  const [weeklyError, setWeeklyError] = useState(false);
+  const [showWeekly, setShowWeekly] = useState(true);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [pollster, setPollster] = useState(ALL_POLLSTERS);
   const [hover, setHover] = useState<Hover | null>(null);
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
 
-  function showHover(event: React.MouseEvent, point: Point) {
+  function showHover(event: React.MouseEvent, point: HoverPoint) {
     const rect = chartWrapRef.current?.getBoundingClientRect();
     if (!rect) return;
     setHover({ x: event.clientX - rect.left, y: event.clientY - rect.top, point });
@@ -158,7 +165,18 @@ export default function ApprovalExplorer() {
         setHighlight(payload.presidents.at(-1)?.key ?? null);
       })
       .catch(() => setError(true));
+    fetch("/data/approval-pollsmx-weekly.json")
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((payload: WeeklyApprovalData) => setWeeklyData(payload))
+      .catch(() => setWeeklyError(true));
   }, []);
+
+  const weeklyPoints = useMemo(
+    () => (weeklyData?.points ?? [])
+      .filter((point) => point.president === highlight && point.month >= 0 && point.month <= TERM_MONTHS)
+      .map((point) => ({ ...point, pollster: "PollsMX · agregado semanal" })),
+    [weeklyData, highlight],
+  );
 
   const filteredPoints = useMemo(() => {
     if (!data) return [];
@@ -271,7 +289,7 @@ export default function ApprovalExplorer() {
               <h2>{presidentName(highlightPresident)}</h2>
             </div>
             <p>
-              Cada punto es una encuesta. La línea gruesa es la mediana mensual de{" "}
+              Cada punto de color es una encuesta. La línea gruesa es la mediana mensual de{" "}
               <strong>{presidentName(highlightPresident)}</strong>; las líneas tenues son el mismo cálculo
               para el resto de los sexenios, en el mismo mes de su mandato.
               {pollster !== ALL_POLLSTERS && (
@@ -295,6 +313,12 @@ export default function ApprovalExplorer() {
               <span className="approval-line-legend-item">
                 <i className="approval-line-swatch approval-line-swatch-median" style={{ borderColor: highlightPresident.color }} />
                 Mediana de todas las encuestadoras
+              </span>
+            )}
+            {showWeekly && weeklyPoints.length > 0 && (
+              <span className="approval-line-legend-item">
+                <i style={{ width: 18, borderTop: "3px dashed var(--navy)" }} />
+                PollsMX · agregado semanal
               </span>
             )}
           </div>
@@ -370,6 +394,35 @@ export default function ApprovalExplorer() {
                   <path d={linePath(trend)} className="approval-line-highlight" style={{ stroke: highlightPresident.color }} />
                 ) : null;
               })()}
+              {showWeekly && weeklyPoints.length > 0 && (
+                <g>
+                  <path
+                    d={linePath(weeklyPoints)}
+                    fill="none"
+                    stroke="var(--navy)"
+                    strokeWidth={2.5}
+                    strokeDasharray="8 4"
+                    strokeLinejoin="round"
+                    pointerEvents="none"
+                    aria-label={`Agregado semanal de PollsMX para ${presidentName(highlightPresident)}`}
+                  />
+                  {weeklyPoints.map((point) => (
+                    <circle
+                      key={point.date}
+                      cx={xForMonth(point.month)}
+                      cy={yForApproval(point.approve)}
+                      r={hover?.point === point ? 4 : 5}
+                      fill={hover?.point === point ? "var(--navy)" : "transparent"}
+                      aria-label={`${formatDate(point.date)} · agregado PollsMX · ${point.approve}% aprobación`}
+                      onMouseEnter={(event) => showHover(event, point)}
+                      onMouseMove={(event) => showHover(event, point)}
+                      onMouseLeave={() => setHover(null)}
+                    >
+                      <title>{`${formatDate(point.date)} · PollsMX · ${point.approve}%`}</title>
+                    </circle>
+                  ))}
+                </g>
+              )}
             </svg>
             {hover && (
               <div className="approval-tooltip" style={{ left: hover.x, top: hover.y }}>
@@ -392,6 +445,22 @@ export default function ApprovalExplorer() {
               ))}
             </div>
           </div>
+          <div className="approval-control-group approval-pollster-filter">
+            <label>
+              <input
+                type="checkbox"
+                checked={showWeekly}
+                onChange={(event) => { setShowWeekly(event.target.checked); setHover(null); }}
+                disabled={!weeklyData || weeklyPoints.length === 0}
+              />{" "}Mostrar agregado semanal de PollsMX
+            </label>
+          </div>
+          <p style={{ padding: "0 22px 14px", fontSize: 12, color: "var(--muted)" }}>
+            {weeklyError ? "No pudimos cargar el agregado de PollsMX; las encuestas siguen disponibles."
+              : !weeklyData ? "Cargando agregado semanal de PollsMX…"
+              : weeklyPoints.length === 0 ? "Sin agregado de PollsMX para este sexenio."
+              : "La línea oscura discontinua muestra el último estimado disponible de cada semana (lunes–domingo), incluido el corte de la semana en curso. Es un agregado modelado y se mantiene como referencia al filtrar encuestadoras."}
+          </p>
           <div className="approval-control-group approval-pollster-filter">
             <span>Encuestadora</span>
             <div className="party-filter" role="group" aria-label="Casa encuestadora">
@@ -488,6 +557,14 @@ export default function ApprovalExplorer() {
             de las encuestas disponibles; el filtro de encuestadora recalcula esa mediana solo con
             las encuestas de la casa elegida.
           </p>
+          {weeklyData && (
+            <p>
+              <a href={weeklyData.sourceUrl} target="_blank" rel="noopener noreferrer">PollsMX</a>:
+              {" "}estimación agregada de aprobación, corte al <strong>{formatDate(weeklyData.sourceThrough)}</strong>.
+              Se selecciona el último valor diario disponible de cada semana, sin promediarlo de nuevo.
+              Los agregados no cuentan como encuestas en el resumen ni en la tabla de fuentes.
+            </p>
+          )}
         </div>
       </section>
 
