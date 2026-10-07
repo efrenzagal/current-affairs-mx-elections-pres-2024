@@ -104,4 +104,67 @@ export const DASHBOARDS: Dashboard[] = [
     scope: "389 votaciones nominales",
     topics: ["Congreso", "Votaciones nominales", "Composición", "Perfiles"],
   },
+  {
+    // Lives at `/estados`, not under `/visualizaciones/`, so links already
+    // shared to the profile keep working.
+    slug: "estados",
+    href: "/estados",
+    area: "Estados",
+    title: "Conoce tu estado",
+    subtitle: "32 entidades y la nacional · desde 1970",
+    summary:
+      "Un perfil por entidad, con la nacional como referencia: la Encuesta Intercensal 2025, " +
+      "el PIB estatal y medio siglo de población, con su pirámide animada, natalidad, mortalidad " +
+      "y esperanza de vida.",
+    scope: "Intercensal 2025, PIB estatal y conciliación demográfica CONAPO",
+    topics: ["Estados", "Población", "Economía"],
+  },
 ];
+
+/**
+ * How the dashboards are grouped in the header menu and on the index. Groups
+ * are editorial ("Brújula legislativa" bundles three Congress explorers), so
+ * they are declared here rather than derived from `area`, which stays the
+ * subject tag the landing page lists. `label` overrides a dashboard's title
+ * where the group name already says it.
+ */
+type GroupSpec = { label: string; items: { slug: string; label?: string }[] };
+
+const GROUP_SPECS: GroupSpec[] = [
+  { label: "Aprobación presidencial", items: [{ slug: "aprobacion" }] },
+  {
+    label: "Brújula legislativa",
+    items: [{ slug: "diputados" }, { slug: "senado" }, { slug: "votaciones" }],
+  },
+  {
+    label: "Geografía electoral",
+    items: [
+      { slug: "trayectoria", label: "Elecciones federales · INE" },
+      { slug: "judicial" },
+    ],
+  },
+  { label: "Conoce tu estado", items: [{ slug: "estados" }] },
+];
+
+export type DashboardGroup = {
+  label: string;
+  items: (Dashboard & { label: string })[];
+};
+
+// Resolved at module load, so a mistyped slug or a dashboard left out of every
+// group fails the build instead of silently vanishing from the menu.
+export const DASHBOARD_GROUPS: DashboardGroup[] = GROUP_SPECS.map((group) => ({
+  label: group.label,
+  items: group.items.map(({ slug, label }) => {
+    const dashboard = DASHBOARDS.find((candidate) => candidate.slug === slug);
+    if (!dashboard) throw new Error(`DASHBOARD_GROUPS: unknown dashboard "${slug}"`);
+    return { ...dashboard, label: label ?? dashboard.title };
+  }),
+}));
+
+const grouped = DASHBOARD_GROUPS.flatMap((group) => group.items.map((item) => item.slug));
+for (const dashboard of DASHBOARDS) {
+  if (grouped.filter((slug) => slug === dashboard.slug).length !== 1) {
+    throw new Error(`DASHBOARD_GROUPS: "${dashboard.slug}" must sit in exactly one group`);
+  }
+}

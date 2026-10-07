@@ -6,27 +6,45 @@
  */
 
 import articles from "../public/data/articles.json";
-import { DASHBOARDS } from "./visualizaciones/dashboards";
+import { DASHBOARD_GROUPS } from "./visualizaciones/dashboards";
 
-export type Section = "inicio" | "visualizaciones" | "estados" | "articulos" | "datos";
+export type Section = "inicio" | "visualizaciones" | "articulos" | "datos";
 
 export const SECTIONS: { key: Section; href: string; label: string }[] = [
   { key: "visualizaciones", href: "/visualizaciones", label: "Visualizaciones" },
-  { key: "estados", href: "/estados", label: "Estados" },
   { key: "articulos", href: "/articulos", label: "Artículos" },
   { key: "datos", href: "/datos", label: "Datos" },
 ];
 
 export const SITE_NAME = "Latitud Pública";
 
-const NAV_MENUS = {
+type MenuLink = { href: string; label: string; meta: string };
+/**
+ * A row of a sectioned menu: a plain link when the section holds one page,
+ * otherwise a label whose pages open in a side panel on hover or focus.
+ */
+type MenuSection = { label: string; href: string } | { label: string; items: MenuLink[] };
+
+type NavMenu = { overview: { href: string; label: string } } & (
+  | { items: MenuLink[] }
+  | { sections: MenuSection[] }
+);
+
+const NAV_MENUS: Partial<Record<Section, NavMenu>> = {
   visualizaciones: {
     overview: { href: "/visualizaciones", label: "Todas las visualizaciones" },
-    items: DASHBOARDS.map((dashboard) => ({
-      href: dashboard.href,
-      label: dashboard.title,
-      meta: dashboard.area,
-    })),
+    sections: DASHBOARD_GROUPS.map((group): MenuSection =>
+      group.items.length === 1
+        ? { label: group.label, href: group.items[0].href }
+        : {
+            label: group.label,
+            items: group.items.map((item) => ({
+              href: item.href,
+              label: item.label,
+              meta: item.subtitle,
+            })),
+          },
+    ),
   },
   articulos: {
     overview: { href: "/articulos", label: "Todos los artículos" },
@@ -36,10 +54,41 @@ const NAV_MENUS = {
       meta: article.subtitle,
     })),
   },
-} satisfies Partial<Record<Section, {
-  overview: { href: string; label: string };
-  items: { href: string; label: string; meta: string }[];
-}>>;
+};
+
+function MenuItem({ item }: { item: MenuLink }) {
+  return (
+    <a href={item.href}>
+      <strong>{item.label}</strong>
+      <span>{item.meta}</span>
+    </a>
+  );
+}
+
+/**
+ * The side panel opens on :hover / :focus-within, so it needs no script. The
+ * label takes `tabIndex` so a tap focuses it on touch screens, where the panel
+ * expands in place instead (see `.nav-submenu` in globals.css).
+ */
+function MenuSectionRow({ section }: { section: MenuSection }) {
+  if ("href" in section) {
+    return (
+      <a className="nav-menu-section" href={section.href}>
+        {section.label}
+      </a>
+    );
+  }
+  return (
+    <div className="nav-menu-group">
+      <span className="nav-menu-section has-submenu" tabIndex={0} aria-haspopup="true">
+        {section.label}
+      </span>
+      <div className="nav-submenu" role="group" aria-label={section.label}>
+        {section.items.map((item) => <MenuItem item={item} key={item.href} />)}
+      </div>
+    </div>
+  );
+}
 
 export function SiteHeader({ active, status }: { active: Section; status: string }) {
   return (
@@ -54,7 +103,7 @@ export function SiteHeader({ active, status }: { active: Section; status: string
       </a>
       <nav aria-label="Navegación principal">
         {SECTIONS.map((section) => {
-          const menu = NAV_MENUS[section.key as keyof typeof NAV_MENUS];
+          const menu = NAV_MENUS[section.key];
           if (!menu) {
             return (
               <div className="nav-item" key={section.key}>
@@ -76,17 +125,17 @@ export function SiteHeader({ active, status }: { active: Section; status: string
                 {section.label}
                 <span className="nav-chevron" aria-hidden="true">⌄</span>
               </summary>
-              <div className="nav-menu" aria-label={`Opciones de ${section.label}`}>
+              <div
+                className={`nav-menu${"sections" in menu ? " nav-menu-sections" : ""}`}
+                aria-label={`Opciones de ${section.label}`}
+              >
                 <a className="nav-menu-overview" href={menu.overview.href}>
                   {menu.overview.label}<span aria-hidden="true">→</span>
                 </a>
                 <div className="nav-menu-list">
-                  {menu.items.map((item) => (
-                    <a href={item.href} key={item.href}>
-                      <strong>{item.label}</strong>
-                      <span>{item.meta}</span>
-                    </a>
-                  ))}
+                  {"sections" in menu
+                    ? menu.sections.map((entry) => <MenuSectionRow section={entry} key={entry.label} />)
+                    : menu.items.map((item) => <MenuItem item={item} key={item.href} />)}
                 </div>
               </div>
             </details>

@@ -735,7 +735,6 @@ test("ships CONAPO state profiles without projections, each pyramid summing to i
     index.states.map(async (state) => JSON.parse(await readFile(new URL(`${state.code}.json`, dataDir), "utf8"))),
   );
   const nationalPyramid = files[0].pyramid;
-  const nationalQuarterly = files[0].remittances.quarterly;
   for (const geography of files) {
     assert.deepEqual(geography.years, index.years, `${geography.code} years`);
     assert.equal(geography.pyramid.bands.length, 18);
@@ -743,8 +742,6 @@ test("ships CONAPO state profiles without projections, each pyramid summing to i
       const total = [...geography.pyramid.men[i], ...geography.pyramid.women[i]].reduce((a, b) => a + b, 0);
       assert.equal(total, geography.series.population[i], `${geography.code} ${year} pyramid sums to population`);
     });
-    assert.equal(geography.remittances.quarterly.length, geography.remittances.periods.length);
-    assert.ok(geography.remittances.topMunicipios.every((item) => !item.code.endsWith("999")));
   }
   // The national pyramid is the sum of the states, band by band.
   const states = files.slice(1);
@@ -753,8 +750,4 @@ test("ships CONAPO state profiles without projections, each pyramid summing to i
       assert.equal(value, states.reduce((sum, state) => sum + state.pyramid[sex][i][band], 0));
     }));
   }
-  nationalQuarterly.forEach((value, i) => {
-    const summed = states.reduce((sum, state) => sum + state.remittances.quarterly[i], 0);
-    assert.ok(Math.abs(value - summed) < 0.5, `national remittances quarter ${i} equals the state sum`);
-  });
 });

@@ -106,6 +106,7 @@ CHROME_CSS = """
 .ca-nav-item{position:relative}
 .ca-nav-item>summary{cursor:pointer;list-style:none}
 .ca-nav-item>summary::-webkit-details-marker{display:none}
+.ca-nav-item::details-content{content-visibility:visible}
 .ca-nav-item.has-menu:after{content:"";height:22px;left:-18px;position:absolute;top:100%;width:calc(100% + 36px)}
 .ca-header .ca-nav-trigger{border-bottom:2px solid transparent;color:rgba(255,255,255,.72);font-size:12px;font-weight:650;letter-spacing:.08em;padding-bottom:3px;text-decoration:none;text-transform:uppercase}
 .ca-header .ca-nav-trigger:hover{color:#fff}
@@ -122,6 +123,15 @@ CHROME_CSS = """
 .ca-menu-list{display:grid;gap:1px}
 .ca-menu-list strong{display:block;font-family:var(--serif);font-size:15px;font-weight:600;line-height:1.18}
 .ca-menu-list span{color:var(--muted);display:block;font-size:8px;line-height:1.35;margin-top:3px}
+/* Sectioned menu: mirrors .nav-menu-sections in web/app/globals.css. */
+.ca-nav-menu.ca-menu-sections{min-width:270px}
+.ca-header .ca-nav-menu .ca-menu-section{align-items:center;border-radius:2px;color:var(--ink);cursor:pointer;display:flex;font-family:var(--serif);font-size:15px;font-weight:600;justify-content:space-between;line-height:1.18;margin:0;outline:none;padding:11px 12px}
+.ca-header .ca-nav-menu .ca-menu-section.has-submenu:after{color:var(--muted);content:"›";font-family:var(--sans);font-size:17px;line-height:1;margin-left:16px;transition:transform .15s ease}
+.ca-menu-group:hover>.ca-menu-section,.ca-menu-group:focus-within>.ca-menu-section{background:#f0ede5}
+.ca-submenu{border-left:2px solid var(--paper-deep);display:none;margin:2px 0 6px 12px}
+.ca-menu-group:hover>.ca-submenu,.ca-menu-group:focus-within>.ca-submenu{display:block}
+.ca-menu-group:hover>.has-submenu:after,.ca-menu-group:focus-within>.has-submenu:after{transform:rotate(90deg)}
+@media(hover:hover) and (min-width:1101px){.ca-menu-group>.ca-menu-section{position:relative}.ca-menu-group>.ca-menu-section:before{bottom:-6px;content:"";left:100%;position:absolute;top:-6px;width:22px}.ca-submenu{background:var(--white);border:1px solid var(--line);border-radius:4px;box-shadow:0 18px 48px rgba(4,17,17,.2);left:calc(100% + 8px);margin:0;min-width:330px;padding:7px;position:absolute;top:-1px}.ca-menu-group:hover>.has-submenu:after,.ca-menu-group:focus-within>.has-submenu:after{transform:none}.ca-menu-list:hover .ca-menu-group:not(:hover)>.ca-submenu{display:none}.ca-menu-list:hover .ca-menu-group:not(:hover)>.ca-menu-section{background:none}}
 .ca-status{font-size:12px;justify-self:end;letter-spacing:.04em}
 .ca-status i{background:#79b897;border-radius:50%;display:inline-block;height:7px;margin-right:7px;width:7px}
 .ca-footer{align-items:center;border-top:1px solid var(--line);color:var(--muted);display:grid;font-family:var(--sans);font-size:10px;grid-template-columns:1fr auto 1fr;padding:28px 4vw}
@@ -490,37 +500,60 @@ FIGURE_JS = """
 """
 
 
+def _menu_link(href: str, label: str, meta: str) -> str:
+    return f'<a href="{href}"><strong>{label}</strong><span>{meta}</span></a>'
+
+
 def chrome_header(active: str = "articulos") -> str:
-    # Mirrors SECTIONS in web/app/site-chrome.tsx. Keep the two in step: this
-    # markup is what makes a published Quarto file read as a page of the site.
+    # Mirrors SECTIONS and DASHBOARD_GROUPS in web/app/site-chrome.tsx and
+    # web/app/visualizaciones/dashboards.ts. Keep them in step: this markup is
+    # what makes a published Quarto file read as a page of the site.
     sections = (
         ("visualizaciones", "/visualizaciones", "Visualizaciones"),
-        ("estados", "/estados", "Estados"),
         ("articulos", "/articulos", "Artículos"),
         ("datos", "/datos", "Datos"),
     )
-    visualizations = (
-        ("/visualizaciones/trayectoria", "Geografía electoral", "Elecciones"),
-        ("/visualizaciones/votaciones", "Buscador de votaciones", "Congreso"),
-        ("/visualizaciones/diputados", "Cámara de Diputados", "Congreso"),
-        ("/visualizaciones/senado", "Senado de la República", "Congreso"),
+    # (group label, ((href, label, meta), ...)). A one-item group renders as a
+    # plain link named after the group, as in the React header.
+    dashboard_groups = (
+        ("Aprobación presidencial", (
+            ("/visualizaciones/aprobacion", "Aprobación presidencial", "6 sexenios · 1994–2026"),
+        )),
+        ("Brújula legislativa", (
+            ("/visualizaciones/diputados", "Cámara de Diputados", "500 escaños · LXVI Legislatura"),
+            ("/visualizaciones/senado", "Senado de la República", "128 escaños · LXVI Legislatura"),
+            ("/visualizaciones/votaciones", "Buscador de votaciones",
+             "686 votaciones nominales · Ambas cámaras · LXVI Legislatura"),
+        )),
+        ("Geografía electoral", (
+            ("/visualizaciones/trayectoria", "Elecciones federales · INE",
+             "32 entidades · Presidencia, Senado y Diputaciones"),
+            ("/visualizaciones/judicial", "Elección judicial 2025",
+             "Primera elección popular del Poder Judicial · 32 entidades"),
+        )),
+        ("Conoce tu estado", (
+            ("/estados", "Conoce tu estado", "32 entidades y la nacional · desde 1970"),
+        )),
+    )
+    def section_row(group: str, items: tuple[tuple[str, str, str], ...]) -> str:
+        if len(items) == 1:
+            return f'<a class="ca-menu-section" href="{items[0][0]}">{group}</a>'
+        return (
+            '<div class="ca-menu-group">'
+            f'<span class="ca-menu-section has-submenu" tabindex="0" aria-haspopup="true">{group}</span>'
+            f'<div class="ca-submenu" role="group" aria-label="{group}">'
+            + "".join(_menu_link(*item) for item in items)
+            + "</div></div>"
+        )
+
+    visualizations = "".join(section_row(group, items) for group, items in dashboard_groups)
+    articles = "".join(
+        _menu_link(f"/articulos/{article.slug}.html", article.title, article.subtitle)
+        for article in ARTICLES
     )
     menus = {
-        "visualizaciones": (
-            "Todas las visualizaciones",
-            visualizations,
-        ),
-        "articulos": (
-            "Todos los artículos",
-            tuple(
-                (
-                    f"/articulos/{article.slug}.html",
-                    article.title,
-                    article.subtitle,
-                )
-                for article in ARTICLES
-            ),
-        ),
+        "visualizaciones": ("Todas las visualizaciones", visualizations, " ca-menu-sections"),
+        "articulos": ("Todos los artículos", articles, ""),
     }
     links = []
     for key, href, label in sections:
@@ -532,16 +565,12 @@ def chrome_header(active: str = "articulos") -> str:
                 f'href="{href}">{label}</a></div>'
             )
             continue
-        overview, items = menu
-        item_links = "".join(
-            f'<a href="{item_href}"><strong>{item_label}</strong><span>{meta}</span></a>'
-            for item_href, item_label, meta in items
-        )
+        overview, item_links, menu_class = menu
         links.append(
             f'<details class="ca-nav-item has-menu" name="site-navigation">'
             f'<summary class="ca-nav-trigger{active_class}">'
             f'{label}<span class="ca-chevron" aria-hidden="true">⌄</span></summary>'
-            f'<div class="ca-nav-menu" aria-label="Opciones de {label}">'
+            f'<div class="ca-nav-menu{menu_class}" aria-label="Opciones de {label}">'
             f'<a class="ca-menu-overview" href="{href}">{overview}<span>→</span></a>'
             f'<div class="ca-menu-list">{item_links}</div></div></details>'
         )

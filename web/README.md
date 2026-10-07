@@ -138,7 +138,7 @@ The app deploys to **Cloudflare Workers on your own account** via Wrangler.
 | `app/visualizaciones/explorer.tsx` | The chamber explorer: hemicycle, name search over sitting/elected/former members, and the person panel. One component, `chamber` prop |
 | `app/visualizaciones/{diputados,senado}/page.tsx` | Thin routes over `explorer.tsx` |
 | `app/visualizaciones/votaciones/` | Vote search across both chambers, with the party square grid |
-| `app/estados/state-explorer.tsx` | **Conoce tu estado** (`/estados`): choropleth, animated population pyramid, stat tiles, demographic-transition charts, the economy (state GDP), the Intercensal 2025 scorecard and remittances for one state or the nation |
+| `app/estados/state-explorer.tsx` | **Conoce tu estado** (`/estados`): the Intercensal 2025 scorecard, the economy (state GDP) and the 1970–2019 population history (choropleth, animated pyramid, stat tiles, demographic-transition charts) for one state or the nation, newest data first |
 | `app/articulos/page.tsx` | Artículos index, driven by `public/data/articles.json` |
 | `app/datos/page.tsx` | Datos: warehouse dictionary, master-detail over every table |
 | `app/globals.css` | Complete visual system and responsive layout |

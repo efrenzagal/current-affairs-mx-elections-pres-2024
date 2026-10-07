@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { SITE_NAME, SiteFooter, SiteHeader } from "../site-chrome";
 
@@ -16,7 +16,7 @@ type Values = (number | null)[];
 type StateIndex = {
   schemaVersion: number;
   years: number[];
-  source: { population: string; remittances: string };
+  source: { population: string };
   states: { code: string; name: string; stateId: number }[];
   metrics: Record<MetricKey, { label: string; unit: string; decimals: number }>;
   map: Record<MetricKey, Record<string, Values>>;
@@ -30,13 +30,6 @@ type Geography = {
   years: number[];
   series: Record<SeriesKey, Values>;
   pyramid: { bands: string[]; men: number[][]; women: number[][] };
-  remittances: {
-    periods: string[];
-    region: string | null;
-    quarterly: number[];
-    topYear: number;
-    topMunicipios: { code: string; name: string; grade: string; usdMillions: number }[];
-  };
 };
 
 type GroupId = "PRIMARY" | "SECONDARY" | "TERTIARY";
@@ -119,11 +112,6 @@ function decimal(value: number, digits: number) {
 function people(value: number) {
   if (value >= 1_000_000) return `${decimal(value / 1_000_000, 1)} millones`;
   return integer.format(value);
-}
-
-function usd(millions: number) {
-  if (millions >= 1000) return `${decimal(millions / 1000, 1)} mil millones de dólares`;
-  return `${decimal(millions, millions >= 100 ? 0 : 1)} millones de dólares`;
 }
 
 /** Millions of pesos as words: "25.4 billones", "474.7 mil millones". */
@@ -612,124 +600,6 @@ function StateMap({
         <span>{decimal(domain.min, meta.decimals)}</span>
         <div>{MAP_RAMP.map((color) => <i key={color} style={{ background: color }} />)}</div>
         <span>{decimal(domain.max, meta.decimals)} {meta.unit}</span>
-      </div>
-    </div>
-  );
-}
-
-function RemittanceBars({
-  geography, national, stateNames,
-}: {
-  geography: Geography;
-  national: Geography;
-  stateNames: Map<string, string>;
-}) {
-  const [wrapRef, width] = useWidth<HTMLDivElement>();
-  const [hover, setHover] = useState<number | null>(null);
-  const { periods, quarterly } = geography.remittances;
-  const height = 220;
-  const margin = { top: 12, right: 8, bottom: 28, left: 52 };
-  const plotWidth = Math.max(0, width - margin.left - margin.right);
-  const plotHeight = height - margin.top - margin.bottom;
-  const scale = niceScale(0, Math.max(...quarterly));
-  const slot = plotWidth / periods.length;
-  const barWidth = Math.max(2, slot - 2);
-  const y = (value: number) => margin.top + plotHeight - (value / (scale.high || 1)) * plotHeight;
-
-  const years = [...new Set(periods.map((period) => Number(period.slice(0, 4))))];
-  const yearTotal = (values: number[], year: number) =>
-    values.reduce((sum, value, index) => periods[index].startsWith(String(year)) ? sum + value : sum, 0);
-  const first = years[0];
-  const last = years.at(-1) ?? first;
-  const latest = yearTotal(quarterly, last);
-  const earliest = yearTotal(quarterly, first);
-  const share = latest / yearTotal(national.remittances.quarterly, last) * 100;
-  const isNational = geography.code === NATIONAL;
-  const topMax = Math.max(...geography.remittances.topMunicipios.map((item) => item.usdMillions));
-
-  return (
-    <div className="estado-remittances">
-      <dl className="estado-remittance-stats">
-        <div><dt>Remesas en {last}</dt><dd>{usd(latest)}</dd></div>
-        <div><dt>Cambio desde {first}</dt><dd>{latest >= earliest ? "+" : ""}{decimal((latest / earliest - 1) * 100, 0)}%</dd><small>en dólares corrientes</small></div>
-        {isNational
-          ? <div><dt>Trimestres</dt><dd>{periods.length}</dd><small>{periods[0].replace("-T", " T")} a {periods.at(-1)?.replace("-T", " T")}</small></div>
-          : <div><dt>Parte del total nacional</dt><dd>{decimal(share, 1)}%</dd><small>Región migratoria: {geography.remittances.region}</small></div>}
-      </dl>
-      <div className="estado-remittance-grid">
-        <figure className="estado-chart">
-          <figcaption>
-            <h3>Remesas por trimestre</h3>
-            <p>Millones de dólares corrientes recibidos cada trimestre.</p>
-          </figcaption>
-          <div className="estado-chart-plot" ref={wrapRef}>
-            {width > 0 && (
-              <svg width={width} height={height} role="img" aria-label={`Remesas trimestrales de ${geography.name}, ${periods[0]} a ${periods.at(-1)}`}>
-                {scale.ticks.map((tick) => (
-                  <g key={tick}>
-                    <line className="estado-grid" x1={margin.left} x2={margin.left + plotWidth} y1={y(tick)} y2={y(tick)} />
-                    <text className="estado-tick" x={margin.left - 8} y={y(tick)} dy="0.32em" textAnchor="end">{integer.format(tick)}</text>
-                  </g>
-                ))}
-                {quarterly.map((value, index) => {
-                  const x = margin.left + index * slot + 1;
-                  const top = y(value);
-                  const barHeight = Math.max(0, margin.top + plotHeight - top);
-                  const radius = Math.min(3, barWidth / 2, barHeight);
-                  return (
-                    <g key={periods[index]}>
-                      <path
-                        d={`M${x},${top + barHeight}V${top + radius}Q${x},${top} ${x + radius},${top}H${x + barWidth - radius}Q${x + barWidth},${top} ${x + barWidth},${top + radius}V${top + barHeight}Z`}
-                        fill={COLORS.state}
-                        opacity={hover === null || hover === index ? 1 : 0.45}
-                      />
-                      <rect
-                        className="estado-hit"
-                        x={margin.left + index * slot}
-                        y={margin.top}
-                        width={slot}
-                        height={plotHeight}
-                        onMouseEnter={() => setHover(index)}
-                        onMouseLeave={() => setHover(null)}
-                      />
-                    </g>
-                  );
-                })}
-                {years.filter((year) => (year - first) % 2 === 0).map((year) => {
-                  const index = periods.indexOf(`${year}-T1`);
-                  return <text key={year} className="estado-tick" x={margin.left + (index + 2) * slot} y={height - 8} textAnchor="middle">{year}</text>;
-                })}
-              </svg>
-            )}
-            {hover !== null && width > 0 && (
-              <div
-                className="estado-tooltip"
-                style={{
-                  left: hover > periods.length / 2 ? undefined : margin.left + (hover + 1) * slot + 8,
-                  right: hover > periods.length / 2 ? width - margin.left - hover * slot + 8 : undefined,
-                }}
-              >
-                <strong>{periods[hover].replace("-T", " · trimestre ")}</strong>
-                <span><i style={{ background: COLORS.state }} />Remesas<b>{decimal(quarterly[hover], 1)} mdd</b></span>
-              </div>
-            )}
-          </div>
-        </figure>
-        <section className="estado-top-list">
-          <h3>Municipios que más reciben</h3>
-          <p>Remesas en {geography.remittances.topYear}, millones de dólares.</p>
-          <ol>
-            {geography.remittances.topMunicipios.map((item) => (
-              <li key={item.code}>
-                <div>
-                  <strong>{item.name}</strong>
-                  <span>{isNational ? `${stateNames.get(item.code.slice(0, 2)) ?? ""} · ` : ""}{decimal(item.usdMillions, 1)}</span>
-                </div>
-                <i style={{ width: `${(item.usdMillions / topMax) * 100}%` }} />
-              </li>
-            ))}
-          </ol>
-        </section>
       </div>
     </div>
   );
@@ -1236,59 +1106,82 @@ function eicValue(indicator: EicIndicator, value: number) {
 
 /** All 32 states on one axis: the selected one large and green, the nation as a tick. */
 function StateStrip({
-  eic, indicator, code, stateNames,
+  eic, indicator, code, stateNames, onSelect,
 }: {
   eic: Eic;
   indicator: EicIndicator;
   code: string;
   stateNames: Map<string, string>;
+  onSelect: (code: string) => void;
 }) {
+  const [hover, setHover] = useState<{ code: string; left: number; top: number } | null>(null);
   const width = 168;
   const height = 24;
   const rows = Object.entries(eic.geographies)
     .filter(([key]) => key !== NATIONAL)
-    .map(([key, values]) => ({ code: key, value: values[indicator.id][0] }));
+    .map(([key, values]) => ({ code: key, value: values[indicator.id][0], rank: values[indicator.id][4] }));
   const min = Math.min(...rows.map((row) => row.value));
   const max = Math.max(...rows.map((row) => row.value));
   const x = (value: number) => 6 + ((value - min) / (max - min || 1)) * (width - 12);
   const national = eic.geographies[NATIONAL][indicator.id][0];
-  // Selected state last, so it paints over its neighbours.
-  rows.sort((a, b) => Number(a.code === code) - Number(b.code === code));
+  // Selected and hovered states last, so they paint over their neighbours.
+  const order = (row: { code: string }) => Number(row.code === code) + 2 * Number(row.code === hover?.code);
+  rows.sort((a, b) => order(a) - order(b));
+  const hovered = hover ? rows.find((row) => row.code === hover.code) : undefined;
+
+  // Dots are 3px and often overlap, so the pointer picks the nearest one along
+  // the axis rather than needing to land on a circle.
+  const pick = (event: PointerEvent<SVGSVGElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const px = ((event.clientX - box.left) / box.width) * width;
+    const nearest = rows.reduce((best, row) => Math.abs(x(row.value) - px) < Math.abs(x(best.value) - px) ? row : best);
+    setHover({ code: nearest.code, left: box.left + (x(nearest.value) / width) * box.width, top: box.top });
+  };
+
   return (
-    <svg className="estado-strip" width={width} height={height + 12} viewBox={`0 0 ${width} ${height + 12}`} role="img"
-      aria-label={`De ${eicValue(indicator, min)} a ${eicValue(indicator, max)} entre los 32 estados`}>
-      <line className="estado-grid" x1={6} x2={width - 6} y1={height / 2} y2={height / 2} />
-      <line className="estado-strip-national" x1={x(national)} x2={x(national)} y1={3} y2={height - 3}>
-        <title>Nacional: {eicValue(indicator, national)}</title>
-      </line>
-      {rows.map((row) => (
-        <circle
-          key={row.code}
-          cx={x(row.value)}
-          cy={height / 2}
-          r={row.code === code ? 5 : 3}
-          fill={row.code === code ? COLORS.state : RANK_BAR}
-          stroke={row.code === code ? "var(--white)" : "none"}
-          strokeWidth={2}
-        >
-          <title>{stateNames.get(row.code)}: {eicValue(indicator, row.value)}</title>
-        </circle>
-      ))}
-      <text className="estado-tick" x={2} y={height + 10}>{eicValue(indicator, min)}</text>
-      <text className="estado-tick" x={width - 2} y={height + 10} textAnchor="end">{eicValue(indicator, max)}</text>
-    </svg>
+    <>
+      <svg className="estado-strip" width={width} height={height + 12} viewBox={`0 0 ${width} ${height + 12}`} role="img"
+        aria-label={`De ${eicValue(indicator, min)} a ${eicValue(indicator, max)} entre los 32 estados`}
+        onPointerMove={pick}
+        onPointerLeave={() => setHover(null)}
+        onClick={() => hover && onSelect(hover.code)}>
+        <line className="estado-grid" x1={6} x2={width - 6} y1={height / 2} y2={height / 2} />
+        <line className="estado-strip-national" x1={x(national)} x2={x(national)} y1={3} y2={height - 3} />
+        {rows.map((row) => (
+          <circle
+            key={row.code}
+            cx={x(row.value)}
+            cy={height / 2}
+            r={row.code === code || row.code === hover?.code ? 5 : 3}
+            fill={row.code === code ? COLORS.state : row.code === hover?.code ? "var(--ink)" : RANK_BAR}
+            stroke={row.code === code || row.code === hover?.code ? "var(--white)" : "none"}
+            strokeWidth={2}
+          />
+        ))}
+        <text className="estado-tick" x={2} y={height + 10}>{eicValue(indicator, min)}</text>
+        <text className="estado-tick" x={width - 2} y={height + 10} textAnchor="end">{eicValue(indicator, max)}</text>
+      </svg>
+      {hover && hovered && (
+        <div className="estado-tooltip estado-strip-tooltip" style={{ left: hover.left, top: hover.top }}>
+          <strong>{stateNames.get(hovered.code)}</strong>
+          <span>Lugar {hovered.rank} de 32<b>{eicValue(indicator, hovered.value)}</b></span>
+        </div>
+      )}
+    </>
   );
 }
 
 function EicSection({
-  eic, code, name, stateNames,
+  eic, code, name, stateNames, onSelect,
 }: {
   eic: Eic;
   code: string;
   name: string;
   stateNames: Map<string, string>;
+  onSelect: (code: string) => void;
 }) {
-  const [category, setCategory] = useState<string>("all");
+  // One category at a time: all 46 indicators at once would push the rest of the page far down.
+  const [category, setCategory] = useState<string>(eic.categories[0].id);
   const isNational = code === NATIONAL;
   const values = eic.geographies[code];
   const national = eic.geographies[NATIONAL];
@@ -1307,10 +1200,10 @@ function EicSection({
         </p>
       </header>
       <div className="estado-chips eic-chips" role="group" aria-label="Categoría">
-        <button type="button" className={category === "all" ? "active" : ""} onClick={() => setCategory("all")}>Todas</button>
         {eic.categories.map((item) => (
           <button key={item.id} type="button" className={category === item.id ? "active" : ""} onClick={() => setCategory(item.id)}>{item.label}</button>
         ))}
+        <button type="button" className={category === "all" ? "active" : ""} onClick={() => setCategory("all")}>Todas</button>
       </div>
       <div className="estado-eic-wrap">
         <table className="estado-eic">
@@ -1350,7 +1243,7 @@ function EicSection({
                         {best !== worst && <small>({best}–{worst})</small>}
                       </td>
                     )}
-                    <td className="estado-eic-strip"><StateStrip eic={eic} indicator={indicator} code={code} stateNames={stateNames} /></td>
+                    <td className="estado-eic-strip"><StateStrip eic={eic} indicator={indicator} code={code} stateNames={stateNames} onSelect={onSelect} /></td>
                   </tr>
                 );
               })}
@@ -1359,7 +1252,7 @@ function EicSection({
         </table>
       </div>
       <p className="estado-eic-note">
-        Pasa el cursor sobre una cifra para ver su intervalo de confianza al 90%, o sobre un punto para ver el estado.
+        Pasa el cursor sobre una cifra para ver su intervalo de confianza al 90%, o sobre un punto para ver el estado y su lugar; haz clic para abrirlo.
         {lowPrecision && " † Estimación poco precisa: coeficiente de variación mayor a 30."}
         {hasOwn && " El ingreso por trabajo es un cálculo propio con los microdatos, con el método de INEGI; INEGI no lo publica."}
       </p>
@@ -1513,16 +1406,15 @@ export default function StateExplorer() {
 
   return (
     <main>
-      <SiteHeader active="estados" status="Población y economía por entidad" />
+      <SiteHeader active="visualizaciones" status="Población y economía por entidad" />
       <section className="electoral-hero estado-hero">
         <div>
           <p className="eyebrow">Conoce tu estado · Población y economía</p>
           <h1>Conoce tu estado.</h1>
         </div>
         <p className="hero-copy">
-          Cómo ha cambiado cada entidad desde 1970: su pirámide de edades, cuántos nacen y mueren,
-          cuánto se vive, qué produce su economía, cómo vive hoy y cuántas remesas recibe. Elige un
-          estado en el mapa o en la lista y recorre los años.
+          Cómo vive hoy cada entidad, qué produce su economía y cómo ha cambiado su población desde
+          1970. Elige un estado y empieza por lo más reciente.
         </p>
       </section>
 
@@ -1536,78 +1428,93 @@ export default function StateExplorer() {
               ))}
             </select>
           </label>
-          <div className="estado-year">
-            <span>Año</span>
-            <button
-              type="button"
-              className="estado-play"
-              aria-label={playing ? "Pausar" : "Reproducir los años"}
-              onClick={() => {
-                if (playing) {
-                  setPlaying(false);
-                } else {
-                  if (activeYear >= lastYear) setYear(years[0]);
-                  setPlaying(true);
-                }
-              }}
-            >
-              {playing ? "❚❚" : "▶"}
-            </button>
-            <input
-              type="range"
-              min={years[0]}
-              max={lastYear}
-              step={1}
-              value={activeYear}
-              aria-label="Año"
-              onChange={(event) => {
-                setPlaying(false);
-                setYear(Number(event.target.value));
-              }}
-            />
-            <strong>{activeYear}</strong>
-          </div>
         </div>
 
-        <div className="estado-master-detail">
-          <section className="electoral-panel estado-map-panel">
-            <header>
-              <div><p className="eyebrow">Mapa · {activeYear}</p><h2>Selecciona una entidad.</h2></div>
-              <button type="button" className="estado-national" disabled={code === NATIONAL} onClick={() => selectCode(NATIONAL)}>Ver nacional</button>
-            </header>
-            <div className="estado-chips" role="group" aria-label="Indicador del mapa">
-              {(Object.keys(index.metrics) as MetricKey[]).map((key) => (
-                <button key={key} type="button" className={metric === key ? "active" : ""} onClick={() => setMetric(key)}>
-                  {index.metrics[key].label}
-                </button>
-              ))}
-            </div>
-            <StateMap geojson={geojson} index={index} metric={metric} yearIndex={yearIndex} selected={code} onSelect={selectCode} />
-          </section>
+        {eic ? (
+          <EicSection eic={eic} code={shown.code} name={shown.name} stateNames={stateNames} onSelect={selectCode} />
+        ) : (
+          <section className="estado-section estado-section-loading"><p className="eyebrow">Cargando la Encuesta Intercensal…</p></section>
+        )}
 
-          <section className="electoral-panel estado-pyramid-panel">
-            <header>
-              <div><p className="eyebrow">Pirámide de población · {activeYear}</p><h2>{shown.name}</h2></div>
-              <div className="estado-chips compact" role="group" aria-label="Comparar la pirámide con">
-                <span>Comparar con</span>
-                {!isNational && (
-                  <button type="button" className={!compareFirst && compareMode !== "none" ? "active" : ""} onClick={() => setCompareMode("auto")}>Nacional</button>
-                )}
-                <button type="button" className={compareFirst ? "active" : ""} onClick={() => setCompareMode("first")}>{years[0]}</button>
-                <button type="button" className={compareMode === "none" ? "active" : ""} onClick={() => setCompareMode("none")}>Nada</button>
-              </div>
-            </header>
-            <Pyramid geography={shown} yearIndex={yearIndex} compare={compare} />
-          </section>
-        </div>
+        {economy ? (
+          <EconomySection economy={economy} code={shown.code} name={shown.name} stateNames={stateNames} onSelect={selectCode} />
+        ) : (
+          <section className="estado-section estado-section-loading"><p className="eyebrow">Cargando el PIB…</p></section>
+        )}
 
-        <StatTiles geography={shown} yearIndex={yearIndex} />
-
-        <section className="estado-section">
+        <section className="estado-section estado-history">
           <header className="estado-section-heading">
-            <div><p className="eyebrow">{shown.name} · {years[0]}–{lastYear}</p><h2>La transición demográfica</h2></div>
-            <p>Menos nacimientos, vidas más largas y una población que envejece. Haz clic en cualquier gráfica para fijar el año.</p>
+            <div><p className="eyebrow">{shown.name} · {years[0]}–{lastYear}</p><h2>Medio siglo de población</h2></div>
+            <div className="estado-section-aside">
+              <p>Menos nacimientos, vidas más largas y una población que envejece. Recorre los años o haz clic en cualquier gráfica para fijar uno.</p>
+              <div className="estado-year">
+                <span>Año</span>
+                <button
+                  type="button"
+                  className="estado-play"
+                  aria-label={playing ? "Pausar" : "Reproducir los años"}
+                  onClick={() => {
+                    if (playing) {
+                      setPlaying(false);
+                    } else {
+                      if (activeYear >= lastYear) setYear(years[0]);
+                      setPlaying(true);
+                    }
+                  }}
+                >
+                  {playing ? "❚❚" : "▶"}
+                </button>
+                <input
+                  type="range"
+                  min={years[0]}
+                  max={lastYear}
+                  step={1}
+                  value={activeYear}
+                  aria-label="Año"
+                  onChange={(event) => {
+                    setPlaying(false);
+                    setYear(Number(event.target.value));
+                  }}
+                />
+                <strong>{activeYear}</strong>
+              </div>
+            </div>
           </header>
+
+          <div className="estado-master-detail">
+            <section className="electoral-panel estado-map-panel">
+              <header>
+                <div><p className="eyebrow">Mapa · {activeYear}</p><h2>Selecciona una entidad.</h2></div>
+                <button type="button" className="estado-national" disabled={code === NATIONAL} onClick={() => selectCode(NATIONAL)}>Ver nacional</button>
+              </header>
+              <div className="estado-chips" role="group" aria-label="Indicador del mapa">
+                {(Object.keys(index.metrics) as MetricKey[]).map((key) => (
+                  <button key={key} type="button" className={metric === key ? "active" : ""} onClick={() => setMetric(key)}>
+                    {index.metrics[key].label}
+                  </button>
+                ))}
+              </div>
+              <StateMap geojson={geojson} index={index} metric={metric} yearIndex={yearIndex} selected={code} onSelect={selectCode} />
+            </section>
+
+            <section className="electoral-panel estado-pyramid-panel">
+              <header>
+                <div><p className="eyebrow">Pirámide de población · {activeYear}</p><h2>{shown.name}</h2></div>
+                <div className="estado-chips compact" role="group" aria-label="Comparar la pirámide con">
+                  <span>Comparar con</span>
+                  {!isNational && (
+                    <button type="button" className={!compareFirst && compareMode !== "none" ? "active" : ""} onClick={() => setCompareMode("auto")}>Nacional</button>
+                  )}
+                  <button type="button" className={compareFirst ? "active" : ""} onClick={() => setCompareMode("first")}>{years[0]}</button>
+                  <button type="button" className={compareMode === "none" ? "active" : ""} onClick={() => setCompareMode("none")}>Nada</button>
+                </div>
+              </header>
+              <Pyramid geography={shown} yearIndex={yearIndex} compare={compare} />
+            </section>
+          </div>
+
+          <StatTiles geography={shown} yearIndex={yearIndex} />
+
           <div className="estado-chart-grid">
             <LineChart
               title="Nacimientos y defunciones"
@@ -1665,43 +1572,8 @@ export default function StateExplorer() {
           <DataTable geography={shown} />
         </section>
 
-        {economy ? (
-          <EconomySection economy={economy} code={shown.code} name={shown.name} stateNames={stateNames} onSelect={selectCode} />
-        ) : (
-          <section className="estado-section estado-section-loading"><p className="eyebrow">Cargando el PIB…</p></section>
-        )}
-
-        {eic ? (
-          <EicSection eic={eic} code={shown.code} name={shown.name} stateNames={stateNames} />
-        ) : (
-          <section className="estado-section estado-section-loading"><p className="eyebrow">Cargando la Encuesta Intercensal…</p></section>
-        )}
-
-        <section className="estado-section">
-          <header className="estado-section-heading">
-            <div><p className="eyebrow">{shown.name} · Remesas</p><h2>El dinero que llega de fuera</h2></div>
-            <p>Remesas familiares registradas por trimestre. Son montos observados, no estimaciones, y llegan hasta 2024.</p>
-          </header>
-          <RemittanceBars geography={shown} national={national} stateNames={stateNames} />
-        </section>
-
         <details className="electoral-method">
           <summary>De dónde vienen estos datos</summary>
-          <p>
-            Población, nacimientos, defunciones, esperanza de vida y fecundidad: {index.source.population}.
-            Solo se muestran los años {years[0]}–{lastYear}; a partir de 2020 CONAPO publica proyecciones, que
-            aquí no se usan. La pirámide agrupa la población a mitad de año en grupos quinquenales y la
-            pirámide nacional es la suma de las 32 entidades.
-          </p>
-          {economy && (
-            <p>
-              Producción: {economy.source}. Valores en millones de pesos a precios de 2018, que suman
-              exactamente entre niveles: sectores, grandes actividades, valor agregado y PIB, y los 32 estados
-              al total nacional. El PIB incluye los impuestos netos sobre los productos; la estructura por
-              actividad usa el valor agregado, que no los incluye. Los 20 sectores existen desde 2003; antes
-              solo hay grandes actividades. INEGI marca 2023 y 2024 como cifras revisadas.
-            </p>
-          )}
           {eic && (
             <p>
               Radiografía 2025: {eic.source}. Son estimaciones por muestreo: cada cifra tiene un intervalo de
@@ -1711,14 +1583,24 @@ export default function StateExplorer() {
               población ocupada que declaró ingreso, calculado con los microdatos y el método de INEGI.
             </p>
           )}
+          {economy && (
+            <p>
+              Producción: {economy.source}. Valores en millones de pesos a precios de 2018, que suman
+              exactamente entre niveles: sectores, grandes actividades, valor agregado y PIB, y los 32 estados
+              al total nacional. El PIB incluye los impuestos netos sobre los productos; la estructura por
+              actividad usa el valor agregado, que no los incluye. Los 20 sectores existen desde 2003; antes
+              solo hay grandes actividades. INEGI marca 2023 y 2024 como cifras revisadas.
+            </p>
+          )}
           <p>
-            Remesas: {index.source.remittances}. Son dólares corrientes, sin ajustar por inflación. Las
-            remesas que no se pueden asignar a un municipio cuentan para el total del estado pero no aparecen
-            en la lista de municipios.
+            Población, nacimientos, defunciones, esperanza de vida y fecundidad: {index.source.population}.
+            Solo se muestran los años {years[0]}–{lastYear}; a partir de 2020 CONAPO publica proyecciones, que
+            aquí no se usan. La pirámide agrupa la población a mitad de año en grupos quinquenales y la
+            pirámide nacional es la suma de las 32 entidades.
           </p>
         </details>
       </section>
-      <SiteFooter note={`Conoce tu estado · CONAPO ${years[0]}–${lastYear}`} />
+      <SiteFooter note="Conoce tu estado · INEGI y CONAPO" />
     </main>
   );
 }

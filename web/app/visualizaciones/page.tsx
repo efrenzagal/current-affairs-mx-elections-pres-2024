@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { SiteFooter, SiteHeader } from "../site-chrome";
-import { DASHBOARDS } from "./dashboards";
+import { DASHBOARDS, DASHBOARD_GROUPS } from "./dashboards";
 
 /**
  * Manifest digest written by `scripts/export_gaceta_web.py`. The index prints
@@ -26,8 +26,6 @@ type Summary = {
   topicCount?: number;
 };
 
-/** Subject areas in registry order, deduplicated. Drives the optional headings. */
-const AREAS = [...new Set(DASHBOARDS.map((dashboard) => dashboard.area))];
 
 function shortDate(date: string) {
   return new Intl.DateTimeFormat("es-MX", {
@@ -71,12 +69,11 @@ export default function VisualizacionesPage() {
         </p>
       </section>
 
-      {AREAS.map((area) => (
-      <section className="dashboard-list" key={area}>
-        {/* One area today, so a heading would be noise. It appears by itself the
-            moment a dashboard on another subject is registered. */}
-        {AREAS.length > 1 && <h2 className="dashboard-area">{area}</h2>}
-        {DASHBOARDS.filter((dashboard) => dashboard.area === area).map((dashboard) => {
+      {/* Same groups, in the same order, as the header menu. */}
+      {DASHBOARD_GROUPS.map((group) => (
+      <section className="dashboard-list" key={group.label}>
+        {DASHBOARD_GROUPS.length > 1 && <h2 className="dashboard-area">{group.label}</h2>}
+        {group.items.map((dashboard) => {
           const stats = summary?.[dashboard.slug];
           return (
             <article key={dashboard.slug} className="dashboard-card">
@@ -86,7 +83,7 @@ export default function VisualizacionesPage() {
               </div>
               <div className="article-body">
                 <h2>
-                  <a href={dashboard.href}>{dashboard.title}</a>
+                  <a href={dashboard.href}>{dashboard.label}</a>
                 </h2>
                 <p className="article-subtitle">
                   {stats?.seatCount
@@ -146,7 +143,7 @@ export default function VisualizacionesPage() {
       </section>
       ))}
 
-      {AREAS.includes("Congreso") && (
+      {DASHBOARDS.some((dashboard) => dashboard.area === "Congreso") && (
         <section className="method-note">
           <p className="eyebrow">Sobre la composición del Congreso</p>
           <p>

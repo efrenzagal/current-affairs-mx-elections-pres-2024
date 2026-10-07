@@ -5,11 +5,9 @@ the choropleth needs) and one file per geography, 00.json (national) through
 32.json, so the page only downloads the state a reader opens.
 
 Population figures are CONAPO's reconstruction (1970-2019) only; its
-projections, which start in 2020, are not published on the site. Remittances
-are observed quarterly flows (2013-2024), not projections, so they keep their
-full range.
+projections, which start in 2020, are not published on the site.
 
-Run from the repository root after the CONAPO and remittance ingests:
+Run from the repository root after the CONAPO ingest:
     python3 web/scripts/export_conapo_states.py
 """
 
@@ -27,7 +25,6 @@ OUT_DIR = ROOT / "web" / "public" / "data" / "estados"
 SCHEMA_VERSION = 1
 NATIONAL = "00"
 FIRST_YEAR, LAST_YEAR = 1970, 2019
-TOP_MUNICIPIOS = 10
 
 # fact_conapo_state_annual column -> exported series key. Rates keep two
 # decimals; counts are integers.
@@ -63,7 +60,6 @@ MAP_METRICS = {
 
 SOURCE = {
     "population": "CONAPO, Conciliación demográfica 1950-2019 y proyecciones 2020-2070 (solo años de conciliación)",
-    "remittances": "CONAPO con datos de Banco de México, remesas familiares por municipio, 2013-2024",
 }
 
 
@@ -136,43 +132,6 @@ def load_pyramids(conn: sqlite3.Connection) -> tuple[list[str], dict[str, dict[s
     return bands, pyramids
 
 
-def load_remittances(conn: sqlite3.Connection) -> tuple[list[str], dict[str, dict]]:
-    periods = [
-        f"{year}-T{quarter}" for year, quarter in conn.execute(
-            "SELECT DISTINCT year, quarter FROM fact_conapo_remittances_municipality_quarterly ORDER BY year, quarter"
-        )
-    ]
-    rows = conn.execute(
-        "SELECT state_code, year, quarter, SUM(remittances_usd_millions), MAX(migration_region) "
-        "FROM fact_conapo_remittances_municipality_quarterly GROUP BY state_code, year, quarter "
-        "ORDER BY state_code, year, quarter"
-    ).fetchall()
-    result: dict[str, dict] = {}
-    for code, _, _, total, region in rows:
-        entry = result.setdefault(code, {"region": region, "quarterly": []})
-        entry["quarterly"].append(round(total, 2))
-    national = [round(sum(entry["quarterly"][i] for entry in result.values()), 2) for i in range(len(periods))]
-    result[NATIONAL] = {"region": None, "quarterly": national}
-
-    latest = int(periods[-1][:4])
-    tops = conn.execute(
-        "SELECT state_code, municipality_code, municipality_name, migration_intensity_grade, "
-        "SUM(remittances_usd_millions) AS total "
-        "FROM fact_conapo_remittances_municipality_quarterly "
-        "WHERE year = ? AND municipality_code NOT LIKE '__999' "
-        "GROUP BY municipality_code ORDER BY total DESC",
-        (latest,),
-    ).fetchall()
-    for code, entry in result.items():
-        scoped = [row for row in tops if code == NATIONAL or row[0] == code][:TOP_MUNICIPIOS]
-        entry["topYear"] = latest
-        entry["topMunicipios"] = [
-            {"code": municipio, "name": name, "grade": grade, "usdMillions": round(total, 2)}
-            for _, municipio, name, grade, total in scoped
-        ]
-    return periods, result
-
-
 def main() -> None:
     years = list(range(FIRST_YEAR, LAST_YEAR + 1))
     with connect() as conn:
@@ -180,7 +139,6 @@ def main() -> None:
         series = load_series(conn, years)
         voting_age = load_voting_age(conn)
         bands, pyramids = load_pyramids(conn)
-        periods, remittances = load_remittances(conn)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     written = 0
@@ -193,8 +151,6 @@ def main() -> None:
         for index, total in enumerate(geography["population"]):
             if sum(pyramid["men"][index]) + sum(pyramid["women"][index]) != total:
                 raise ValueError(f"{code} {years[index]}: pyramid does not sum to population_total")
-        if len(remittances[code]["quarterly"]) != len(periods):
-            raise ValueError(f"{code}: incomplete remittance quarters")
         payload = {
             "schemaVersion": SCHEMA_VERSION,
             "code": code,
@@ -202,7 +158,6 @@ def main() -> None:
             "years": years,
             "series": {**geography, "votingAge": voting_age[code]},
             "pyramid": {"bands": bands, **pyramid},
-            "remittances": {"periods": periods, **remittances[code]},
         }
         (OUT_DIR / f"{code}.json").write_text(
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
