@@ -1249,6 +1249,11 @@ footer > span { justify-self: end; }
 .polls-links a:hover { text-decoration: underline; }
 .polls-links a + a { margin-top: 4px; }
 .polls-links a small { font-weight: 500; }
+.polls-pager { align-items: center; display: flex; gap: 14px; justify-content: space-between; margin-top: 12px; }
+.polls-pager span { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; text-align: center; }
+.polls-pager button { background: var(--white); border: 1px solid var(--line); border-radius: 20px; color: var(--ink); cursor: pointer; font-size: 11px; font-weight: 700; padding: 8px 15px; white-space: nowrap; }
+.polls-pager button:hover:not(:disabled) { background: var(--navy); border-color: var(--navy); color: var(--white); }
+.polls-pager button:disabled { cursor: default; opacity: .35; }
 .polls-basis { border: 1px solid var(--line); border-radius: 10px; display: inline-block !important; margin-top: 5px; padding: 1px 7px; }
 
 .polls-accuracy { display: grid; gap: 18px; }

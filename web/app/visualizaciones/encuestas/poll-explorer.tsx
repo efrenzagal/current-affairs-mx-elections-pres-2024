@@ -312,6 +312,8 @@ const BASIS_NOTES: Record<string, string> = {
   inconsistente: "Las cifras no cuadran bajo ninguna lectura; fuera del análisis de precisión.",
 };
 
+const PAGE_SIZE = 10;
+
 function PollTable({
   data,
   cycleId,
@@ -334,6 +336,15 @@ function PollTable({
   }, [cyclePolls, firm]);
   const rows = firm === ALL_FIRMS ? cyclePolls : cyclePolls.filter((poll) => poll.firm === firm);
   const columns = cycle.columns;
+
+  // The page belongs to one election and firm: changing either, here or from
+  // the tracker's firm buttons, starts over at the newest polls
+  const filterKey = `${cycleId}|${firm}`;
+  const [pager, setPager] = useState({ key: filterKey, page: 0 });
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const page = pager.key === filterKey ? Math.min(pager.page, pageCount - 1) : 0;
+  const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const goTo = (next: number) => setPager({ key: filterKey, page: Math.max(0, Math.min(pageCount - 1, next)) });
 
   return (
     <section className="polls-table-section" id="tabla">
@@ -409,7 +420,7 @@ function PollTable({
                   <td />
                 </tr>
               )}
-              {rows.map((poll) => {
+              {pageRows.map((poll) => {
                 const byLabel = new Map(poll.options.map((option) => [option[0], option]));
                 const rest = poll.options.filter(([label]) => !columns.includes(label));
                 return (
@@ -459,6 +470,15 @@ function PollTable({
             </tbody>
           </table>
         </div>
+      )}
+      {pageCount > 1 && (
+        <nav className="polls-pager" aria-label="Páginas de la tabla de encuestas">
+          <button type="button" onClick={() => goTo(page - 1)} disabled={page === 0}>‹ Anteriores</button>
+          <span>
+            {page * PAGE_SIZE + 1}–{Math.min(rows.length, (page + 1) * PAGE_SIZE)} de {rows.length} · página {page + 1} de {pageCount}
+          </span>
+          <button type="button" onClick={() => goTo(page + 1)} disabled={page === pageCount - 1}>Siguientes ›</button>
+        </nav>
       )}
     </section>
   );
