@@ -10,6 +10,7 @@ import {
   type DistrictResolution,
 } from "../../../district_lookup/resolver";
 import { SITE_NAME, SiteFooter, SiteHeader } from "../site-chrome";
+import AlignmentSection, { AlignmentCard } from "./alignment";
 import { PARTY_COLORS, partyRank } from "./parties";
 import {
   CHOICE_COLORS,
@@ -571,6 +572,15 @@ export default function Explorer({
   }, [data, view]);
 
   const people = useMemo(() => (data ? buildPeople(data) : []), [data]);
+  // The bloc section names people as the panel and the search do: seat entries
+  // come first in `people`, so a sitting member reads as their seat spells it.
+  const peopleNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const person of people) {
+      if (person.personId && !names.has(person.personId)) names.set(person.personId, person.name);
+    }
+    return names;
+  }, [people]);
   const peopleByKey = useMemo(
     () => new Map(people.map((person) => [person.key, person])),
     [people],
@@ -687,9 +697,6 @@ export default function Explorer({
       ([voteId, choice]) => [voteId, choice, null] as HistoryEntry,
     );
   }, [data, selection, selectedSeat, profilePersonId, historyMode, seatHistories]);
-  const previewHistory = previewSeat
-    ? seatHistories.get(previewSeat.id) ?? NO_HISTORY
-    : NO_HISTORY;
   const selectedVote = selectedVoteId ? votesById.get(selectedVoteId) ?? null : null;
 
   const topics = useMemo(() => {
@@ -981,6 +988,37 @@ export default function Explorer({
     setQuery("");
   }
 
+  /** A dot on the bloc map is a seat: the same as clicking it in the hemicycle. */
+  function selectAlignedSeat(seatId: string) {
+    const seat = data?.seats.find((candidate) => candidate.id === seatId);
+    if (!seat) return;
+    selectSeat(seat);
+    scrollToPanel();
+  }
+
+  function scrollToPanel() {
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    document.getElementById("pleno")?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    });
+  }
+
+  /**
+   * A row in the bloc section's list names a roll-call identity. It
+   * resolves exactly as picking that name in the search would, preferring the
+   * entry the active tab can place, and then brings the record into view.
+   */
+  function selectAlignedPerson(personId: string) {
+    const person =
+      people.find((entry) => entry.personId === personId && entry.fromSeat && entry.view === view) ??
+      people.find((entry) => entry.personId === personId && entry.fromSeat) ??
+      people.find((entry) => entry.personId === personId);
+    if (!person) return;
+    selectPerson(person);
+    scrollToPanel();
+  }
+
   /**
    * One listener on the decision hemicycle rather than a handler per seat,
    * reading the seat's own data attributes. Mirrors the vote explorer's
@@ -1045,16 +1083,6 @@ export default function Explorer({
     : 0;
   const favorRate = activeVotes.length
     ? activeVotes.filter(([, choice]) => choice === "Favor").length / activeVotes.length
-    : 0;
-  const previewActive = previewHistory.filter(([, choice]) => !didNotParticipate(choice));
-  // Same attendance/favorRate formulas as the profile panel's own metrics,
-  // just read off the hovered seat's history instead of the selected one —
-  // the hover-reader bar tracks the cursor, so its numbers should too.
-  const previewAttendance = previewHistory.length
-    ? 1 - previewHistory.filter(([, choice]) => didNotParticipate(choice)).length / previewHistory.length
-    : 0;
-  const previewFavorRate = previewActive.length
-    ? previewActive.filter(([, choice]) => choice === "Favor").length / previewActive.length
     : 0;
   // partyVotes (from senado_party_votes) only tallies senators who have an
   // actual row for this vote, so it never sees "Sin registro" -- that choice
@@ -1453,46 +1481,6 @@ export default function Explorer({
                     </span>
                   )}
                 </div>
-                <div className="hover-metrics">
-                  <div className="hover-metric">
-                    <strong>{previewHistory.length}</strong>
-                    <span>registros del escaño</span>
-                  </div>
-                  <div className="hover-metric">
-                    <strong>
-                      {previewAttendance.toLocaleString("es-MX", { style: "percent", maximumFractionDigits: 0 })}
-                    </strong>
-                    <span>participación</span>
-                  </div>
-                  <div className="hover-metric">
-                    <strong>
-                      {previewFavorRate.toLocaleString("es-MX", { style: "percent", maximumFractionDigits: 0 })}
-                    </strong>
-                    <span>voto a favor</span>
-                  </div>
-                  <div className="hover-election-tile">
-                    {previewSeat.seatType !== "RP" && previewSeat.winningPct !== null ? (
-                      <>
-                        <strong>
-                          {previewSeat.winningPct.toLocaleString("es-MX", {
-                            minimumFractionDigits: 1,
-                            maximumFractionDigits: 2,
-                          })}
-                          %
-                        </strong>
-                        <span>
-                          {previewSeat.winningVotes?.toLocaleString("es-MX")} votos ·{" "}
-                          {previewSeat.seatType === "FM" ? "Primera Minoría" : "elección 2024"}
-                        </span>
-                      </>
-                    ) : previewSeat.seatType === "RP" ? (
-                      <>
-                        <strong>Lista {previewSeat.listNumber}</strong>
-                        <span>asignación RP · 2024</span>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
               </div>
             )}
 
@@ -1809,6 +1797,14 @@ export default function Explorer({
                   <span className="calendar-hint">Cada rectángulo, una votación.</span>
                 </div>
               )}
+              {/* Inside the calendar's scroll area: the panel has a fixed
+                  height, and a card beside the calendar would take it from
+                  the calendar. */}
+              <AlignmentCard
+                chamber={chamber}
+                seatId={selection?.kind === "seat" ? selection.id : null}
+                personId={profilePersonId}
+              />
             </div>
           </aside>
         </div>
@@ -1958,6 +1954,17 @@ export default function Explorer({
         </div>
       </section>
       )}
+
+      {/* Always shown. An open vote's detail slots in above it rather than
+        replacing it, so opening a vote never takes the bloc charts away. */}
+      <AlignmentSection
+        chamber={chamber}
+        selectedSeatId={selectedSeat?.id ?? null}
+        selectedPersonId={profilePersonId}
+        names={peopleNames}
+        onSelectSeat={selectAlignedSeat}
+        onSelectPerson={selectAlignedPerson}
+      />
 
       <section className="method-note" id="metodologia">
         <p className="eyebrow">Corte y metodología</p>

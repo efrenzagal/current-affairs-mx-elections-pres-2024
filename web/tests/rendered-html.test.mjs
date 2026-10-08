@@ -779,3 +779,78 @@ test("ships CONAPO state profiles without projections, each pyramid summing to i
     }));
   }
 });
+
+test("ships bloc alignment that resolves to each chamber's own people", async () => {
+  const [alignmentText, camaraText, senadoText] = await Promise.all([
+    readFile(new URL("../public/data/alignment-66.json", import.meta.url), "utf8"),
+    readFile(new URL("../public/data/legislature-66.json", import.meta.url), "utf8"),
+    readFile(new URL("../public/data/senate-66.json", import.meta.url), "utf8"),
+  ]);
+  const alignment = JSON.parse(alignmentText);
+  const { minVotes } = alignment.manifest;
+
+  for (const [chamber, text] of [["diputados", camaraText], ["senado", senadoText]]) {
+    const site = JSON.parse(text);
+    const data = alignment[chamber];
+    const n = data.parties.length;
+
+    assert.equal(data.rollCalls, site.manifest.voteCount, `${chamber} covers every roll call`);
+    assert.ok(data.blocs.length >= 2, `${chamber} has at least two blocs`);
+    // Every party sits in exactly one bloc, and each bloc is one contiguous run
+    // of the heatmap order, which is what its outline is drawn around.
+    assert.deepEqual(data.blocs.flatMap((bloc) => bloc.parties).sort(), [...data.parties].sort());
+    for (const bloc of data.blocs) {
+      const at = bloc.parties.map((party) => data.parties.indexOf(party));
+      assert.equal(Math.max(...at) - Math.min(...at) + 1, at.length, `${bloc.label} is contiguous`);
+    }
+
+    assert.ok(data.contestedRollCalls > 0 && data.contestedRollCalls < data.rollCalls);
+    for (const [matrix, counts, total] of [
+      [data.agreement, data.pairRollCalls, data.rollCalls],
+      [data.agreementContested, data.pairRollCallsContested, data.contestedRollCalls],
+    ]) {
+      assert.equal(matrix.length, n);
+      for (let i = 0; i < n; i += 1) {
+        assert.equal(matrix[i][i], 1, "a party always agrees with itself");
+        for (let j = 0; j < n; j += 1) {
+          assert.equal(matrix[i][j], matrix[j][i], "agreement is symmetric");
+          assert.ok(matrix[i][j] >= 0 && matrix[i][j] <= 1);
+          assert.ok(counts[i][j] <= total);
+        }
+      }
+    }
+
+    // The bloc map plots seats: each must be one of the explorer's own, summing
+    // the members its seat history groups, and every seat holds enough votes.
+    const siteSeats = new Set(site.seats.map((seat) => seat.id));
+    assert.equal(data.seats.length, site.seats.length, `${chamber} plots every seat`);
+    for (const row of data.seats) {
+      assert.ok(siteSeats.has(row.id), `${chamber} ${row.id} is a seat`);
+      const members = site.seatMembers[row.id].map((member) => member.personId);
+      assert.ok(members.includes(row.holder), `${row.id} is read under one of its members`);
+      assert.ok(row.occupants >= 1 && row.occupants <= members.length);
+    }
+
+    // A click hands the id to the explorer, so it must be one of the chamber's
+    // own people, not a raw roll-call identity the audited aliases replaced.
+    assert.ok(data.legislators.length > 0);
+    for (const row of [...data.legislators, ...data.seats]) {
+      assert.ok(site.histories[row.holder ?? row.id], `${chamber} ${row.id} has a history`);
+      assert.ok(row.votes >= minVotes, `${row.id} clears the vote minimum`);
+      for (const mode of alignment.manifest.modes) {
+        assert.equal(row.scores[mode].length, data.blocs.length + 1, `${row.id} ${mode} shape`);
+        for (const value of row.scores[mode]) {
+          assert.ok(value === null || (value >= 0 && value <= 1));
+        }
+      }
+      // An absence only ever adds a non-matching roll call, so counting them
+      // can lower a score but never raise it.
+      for (const scope of ["all", "contested"]) {
+        row.scores[`${scope}-seated`].forEach((value, i) => {
+          const cast = row.scores[`${scope}-cast`][i];
+          if (value !== null && cast !== null) assert.ok(value <= cast + 1e-4, `${row.id} ${scope} seated <= cast`);
+        });
+      }
+    }
+  }
+});

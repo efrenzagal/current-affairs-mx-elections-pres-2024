@@ -31,6 +31,7 @@ from camara_de_senadores.escanos.seat_members import (  # noqa: E402
     resolve_display_names as resolve_senado_display_names,
     resolve_seats as resolve_senado_seats,
 )
+from alignment import export_alignment  # noqa: E402
 
 DB_PATH = ROOT / "election_data.db"
 OUT_PATH = ROOT / "web" / "public" / "data" / "legislature-66.json"
@@ -43,6 +44,9 @@ BALLOTS_OUT_PATH = ROOT / "web" / "public" / "data" / "vote-ballots-66.json"
 # Just the manifests, so the /visualizaciones index can print live counts
 # without pulling the seats and histories behind them.
 SUMMARY_PATH = ROOT / "web" / "public" / "data" / "visualizaciones.json"
+# Party agreement, data-driven blocs and each legislator's alignment, for the
+# section under each chamber's hemicycle (see alignment.py).
+ALIGNMENT_OUT_PATH = ROOT / "web" / "public" / "data" / "alignment-66.json"
 def rows(conn: sqlite3.Connection, query: str, params: tuple = ()) -> list[dict]:
     conn.row_factory = sqlite3.Row
     return [dict(row) for row in conn.execute(query, params)]
@@ -593,18 +597,20 @@ def write_payload(path: Path, payload: dict) -> None:
     print(f"Wrote {path} ({path.stat().st_size / 1_048_576:.1f} MB)")
 
 
-def export() -> None:
+def export() -> dict:
     with sqlite3.connect(DB_PATH) as conn:
         payload = build_chamber_payload(
             conn, "DIP", camara_votes(conn), camara_party_votes(conn)
         )
     write_payload(OUT_PATH, payload)
+    return payload
 
 
-def export_senate() -> None:
+def export_senate() -> dict:
     with sqlite3.connect(DB_PATH) as conn:
         payload = build_senate_payload(conn, senado_votes(conn), senado_party_votes(conn))
     write_payload(SENATE_OUT_PATH, payload)
+    return payload
 
 
 def ballot_names(conn: sqlite3.Connection) -> tuple[dict[str, str], dict[str, str]]:
@@ -805,7 +811,17 @@ def export_summary() -> None:
 
 
 if __name__ == "__main__":
-    export()
-    export_senate()
+    camara = export()
+    senado = export_senate()
     export_ballots(export_votes())
+    with sqlite3.connect(DB_PATH) as conn:
+        camara_names, senado_names = ballot_names(conn)
+        # The bloc map plots seats, grouped exactly as the explorer groups a
+        # seat's history, so a dot and a hemicycle seat are the same object.
+        export_alignment(
+            conn,
+            {"diputados": camara_names, "senado": senado_names},
+            {"diputados": camara["seatMembers"], "senado": senado["seatMembers"]},
+            ALIGNMENT_OUT_PATH,
+        )
     export_summary()

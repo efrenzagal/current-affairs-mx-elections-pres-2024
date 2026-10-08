@@ -144,12 +144,14 @@ The app deploys to **Cloudflare Workers on your own account** via Wrangler.
 | `app/visualizaciones/explorer.tsx` | The chamber explorer: hemicycle, name search over sitting/elected/former members, and the person panel. One component, `chamber` prop |
 | `app/visualizaciones/{diputados,senado}/page.tsx` | Thin routes over `explorer.tsx` |
 | `app/visualizaciones/votaciones/` | Vote search across both chambers, with the party square grid |
+| `app/visualizaciones/alignment.tsx` | Bloc map, party heatmap and least-aligned list under each chamber's hemicycle |
 | `app/estados/state-explorer.tsx` | **Conoce tu estado** (`/estados`): the Intercensal 2025 scorecard, the economy (state GDP) and the 1970–2019 population history (choropleth, animated pyramid, stat tiles, demographic-transition charts) for one state or the nation, newest data first |
 | `app/articulos/page.tsx` | Artículos index, driven by `public/data/articles.json` |
 | `app/datos/page.tsx` | Datos: warehouse dictionary, master-detail over every table |
 | `app/globals.css` | Complete visual system and responsive layout |
 | `app/layout.tsx` | Metadata and social preview configuration |
 | `scripts/export_gaceta_web.py` | Materializes the static web snapshots from SQLite + INE CSV |
+| `scripts/alignment.py` | Party agreement, blocs and legislator alignment; called by `export_gaceta_web.py` |
 | `scripts/export_conapo_states.py` | Writes `public/data/estados/` from the CONAPO warehouse tables |
 | `scripts/export_pibe_states.py` | Writes `public/data/estados/economia.json` from `fact_pibe_state_annual` |
 | `scripts/export_eic_states.py` | Writes `public/data/estados/eic2025.json` from `state_scorecards/data/eic2025.duckdb` |
@@ -159,6 +161,7 @@ The app deploys to **Cloudflare Workers on your own account** via Wrangler.
 | `public/data/senate-66.json` | Senate seats, votes, packed histories and party totals. 0.6 MB, ~60 KB gzipped |
 | `public/data/votes-66.json` | Both chambers' roll calls and party breakdowns, no seats. 0.8 MB, ~62 KB gzipped |
 | `public/data/vote-ballots-66.json` | Names for the individual squares, mirroring `partyVotes`. 0.8 MB, ~64 KB gzipped |
+| `public/data/alignment-66.json` | Both chambers' party agreement matrix, data-driven blocs and per-legislator alignment. 86 KB |
 | `public/data/visualizaciones.json` | Manifest-only digest so the index need not load both chamber files |
 | `public/data/dictionary.json` | Table dictionaries, coverage matrices and column samples |
 | `public/data/estados/` | `index.json` (state list + map values, 48 KB), one file per geography, `00.json`–`32.json` (≤22 KB each), `economia.json` (every geography's GDP, 181 KB, ~78 KB gzipped) and `eic2025.json` (the Intercensal scorecard, 76 KB) |
@@ -381,6 +384,64 @@ Two Camara votes have no `gaceta_date` and therefore no daily-issue link; the
 panel omits it. Streamlit's *Iniciativa (PDF)* button has no equivalent here on
 purpose — it fuzzy-matches the dictamen against a live fetch of that day's
 Gaceta index, which a static site cannot do at render time.
+
+## Bloc alignment
+
+Under each hemicycle, `alignment.tsx` shows where every
+seat sits between the two voting blocs (a scatter, filterable by party),
+how often each pair of parties takes the same position (a heatmap) and the ten
+legislators who most often vote against their own bench. It is always on the
+page: an open vote's detail appears between the hemicycle and this section. Under the explorer's
+calendar, `AlignmentCard` gives the selected seat (or person) the same figures
+in every counting mode.
+
+- **A dot is a seat, not a person.** It adds up the votes of everyone who held
+  the seat, grouped by the chamber payload's own `seatMembers` (which the
+  exporter hands to `alignment.py`), so a dot and a hemicycle seat are the same
+  object and a click on one selects the other. A suplente who covered a short
+  licencia joins the seat's record instead of floating off as an outlier. The
+  seat reads under whoever cast its latest vote. The least-aligned list and the
+  card for a searched person stay per person.
+
+- **The definitions live in `camara_de_diputados/votos/legislator_party_agreement.R`.**
+  `scripts/alignment.py` is a port and must give the same numbers: a party's
+  position is its most common choice among Favor, Contra and Abstención
+  (absences are not votes, a tie is no position), agreement is the share of a
+  legislator's cast votes that matched it, and a member is removed from their
+  own group's count first. When it was written, both matched for every
+  legislator (534 Cámara, 159 Senado) to the fourth decimal. Change one, change both.
+- **Blocs are found, not declared.** Average-linkage clustering of the parties
+  with 5+ legislators on 1 − agreement, cut where the mean silhouette is best.
+  Both chambers currently cut into MORENA + PVEM + PT and PAN + PRI + MC.
+  Independents and sin grupo never form or join a bloc. The dendrogram is
+  deliberately not drawn; the heatmap's outlines carry the cut.
+- **Two toggles re-read the same people** (`MODES` in `alignment.py`, the
+  `legislator_mode_scores` table in the R script). *Solo con desacuerdo entre
+  bloques* keeps the roll calls where the two blocs' majorities voted
+  differently (124 Cámara, 145 Senado); the heatmap switches with it. A party
+  breaking from its own bloc while the blocs agree does not count. *Contar ausencias*
+  scores agreement over every roll call the legislator was seated for, an
+  absence counting as not agreeing; the axis labels change to say so, because
+  a frequent absentee drifts toward the origin and would otherwise read as a
+  dissenter. Cámara absences all count. In the Senado only the unrecorded ones
+  do, rebuilt by the seat-aware rule in `senado_unrecorded`, which gives each
+  gap to the one member who last voted from the seat (the website's history
+  fill gives it to every member whose span covers it); its recorded
+  "Ausente" is always an excused official commission and is left out.
+  Counting absences can only lower a score, which the test asserts.
+- **Only legislators with 20+ votes cast are exported**, and the section
+  shows by default only those who cast at least a quarter of the chamber's roll
+  calls (a *Mínimo* control offers 20+ votes or half). A suplente who covered a
+  short licencia sits at an extreme on a few dozen votes; the default drops
+  24 deputies and 27 senators. The floor is a share, not a count, so it means
+  the same in both chambers. It filters the scatter and the list, not the
+  party heatmap.
+- **Ids are the chamber's own** (audited aliases applied), so a click resolves
+  through the same `people` list as the search box. Names are taken from that
+  list too, so a person reads the same in the panel and in the section.
+- **Own-bench agreement is counted under the bench of each vote.** Someone now
+  sin grupo can still carry a score from earlier votes, so the section hides
+  it for anyone whose latest bench is not a party.
 
 ## Sources and joins
 

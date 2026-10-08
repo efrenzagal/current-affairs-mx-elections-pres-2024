@@ -163,24 +163,11 @@ a { color: inherit; }
 .hemicycle-note-link { background: none; border: 0; color: var(--ink); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
 .hemicycle-note-link:hover { color: var(--navy); }
 .dais { align-items: center; background: var(--navy); border-radius: 110px 110px 8px 8px; bottom: 0; color: rgba(255,255,255,.75); display: flex; font-size: 9px; height: 34px; justify-content: center; left: 43%; letter-spacing: .12em; position: absolute; text-transform: uppercase; width: 14%; }
-.hover-reader { align-items: center; background: #f1eee6; border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: auto minmax(170px,1fr) auto; min-height: 74px; padding: 12px 18px; }
+.hover-reader { align-items: center; background: #f1eee6; border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: auto minmax(170px,1fr); min-height: 74px; padding: 12px 18px; }
 .party-badge { align-items: center; border-radius: 999px; color: white; display: flex; font-size: 9px; font-weight: 800; height: 38px; justify-content: center; min-width: 38px; padding: 0 6px; white-space: nowrap; }
 .hover-identity strong { display: block; font-family: var(--serif); font-size: 17px; font-weight: 600; }
 .hover-identity span { color: var(--muted); display: block; font-size: 10px; }
 .hover-identity .election-result-preview { color: var(--ink); font-weight: 650; margin-top: 3px; }
-/* The hover-reader's compact stand-in for .deputy-metrics — same four
-   numbers (registros/asistencia/voto a favor/2024 result), read off
-   whichever seat is hovered instead of whichever is selected. */
-.hover-metrics { display: flex; gap: 16px; }
-.hover-metric { text-align: center; }
-.hover-metric strong { display: block; font-family: var(--serif); font-size: 15px; font-weight: 400; }
-.hover-metric span { color: var(--muted); display: block; font-size: 8px; letter-spacing: .03em; text-transform: uppercase; white-space: nowrap; }
-/* Same visual language as .deputy-metrics .election-metric in the full
-   profile panel — a "profile" showing a 2024 result reads as this square
-   everywhere in the app, not just behind a click. */
-.hover-election-tile { background: #eeebe3; border-radius: 4px; min-width: 92px; padding: 6px 10px; text-align: center; }
-.hover-election-tile strong { color: #8e2533; display: block; font-family: var(--serif); font-size: 15px; font-weight: 400; }
-.hover-election-tile span { color: var(--muted); display: block; font-size: 8px; letter-spacing: .03em; text-transform: uppercase; }
 .legend { display: flex; flex-wrap: wrap; gap: 12px 20px; justify-content: center; padding: 15px; }
 .legend span { color: var(--muted); font-size: 10px; font-weight: 650; }
 .legend i, .choice-key i { border-radius: 50%; display: inline-block; height: 7px; margin-right: 5px; width: 7px; }
@@ -308,7 +295,9 @@ a { color: inherit; }
    for each vote to read as a square instead of a thin bar. */
 .embed-legislator-grid .calendar-cell { width: 15px; }
 
-.deputy-panel { display: flex; flex-direction: column; max-height: 900px; overflow: hidden; }
+/* Tall enough for the bloc-agreement card under the calendar even on a seat
+   with suplentes (measured at up to ~1,250px); past that the calendar scrolls. */
+.deputy-panel { display: flex; flex-direction: column; max-height: 1280px; overflow: hidden; }
 .deputy-heading { align-items: start; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; padding: 26px 26px 22px; }
 .large-party { font-size: 11px; font-weight: 800; letter-spacing: .12em; }
 .deputy-heading h2 { font-family: var(--serif); font-size: 34px; font-weight: 400; letter-spacing: -.035em; line-height: .98; margin: 8px 0 9px; max-width: 440px; }
@@ -398,10 +387,11 @@ a { color: inherit; }
 .party-vote-percentages small { color: var(--muted); font-size: 9px; text-align: right; }
 
 .method-note { align-items: start; display: grid; gap: 60px; grid-template-columns: 180px 1fr; margin: auto; max-width: 1120px; padding: 72px 4vw; }
-.method-note p:last-child { font-family: var(--serif); font-size: 23px; line-height: 1.45; margin: 0; }
+/* Same size as the other methodology notes (.electoral-method): small, muted print. */
+.method-note p:last-child { color: var(--muted); font-size: 12px; line-height: 1.75; margin: 0; max-width: 82ch; }
 /* Multi-paragraph variant. The grid has exactly two cells, so anything beyond
    one body paragraph has to live inside this wrapper or it wraps to column 1. */
-.method-body p { font-family: var(--serif); font-size: 23px; line-height: 1.45; margin: 0 0 20px; }
+.method-body p { color: var(--muted); font-size: 12px; line-height: 1.75; margin: 0 0 12px; max-width: 82ch; }
 .method-body p:last-child { margin-bottom: 0; }
 footer { align-items: center; border-top: 1px solid var(--line); color: var(--muted); display: grid; font-size: 10px; grid-template-columns: 1fr auto 1fr; padding: 28px 4vw; }
 .footer-brand { color: var(--ink); font-size: 14px; }
@@ -852,7 +842,7 @@ footer > span { justify-self: end; }
   .hero { gap: 30px; grid-template-columns: 1fr 1fr; }
   .hero-stats { grid-column: 1 / -1; }
   .explorer-grid { grid-template-columns: 1fr; }
-  .deputy-panel { max-height: 830px; }
+  .deputy-panel { max-height: 1280px; }
   /* The rail stops being a rail: above the results rather than beside them, and
      no longer sticky, since a pinned filter panel on a narrow screen covers the
      list it is filtering. */
@@ -896,8 +886,6 @@ footer > span { justify-self: end; }
   .seat-dot { height: 7px; margin: -3px 0 0 -3px; width: 7px; }
   .dais { height: 20px; }
   .dais span { display: none; }
-  .hover-reader { grid-template-columns: auto 1fr; }
-  .hover-metrics { display: none; }
   .legend { gap: 8px 12px; }
   .seat-type-key { gap: 14px; }
   .panel-calendar { padding: 6px 12px 14px; }
@@ -923,7 +911,6 @@ footer > span { justify-self: end; }
   .choice-key { flex-wrap: wrap; }
   .party-row { gap: 9px; grid-template-columns: 42px 1fr 52px; }
   .method-note { display: block; padding: 50px 20px; }
-  .method-note p:last-child { font-size: 20px; }
   .articles-hero { display: block; min-height: auto; padding: 46px 20px 44px; }
   .articles-hero h1 { font-size: 58px; margin-bottom: 24px; }
   .article-list { padding: 40px 16px 56px; }
@@ -1309,4 +1296,89 @@ footer > span { justify-self: end; }
   .polls-latest, .approval-pollster-filter { padding-left: 16px; padding-right: 16px; }
   .polls-table-count { margin-left: 0; }
   .polls-card-header { padding: 18px 16px 14px; }
+}
+
+/* Party and bloc alignment under each chamber explorer (app/visualizaciones/
+   alignment.tsx). Shown while no vote is open; the vote detail replaces it. */
+.alignment { padding: 8px 3vw 72px; scroll-margin-top: 80px; }
+.alignment-loading { color: var(--muted); font-family: var(--serif); margin: 0 auto; max-width: 1680px; }
+.alignment-card { margin: 0 auto 18px; max-width: 1680px; }
+.alignment-map-layout { display: grid; gap: 32px; grid-template-columns: minmax(0, 640px) minmax(220px, 330px); justify-content: center; padding: 22px 24px 26px; }
+.alignment-map svg { display: block; height: auto; touch-action: manipulation; width: 100%; }
+.alignment-gridline line { stroke: var(--line); stroke-width: 1; }
+.alignment-gridline text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.alignment-diagonal { stroke: rgba(21,35,33,.35); stroke-dasharray: 4 5; stroke-width: 1; }
+.alignment-axis { fill: var(--ink); font-size: 12.5px; font-weight: 650; }
+.alignment-dot { opacity: .88; stroke: var(--white); stroke-width: 1; }
+.alignment-dot-muted { fill: #dcd7cc; }
+.alignment-ring { fill: none; pointer-events: none; stroke: var(--ink); stroke-width: 2; }
+.alignment-guide { align-self: center; font-family: var(--serif); font-size: 16px; line-height: 1.45; }
+.alignment-guide p { margin: 0 0 12px; }
+.alignment-guide .panel-kicker { font-family: var(--sans); margin-bottom: 14px; }
+.alignment-guide-note { border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; padding-top: 12px; }
+.alignment-sides { border-bottom: 1px solid var(--line); display: grid; gap: 4px 18px; grid-template-columns: 1fr 1fr; margin-bottom: 18px; padding-bottom: 16px; }
+.alignment-sides .panel-kicker { grid-column: 1 / -1; margin-bottom: 6px; }
+.alignment-sides strong { display: block; font-size: 34px; font-weight: 400; line-height: 1; }
+.alignment-sides span { color: var(--muted); display: block; font-family: var(--sans); font-size: 11px; line-height: 1.35; margin-top: 4px; }
+.alignment-sides span i { border-radius: 50%; display: inline-block; height: 7px; margin-right: 5px; width: 7px; }
+.alignment-sides small { color: var(--muted); font-family: var(--sans); font-size: 11px; grid-column: 1 / -1; margin-top: 6px; }
+.alignment-swatch { border-radius: 50%; display: inline-block; height: 7px; margin-right: 5px; width: 7px; }
+.alignment-card .party-filter button { white-space: nowrap; }
+.alignment-modes { border-top: 0; flex-wrap: wrap; }
+.alignment-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.alignment-toggles button { background: transparent; border: 1px solid var(--line); border-radius: 20px; color: var(--muted); cursor: pointer; font-size: 10px; font-weight: 750; padding: 7px 11px; white-space: nowrap; }
+.alignment-toggles button::before { content: "○ "; }
+.alignment-toggles button:hover { border-color: var(--ink); color: var(--ink); }
+.alignment-toggles button.active { background: var(--ink); border-color: var(--ink); color: white; }
+.alignment-toggles button.active::before { content: "● "; }
+.alignment-toggles button.is-radio::before { content: none; }
+.alignment-modes .toolbar-label + .alignment-toggles + .toolbar-label { margin-left: 10px; }
+.alignment-tip span { display: block; font-size: 11px; letter-spacing: .01em; line-height: 1.5; text-transform: none; }
+.alignment-grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin: 0 auto; max-width: 1680px; }
+.alignment-panel { padding: 22px 24px 20px; }
+.alignment-heatmap { display: grid; gap: 3px; }
+.alignment-heat-label { align-self: center; color: var(--muted); font-size: 10px; font-weight: 750; letter-spacing: .06em; padding-right: 8px; text-align: right; }
+.alignment-heat-label.is-column { padding: 0 0 6px; text-align: center; }
+.alignment-heat-cell { align-items: center; aspect-ratio: 1.3; border-radius: 2px; display: flex; font-size: 12px; font-variant-numeric: tabular-nums; justify-content: center; transition: opacity .15s ease; }
+.alignment-heat-cell.is-dim { opacity: .25; }
+.alignment-heat-bloc { border: 2px solid var(--ink); border-radius: 3px; margin: -3px; pointer-events: none; }
+.alignment-caption { color: var(--muted); font-size: 12px; line-height: 1.45; margin: 14px 0 0; }
+.alignment-empty { color: var(--muted); font-family: var(--serif); }
+.alignment-list { list-style: none; margin: 0; padding: 0; }
+.alignment-list button, .alignment-list-scale { display: grid; gap: 14px; grid-template-columns: minmax(0, 1.4fr) minmax(80px, 1fr) 58px; }
+.alignment-list button { align-items: center; background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--ink); cursor: pointer; padding: 9px 6px; text-align: left; width: 100%; }
+.alignment-list button:hover, .alignment-list button:focus-visible, .alignment-list button.is-selected { background: #f0ede5; outline: none; }
+.alignment-list-name { min-width: 0; }
+.alignment-list-name strong { display: block; font-family: var(--serif); font-size: 15px; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.alignment-list-name small { color: var(--muted); font-size: 11px; }
+.alignment-list-name i { border-radius: 50%; display: inline-block; height: 7px; margin-right: 5px; width: 7px; }
+.alignment-list-track { background: var(--line); height: 1px; position: relative; }
+.alignment-list-track i { border: 2px solid var(--white); border-radius: 50%; height: 12px; position: absolute; top: 50%; transform: translate(-50%, -50%); width: 12px; }
+.alignment-list-value { font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 650; text-align: right; }
+.alignment-list-scale { padding: 6px 6px 0; }
+.alignment-list-scale > span:nth-child(2) { display: flex; justify-content: space-between; }
+.alignment-list-scale small { color: var(--muted); font-size: 10px; }
+/* Lives inside .panel-calendar's scroll area, below the key, so it never takes
+   height from the calendar (a seat with suplentes already shows more above). */
+.panel-alignment { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.panel-alignment .panel-kicker { margin-bottom: 12px; }
+.panel-alignment-table { border: 1px solid var(--line); border-collapse: collapse; font-size: 11px; width: 100%; }
+.panel-alignment-table th, .panel-alignment-table td { border: 1px solid var(--line); padding: 6px 6px; text-align: right; }
+.panel-alignment-table thead th { background: #f4f1ea; color: var(--muted); font-size: 9px; font-weight: 750; letter-spacing: .06em; line-height: 1.25; text-align: center; text-transform: uppercase; vertical-align: middle; }
+.panel-alignment-table tbody th { font-weight: 650; text-align: left; }
+.panel-alignment-table tbody th i { border-radius: 50%; display: inline-block; height: 7px; margin-right: 6px; width: 7px; }
+.panel-alignment-table td { font-variant-numeric: tabular-nums; }
+.embed-hemiciclo .alignment, .embed-votacion .alignment { display: none; }
+@media (max-width: 1100px) {
+  .alignment-map-layout, .alignment-grid { grid-template-columns: 1fr; }
+  .alignment-guide { max-width: 640px; }
+}
+@media (max-width: 700px) {
+  .alignment { padding: 0 12px 56px; }
+  .alignment-map-layout, .alignment-panel { padding: 16px; }
+  .alignment-heat-cell { aspect-ratio: 1; font-size: 10px; }
+  /* SVG text scales with the chart; at phone width 11px would land near 6px. */
+  .alignment-gridline text { font-size: 18px; }
+  .alignment-axis { font-size: 19px; }
+  .alignment-list button, .alignment-list-scale { gap: 10px; grid-template-columns: minmax(0, 1fr) 56px 50px; }
 }
