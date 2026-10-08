@@ -20,12 +20,12 @@ fabricated vote.
 
 ## Current product
 
-- **Cámara** (`/visualizaciones/diputados`): 500 seats, 297 Gaceta roll calls.
-- **Senado** (`/visualizaciones/senado`): 128 seats, 389 roll calls.
+- **Cámara** (`/visualizaciones/diputados`): 500 seats, 307 Gaceta roll calls.
+- **Senado** (`/visualizaciones/senado`): 128 seats, 407 roll calls.
 - **Geografía electoral** (`/visualizaciones/trayectoria`): mapa seleccionable
   de las 32 entidades y resultados nacionales/estatales para Presidencia,
   Senado y Diputaciones, con trayectoria y desglose por boleta/coalición y partido.
-- **Buscador de votaciones** (`/visualizaciones/votaciones`): las 686 votaciones
+- **Buscador de votaciones** (`/visualizaciones/votaciones`): las 714 votaciones
   nominales de ambas cámaras, buscables por texto y filtrables por las cuatro
   ejes de clasificación, con el desglose por grupo parlamentario en cuadros.
 - **Encuestas electorales** (`/visualizaciones/encuestas`): rastreador de la
@@ -325,7 +325,7 @@ the tempting simplification and it is wrong:
   composition.
 
 The exporter clamps each name list to its official count and reports coverage;
-it currently names 187,374 of 187,380 squares, the six exceptions being exactly
+it currently names 196,416 of 196,422 squares, the six exceptions being exactly
 that `SP`/`IND` mismatch. A square with no matching name renders normally and
 says only its party and choice — it is never moved to another bench to find one.
 The test fails if coverage drops below 99.9%, which is what a broken join looks
@@ -409,7 +409,8 @@ in every counting mode.
   (absences are not votes, a tie is no position), agreement is the share of a
   legislator's cast votes that matched it, and a member is removed from their
   own group's count first. When it was written, both matched for every
-  legislator (534 Cámara, 159 Senado) to the fourth decimal. Change one, change both.
+  legislator (534 Cámara, 159 Senado) to the fourth decimal; rechecked on 2026-10-08
+  at 535 and 160, every exported score equal within its three-decimal rounding. Change one, change both.
 - **Blocs are found, not declared.** Average-linkage clustering of the parties
   with 5+ legislators on 1 − agreement, cut where the mean silhouette is best.
   Both chambers currently cut into MORENA + PVEM + PT and PAN + PRI + MC.
@@ -418,7 +419,7 @@ in every counting mode.
 - **Two toggles re-read the same people** (`MODES` in `alignment.py`, the
   `legislator_mode_scores` table in the R script). *Solo con desacuerdo entre
   bloques* keeps the roll calls where the two blocs' majorities voted
-  differently (124 Cámara, 145 Senado); the heatmap switches with it. A party
+  differently (132 Cámara, 145 Senado); the heatmap switches with it. A party
   breaking from its own bloc while the blocs agree does not count. *Contar ausencias*
   scores agreement over every roll call the legislator was seated for, an
   absence counting as not agreeing; the axis labels change to say so, because
@@ -433,7 +434,7 @@ in every counting mode.
   shows by default only those who cast at least a quarter of the chamber's roll
   calls (a *Mínimo* control offers 20+ votes or half). A suplente who covered a
   short licencia sits at an extreme on a few dozen votes; the default drops
-  24 deputies and 27 senators. The floor is a share, not a count, so it means
+  25 deputies and 28 senators. The floor is a share, not a count, so it means
   the same in both chambers. It filters the scatter and the list, not the
   party heatmap.
 - **Ids are the chamber's own** (audited aliases applied), so a click resolves
@@ -534,14 +535,14 @@ npm test
 ```
 
 `npm test` performs a production build and checks the important invariants.
-Expected current counts are 500/299 for Cámara and 128/405 for Senado. All 628
+Expected current counts are 500/307 for Cámara and 128/407 for Senado. All 628
 official seats must remain linked. The 300 Cámara MR seats and 96 Senate MR/FM
 seats must have electoral results; RP results must remain null. Every identity a
 seat can resolve to, under either view, must have an entry in `histories`, and
 `substitutedSeats` must stay above zero — a zero there means the roster overlay
 silently stopped applying.
 
-`votes-66.json` must carry all 686 roll calls, every one resolving to a
+`votes-66.json` must carry all 714 roll calls, every one resolving to a
 namespaced party breakdown whose four choice totals equal the chamber tally —
 the squares are drawn by expanding those counts, so a breakdown that does not
 sum renders a grid of the wrong size. Every classification code it uses must

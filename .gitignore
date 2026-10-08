@@ -36,6 +36,7 @@ data/*
 # Authentication tokens remain in googlesheets4/gargle's external cache.
 /config/legislative_vote_review.env
 /config/approval_rates.env
+/config/openai.env
 
 # Stray lockfile from running npx in the repo root (the Node project is web/)
 /package-lock.json

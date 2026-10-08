@@ -81,12 +81,12 @@ export const DASHBOARDS: Dashboard[] = [
     href: "/visualizaciones/votaciones",
     area: "Congreso",
     title: "Buscador de votaciones",
-    subtitle: "686 votaciones nominales · Ambas cámaras · LXVI Legislatura",
+    subtitle: "714 votaciones nominales · Ambas cámaras · LXVI Legislatura",
     summary:
       "Busca cualquier votación por texto o por tema y ábrela para ver el resultado completo: " +
       "cifras a favor, en contra, abstenciones y ausencias, el desglose cuadro por cuadro de cada " +
       "grupo parlamentario y, en la Cámara, si se alcanzó el quórum y cada tipo de mayoría.",
-    scope: "686 votaciones clasificadas por tema, etapa, origen e instrumento",
+    scope: "714 votaciones clasificadas por tema, etapa, origen e instrumento",
     topics: ["Congreso", "Votaciones nominales", "Temas", "Búsqueda"],
   },
   {
@@ -100,7 +100,7 @@ export const DASHBOARDS: Dashboard[] = [
       "historial nominal de cada diputación. Selecciona una curul o busca por nombre —también a " +
       "quienes ya dejaron el pleno—, filtra la trayectoria por tema y abre cualquier votación " +
       "para ver cómo se dividieron los grupos parlamentarios.",
-    scope: "297 votaciones nominales",
+    scope: "307 votaciones nominales",
     topics: ["Congreso", "Votaciones nominales", "Composición", "Perfiles"],
   },
   {
@@ -114,7 +114,7 @@ export const DASHBOARDS: Dashboard[] = [
       "lista nacional, con la misma búsqueda por nombre y filtro por tema. Las suplencias en " +
       "funciones y las vacantes se muestran como estados propios, no como el resultado " +
       "electoral de 2024.",
-    scope: "389 votaciones nominales",
+    scope: "407 votaciones nominales",
     topics: ["Congreso", "Votaciones nominales", "Composición", "Perfiles"],
   },
   {

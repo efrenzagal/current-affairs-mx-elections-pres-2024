@@ -190,7 +190,7 @@ test("ships real LXVI data for both chambers and no starter dependency", async (
   const senate = parseChamber(senateData);
   assert.equal(payload.manifest.seatCount, 500);
   assert.equal(payload.manifest.linkedSeats, 500);
-  assert.equal(payload.manifest.voteCount, 299);
+  assert.equal(payload.manifest.voteCount, 307);
   assert.equal(payload.seats.length, 500);
   const mrSeats = payload.seats.filter((seat) => seat.seatType === "MR");
   const rpSeats = payload.seats.filter((seat) => seat.seatType === "RP");
@@ -200,7 +200,7 @@ test("ships real LXVI data for both chambers and no starter dependency", async (
   assert.ok(rpSeats.every((seat) => seat.winningVotes === null && seat.winningPct === null));
   assert.equal(senate.manifest.seatCount, 128);
   assert.equal(senate.manifest.linkedSeats, 128);
-  assert.equal(senate.manifest.voteCount, 405);
+  assert.equal(senate.manifest.voteCount, 407);
   assert.equal(senate.seats.filter((seat) => seat.seatType === "MR").length, 64);
   assert.equal(senate.seats.filter((seat) => seat.seatType === "FM").length, 32);
   assert.equal(senate.seats.filter((seat) => seat.seatType === "RP").length, 32);
@@ -371,8 +371,8 @@ test("merges source-name aliases but keeps substitute votes attributed", async (
 
   assert.equal(deputies.personAliases.DEP_0AC343D3EC5E, "DEP_10ACE730EC87");
   assert.equal(deputies.personAliases.DEP_62F86822CD67, "DEP_A9A4258198C3");
-  assert.equal(deputies.histories.DEP_10ACE730EC87.length, 299);
-  assert.equal(deputies.histories.DEP_A9A4258198C3.length, 299);
+  assert.equal(deputies.histories.DEP_10ACE730EC87.length, 307);
+  assert.equal(deputies.histories.DEP_A9A4258198C3.length, 307);
   assert.ok(!("DEP_0AC343D3EC5E" in deputies.histories));
   assert.ok(!("DEP_62F86822CD67" in deputies.histories));
 
@@ -416,10 +416,10 @@ test("ships both chambers' roll calls with a labelled, verifiable breakdown", as
   const payload = JSON.parse(votesData);
   const { manifest, votes, partyVotes } = payload;
 
-  assert.equal(manifest.voteCount, 704);
-  assert.equal(manifest.chambers.diputados, 299);
-  assert.equal(manifest.chambers.senado, 405);
-  assert.equal(votes.length, 704);
+  assert.equal(manifest.voteCount, 714);
+  assert.equal(manifest.chambers.diputados, 307);
+  assert.equal(manifest.chambers.senado, 407);
+  assert.equal(votes.length, 714);
   assert.deepEqual(JSON.parse(summaryData).votaciones, manifest, "votaciones digest matches");
 
   // This payload is the one place the two chambers' vote IDs meet, and they are

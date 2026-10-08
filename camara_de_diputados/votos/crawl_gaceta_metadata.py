@@ -99,6 +99,18 @@ KNOWN_SOURCE_DATE_TYPOS: dict[str, str] = {
     # 2026-09-22. _4 is the "en lo particular" vote carrying _3's date.
     "GACETA_L66_TABLA3OR1_3": "2026-09-22",
     "GACETA_L66_TABLA3OR1_4": "2026-09-22",
+    # Same stale year again: "...el martes 6 de octubre de 2025" (a Monday in
+    # 2025, a Tuesday in 2026) and "...el miércoles 7 de octubre de 2025" (a
+    # Tuesday in 2025, a Wednesday in 2026). gaceta_date is 2026-10-06 /
+    # 2026-10-07 and every vote page prints 2026.
+    "GACETA_L66_TABLA3OR1_5": "2026-10-06",
+    "GACETA_L66_TABLA3OR1_6": "2026-10-06",
+    "GACETA_L66_TABLA3OR1_7": "2026-10-06",
+    "GACETA_L66_TABLA3OR1_8": "2026-10-06",
+    "GACETA_L66_TABLA3OR1_9": "2026-10-06",
+    "GACETA_L66_TABLA3OR1_10": "2026-10-06",
+    "GACETA_L66_TABLA3OR1_11": "2026-10-07",
+    "GACETA_L66_TABLA3OR1_12": "2026-10-07",
 }
 
 STATUS_RE = re.compile(r"\b(Aprobad[oa]|Desechad[oa]|No aprobado|Rechazad[oa])\b", re.IGNORECASE)

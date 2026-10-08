@@ -299,6 +299,10 @@ state poll since 2026-08-13), Buendía y Márquez (its three 2026 national
 `ELECTORAL` decks carry no approval question), Covarrubias (no second-year
 report located; it mainly publishes on X).
 
+Rechecked 2026-10-08: still nothing new from Enkoll, Buendía y Márquez or
+Covarrubias, and Demotecnia's only post since 2026-08-13 is a Nuevo León
+state poll (2026-10-04). PollsMX refreshed through 2026-10-08.
+
 One Oraculus seed row is excluded as a duplicate — see `SEED_DUPLICATES` in the
 ingest. Adding to that list changes history the seed can no longer confirm, so
 record the reasoning next to each entry.
