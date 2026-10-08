@@ -74,7 +74,9 @@ a { color: inherit; }
 .nav-menu-group:hover > .nav-submenu, .nav-menu-group:focus-within > .nav-submenu { display: block; }
 .nav-menu-group:hover > .has-submenu::after, .nav-menu-group:focus-within > .has-submenu::after { transform: rotate(90deg); }
 @media (hover: hover) and (min-width: 1101px) {
-  .nav-menu-group > .nav-menu-section { position: relative; }
+  /* The group, not the row, anchors both the bridge and the panel, so each
+     panel opens level with its own row instead of at the top of the menu. */
+  .nav-menu-group, .nav-menu-group > .nav-menu-section { position: relative; }
   /* Bridge across the gap so the pointer can travel from the row to its panel. */
   .nav-menu-group > .nav-menu-section::before { bottom: -6px; content: ""; left: 100%; position: absolute; top: -6px; width: 22px; }
   .nav-submenu { background: var(--white); border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 18px 48px rgba(4,17,17,.2); left: calc(100% + 8px); margin: 0; min-width: 330px; padding: 7px; position: absolute; top: -1px; }
